@@ -36,12 +36,10 @@ class HomeGameScreen extends StatelessWidget {
                 PopupMenuButton<String>(
                   onSelected: (v) {
                     if (v == 'end') model.end();
-                    if (v == 'back') model.nudgeButton(-1);
-                    if (v == 'fwd') model.nudgeButton(1);
+                    if (v == 'seats') showSeatsEditor(context, model);
                   },
                   itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'fwd', child: Text('Button moved an extra seat')),
-                    PopupMenuItem(value: 'back', child: Text('Button didn\'t move (re-deal)')),
+                    PopupMenuItem(value: 'seats', child: Text('Players & seats')),
                     PopupMenuItem(value: 'end', child: Text('End game night')),
                   ],
                 ),
@@ -157,7 +155,7 @@ String _date(DateTime d) => '${d.month}/${d.day}';
 
 String _summary(HomeGameModel m, HomeSession s) {
   final st = computeStats(s.hands, m.library);
-  return '${st.dealt} hands · VPIP ${pct(st.vpipPct)} · PFR ${pct(st.pfrPct)}';
+  return '${st.logged} hands · VPIP ${pct(st.vpipPct)} · PFR ${pct(st.pfrPct)}';
 }
 
 class _Logger extends StatefulWidget {
@@ -173,12 +171,13 @@ class _LoggerState extends State<_Logger> {
   List<int?> cards = [null, null];
   Facing facing = Facing.unopened;
 
-  void _save(PreAction? a) {
-    final c = cards;
+  bool get hasCards => !cards.contains(null);
+
+  void _save(PreAction? a, {bool keepCards = true}) {
     widget.model.logHand(
-      cards: c.contains(null) ? null : c.cast<int>(),
+      cards: hasCards && keepCards ? cards.cast<int>() : null,
       action: a,
-      facing: a == null ? null : facing,
+      facing: facing,
     );
     final last = widget.session.hands.last;
     setState(() {
@@ -208,23 +207,54 @@ class _LoggerState extends State<_Logger> {
     if (picked != null) setState(() => cards = picked);
   }
 
+  Future<void> _pickDealer() async {
+    final s = widget.session;
+    final seat = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(shrinkWrap: true, children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text('Who is dealing this hand?'),
+          ),
+          for (var i = 0; i < s.tableSize; i++)
+            ListTile(
+              leading: Icon(i == s.buttonSeat ? Icons.radio_button_checked : Icons.radio_button_off),
+              title: Text(i == s.heroSeat ? '${s.players[i]} (you)' : s.players[i]),
+              onTap: () => Navigator.pop(ctx, i),
+            ),
+        ]),
+      ),
+    );
+    if (seat != null) widget.model.setDealer(seat);
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final s = widget.session;
     final n = s.hands.length + 1;
-    final pos = s.positionFor(n);
     final st = computeStats(s.hands, widget.model.library);
     final b = Theme.of(context).brightness;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
       children: [
         Row(children: [
-          _Mini('Hands', '${st.dealt}'),
+          _Mini('Hands', '${st.logged}'),
           _Mini('VPIP', st.recorded == 0 ? '–' : pct(st.vpipPct)),
           _Mini('PFR', st.recorded == 0 ? '–' : pct(st.pfrPct)),
           _Mini('GTO', st.graded == 0 ? '–' : pct(st.gtoScore)),
         ]),
+        if (st.logged >= 10 && st.coverage < 0.7)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Only ${pct(st.coverage)} of hands have an action, so VPIP/PFR lean '
+              'towards the hands you chose to log. Tap Fold on boring hands (no cards needed).',
+              style: t.bodySmall?.copyWith(color: Felt.mixed),
+            ),
+          ),
         const SizedBox(height: 12),
         Card(
           child: Padding(
@@ -233,24 +263,37 @@ class _LoggerState extends State<_Logger> {
               Row(children: [
                 Text('Hand $n', style: t.titleLarge),
                 const Spacer(),
-                Chip(
-                  avatar: const Icon(Icons.event_seat, size: 16),
-                  label: Text('You: $pos'),
+                ActionChip(
+                  avatar: const Icon(Icons.circle, size: 12),
+                  label: Text('Dealer: ${s.players[s.buttonSeat]}'),
+                  onPressed: _pickDealer,
                 ),
               ]),
-              Text('Dealer: ${s.players[s.buttonFor(n)]}', style: t.bodySmall),
+              const SizedBox(height: 8),
+              Text('Your position (tap to correct)', style: t.labelMedium),
+              const SizedBox(height: 4),
+              Wrap(spacing: 6, runSpacing: 4, children: [
+                for (final p in s.positionsInOrder)
+                  ChoiceChip(
+                    label: Text(p),
+                    selected: p == s.position,
+                    visualDensity: VisualDensity.compact,
+                    onSelected: (_) => widget.model.setPosition(p),
+                  ),
+              ]),
               const SizedBox(height: 14),
               GestureDetector(
                 onTap: _pickCards,
                 child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  PlayingCard(card: cards[0], width: 70),
+                  PlayingCard(card: cards[0], width: 66),
                   const SizedBox(width: 10),
-                  PlayingCard(card: cards[1], width: 70),
+                  PlayingCard(card: cards[1], width: 66),
                 ]),
               ),
               const SizedBox(height: 6),
               Center(
-                child: Text(cards.contains(null) ? 'Tap to enter your cards' : 'Tap to change',
+                child: Text(
+                    hasCards ? 'Tap to change' : 'Cards are optional: tap to add them',
                     style: t.bodySmall),
               ),
               const SizedBox(height: 14),
@@ -275,7 +318,7 @@ class _LoggerState extends State<_Logger> {
                             : Colors.white,
                         minimumSize: const Size.fromHeight(50),
                       ),
-                      onPressed: cards.contains(null) ? null : () => _save(a),
+                      onPressed: () => _save(a),
                       child: Text(preActionLabels[a]!),
                     ),
                   ),
@@ -284,12 +327,12 @@ class _LoggerState extends State<_Logger> {
               const SizedBox(height: 8),
               Row(children: [
                 TextButton(
-                  onPressed: cards.contains(null) ? null : () => _save(null),
+                  onPressed: hasCards ? () => _save(null) : null,
                   child: const Text('Save cards only'),
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () => _save(null),
+                  onPressed: () => _save(null, keepCards: false),
                   child: const Text('Skip hand'),
                 ),
               ]),
@@ -314,13 +357,94 @@ class _LoggerState extends State<_Logger> {
                 width: 38,
                 child: Text('#${h.number}', style: t.labelMedium),
               ),
-              title: Text(h.cards == null
-                  ? 'Skipped'
-                  : '${cardToString(h.cards![0])} ${cardToString(h.cards![1])}  ·  ${h.position}'),
+              title: Text(h.skipped
+                  ? 'Skipped · ${h.position}'
+                  : '${h.cards == null ? 'No cards' : '${cardToString(h.cards![0])} ${cardToString(h.cards![1])}'}  ·  ${h.position}'),
               trailing: Text(h.action == null ? '' : preActionLabels[h.action]!),
             ),
         ],
       ],
+    );
+  }
+}
+
+/// Add or remove players mid-game. You can't remove yourself.
+void showSeatsEditor(BuildContext context, HomeGameModel model) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (ctx) => ListenableBuilder(
+      listenable: model,
+      builder: (ctx, _) {
+        final s = model.active;
+        if (s == null) return const SizedBox();
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: SafeArea(
+            child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
+              Text('Players & seats (clockwise)', style: Theme.of(ctx).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text('Tap + between two players to seat someone there.',
+                  style: Theme.of(ctx).textTheme.bodySmall),
+              for (var i = 0; i < s.tableSize; i++) ...[
+                _AddHere(onAdd: (name) => model.addPlayer(name, i)),
+                ListTile(
+                  dense: true,
+                  leading: Icon(i == s.buttonSeat ? Icons.circle : Icons.event_seat, size: 18),
+                  title: Text(i == s.heroSeat ? '${s.players[i]} (you)' : s.players[i]),
+                  subtitle: i == s.buttonSeat ? const Text('dealer this hand') : null,
+                  trailing: i == s.heroSeat || s.tableSize <= 2
+                      ? null
+                      : IconButton(
+                          tooltip: 'Remove',
+                          icon: const Icon(Icons.person_remove_outlined),
+                          onPressed: () => model.removePlayer(i),
+                        ),
+                ),
+              ],
+              _AddHere(onAdd: (name) => model.addPlayer(name, s.tableSize)),
+            ]),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class _AddHere extends StatelessWidget {
+  final ValueChanged<String> onAdd;
+  const _AddHere({required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+        icon: const Icon(Icons.add, size: 16),
+        label: const Text('Seat someone here'),
+        onPressed: () async {
+          final c = TextEditingController();
+          final name = await showDialog<String>(
+            context: context,
+            builder: (d) => AlertDialog(
+              title: const Text('New player'),
+              content: TextField(
+                controller: c,
+                autofocus: true,
+                decoration: const InputDecoration(hintText: 'Name'),
+                onSubmitted: (v) => Navigator.pop(d, v),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cancel')),
+                FilledButton(onPressed: () => Navigator.pop(d, c.text), child: const Text('Add')),
+              ],
+            ),
+          );
+          if (name != null && name.trim().isNotEmpty) onAdd(name.trim());
+        },
+      ),
     );
   }
 }

@@ -58,14 +58,20 @@ const _topics = {
     'Home game',
     [
       'Before the game: type the players in seat order going clockwise, pick your seat '
-          'and who has the dealer button for hand 1, then Start.',
-      'Every hand: tap the two card slots and pick your cards (two taps). Then, if you can, '
-          'say whether it was folded to you or someone raised, and tap what you did: '
-          'Fold, Call / limp or Raise. No time? Use "Save cards only".',
-      'The button moves one seat each hand, so Felt Notes always knows your position. '
-          'If a hand gets re-dealt or the button skips, fix it from the ⋮ menu.',
+          'and who deals the first hand, then Start.',
+      'Every hand, the fastest habit: boring hand → just tap Fold (no cards needed). '
+          'Interesting hand → tap the card slots, pick your two cards, say whether it was '
+          'folded to you or someone raised, then tap Fold, Call / limp or Raise.',
+      'Log every hand, even with a single Fold tap. If you only log the hands you play, '
+          'VPIP and PFR will make you look far looser than you are.',
+      'The dealer moves one seat each time you log a hand, so your position is predicted. '
+          'If it\'s wrong (you skipped hands, a re-deal), tap your real position or tap '
+          '"Dealer" and pick who is dealing.',
+      'Someone joins or leaves: ⋮ menu → Players & seats.',
       'Raise or fold mistakes in unopened pots pop up with a "Why?" link.',
-      'The TV icon opens the dashboard. Mirror (cast) your phone screen to the TV to show it.',
+      'The TV icon opens the dashboard. Mirror (cast) your phone screen to the TV to show it. '
+          'By default it only shows hands from 15+ minutes ago, so nobody reads the last hand '
+          'off the screen. Tap the clock at the top to choose Instant up to 60 minutes.',
       'Undo last fixes a mis-tap. End the game night from the ⋮ menu. Past nights stay listed.',
     ]
   ),

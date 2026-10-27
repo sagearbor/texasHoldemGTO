@@ -1,6 +1,7 @@
 /// Home-game logging for one phone: you record your own hole cards and,
-/// optionally, your preflop action. Seats are fixed, so your position is
-/// derived from the dealer button, which moves one seat per hand.
+/// optionally, your preflop action. The app tracks the dealer button (one
+/// seat per logged hand) so it can predict your position; you can correct
+/// the position or dealer on any hand, and add/remove players mid-game.
 library;
 
 import 'dart:convert';
@@ -26,6 +27,7 @@ class LoggedHand {
   final int number;
   final List<int>? cards;
   final String position;
+  final String? dealer;
   final PreAction? action;
   final Facing? facing;
   final int ts;
@@ -34,6 +36,7 @@ class LoggedHand {
     required this.number,
     required this.cards,
     required this.position,
+    this.dealer,
     this.action,
     this.facing,
     required this.ts,
@@ -42,10 +45,14 @@ class LoggedHand {
   HandClass? get hand =>
       cards == null ? null : HandClass.fromCards(cards![0], cards![1]);
 
+  /// A hand where nothing was recorded at all.
+  bool get skipped => cards == null && action == null;
+
   Map<String, dynamic> toJson() => {
         'n': number,
         'c': cards,
         'p': position,
+        'd': dealer,
         'a': action?.index,
         'f': facing?.index,
         't': ts,
@@ -55,6 +62,7 @@ class LoggedHand {
         number: j['n'] as int,
         cards: (j['c'] as List?)?.cast<int>(),
         position: j['p'] as String,
+        dealer: j['d'] as String?,
         action: j['a'] == null ? null : PreAction.values[j['a'] as int],
         facing: j['f'] == null ? null : Facing.values[j['f'] as int],
         ts: j['t'] as int,
@@ -65,9 +73,13 @@ class HomeSession {
   final String id;
   final String name;
   final int started;
+
+  /// Current players in seat order, clockwise. Changes when people join/leave.
   final List<String> players;
-  final int heroSeat;
-  final int firstButtonSeat;
+  int heroSeat;
+
+  /// Seat holding the dealer button for the next hand to be logged.
+  int buttonSeat;
   final List<LoggedHand> hands;
   bool closed;
 
@@ -77,18 +89,56 @@ class HomeSession {
     required this.started,
     required this.players,
     required this.heroSeat,
-    required this.firstButtonSeat,
+    required this.buttonSeat,
     List<LoggedHand>? hands,
     this.closed = false,
   }) : hands = hands ?? [];
 
   int get tableSize => players.length;
 
-  /// Button seat for hand number [n] (1-based).
-  int buttonFor(int n) => (firstButtonSeat + n - 1) % tableSize;
+  int get heroOffset => (heroSeat - buttonSeat) % tableSize;
 
-  String positionFor(int n) =>
-      positionName(tableSize, (heroSeat - buttonFor(n)) % tableSize);
+  /// Your position for the next hand.
+  String get position => positionName(tableSize, heroOffset);
+
+  /// Every position at this table size, in acting order (UTG first, BB last).
+  List<String> get positionsInOrder => [
+        for (var o = 3; o < tableSize; o++) positionName(tableSize, o),
+        if (tableSize > 2) ...[
+          positionName(tableSize, 0),
+          positionName(tableSize, 1),
+        ] else
+          positionName(tableSize, 0),
+        positionName(tableSize, tableSize == 2 ? 1 : 2),
+      ];
+
+  /// Moves the button so that you are in [pos] this hand.
+  void setPosition(String pos) {
+    for (var o = 0; o < tableSize; o++) {
+      if (positionName(tableSize, o) == pos) {
+        buttonSeat = (heroSeat - o) % tableSize;
+        return;
+      }
+    }
+  }
+
+  void addPlayer(String name, int atSeat) {
+    final i = atSeat.clamp(0, tableSize);
+    players.insert(i, name);
+    if (i <= heroSeat) heroSeat++;
+    if (i <= buttonSeat) buttonSeat++;
+    buttonSeat %= tableSize;
+  }
+
+  /// Removes a player (never you). If they had the button, it passes to the
+  /// next seat.
+  void removePlayer(int seat) {
+    if (seat == heroSeat || tableSize <= 2) return;
+    players.removeAt(seat);
+    if (seat < heroSeat) heroSeat--;
+    if (seat < buttonSeat) buttonSeat--;
+    buttonSeat %= tableSize;
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -96,24 +146,30 @@ class HomeSession {
         'started': started,
         'players': players,
         'hero': heroSeat,
-        'btn': firstButtonSeat,
+        'btnNext': buttonSeat,
         'hands': [for (final h in hands) h.toJson()],
         'closed': closed,
       };
 
-  static HomeSession fromJson(Map<String, dynamic> j) => HomeSession(
-        id: j['id'] as String,
-        name: j['name'] as String,
-        started: j['started'] as int,
-        players: (j['players'] as List).cast<String>(),
-        heroSeat: j['hero'] as int,
-        firstButtonSeat: j['btn'] as int,
-        hands: [
-          for (final h in j['hands'] as List)
-            LoggedHand.fromJson(h as Map<String, dynamic>)
-        ],
-        closed: j['closed'] as bool? ?? false,
-      );
+  static HomeSession fromJson(Map<String, dynamic> j) {
+    final players = (j['players'] as List).cast<String>();
+    final hands = [
+      for (final h in j['hands'] as List) LoggedHand.fromJson(h as Map<String, dynamic>)
+    ];
+    // v0.1.0 stored the first hand's button and derived the rest.
+    final btn = j['btnNext'] as int? ??
+        ((j['btn'] as int) + hands.length) % players.length;
+    return HomeSession(
+      id: j['id'] as String,
+      name: j['name'] as String,
+      started: j['started'] as int,
+      players: List.of(players),
+      heroSeat: j['hero'] as int,
+      buttonSeat: btn,
+      hands: hands,
+      closed: j['closed'] as bool? ?? false,
+    );
+  }
 }
 
 /// Position name for a seat [offset] seats clockwise of the button at a
@@ -141,7 +197,13 @@ String chartPosition(String pos) => switch (pos) {
     };
 
 class SessionStats {
+  /// Hands logged in any way (including skips).
+  final int logged;
+
+  /// Hands with your cards entered.
   final int dealt;
+
+  /// Hands with a preflop action recorded (VPIP/PFR denominator).
   final int recorded;
   final int vpip;
   final int pfr;
@@ -152,6 +214,7 @@ class SessionStats {
   final List<(LoggedHand, Spot, double)> misses;
 
   SessionStats({
+    required this.logged,
     required this.dealt,
     required this.recorded,
     required this.vpip,
@@ -165,6 +228,10 @@ class SessionStats {
 
   double get vpipPct => recorded == 0 ? 0 : vpip / recorded;
   double get pfrPct => recorded == 0 ? 0 : pfr / recorded;
+
+  /// Share of logged hands that have an action: below ~70% VPIP/PFR are
+  /// biased towards the hands you chose to record.
+  double get coverage => logged == 0 ? 0 : recorded / logged;
 
   /// Expected share of JJ+/AK: (4 pairs × 6 + 16) / 1326.
   static const premiumRate = 40 / 1326;
@@ -180,10 +247,17 @@ class SessionStats {
 }
 
 SessionStats computeStats(Iterable<LoggedHand> hands, SpotLibrary lib) {
-  var dealt = 0, recorded = 0, vpip = 0, pfr = 0, premiums = 0, graded = 0;
+  var logged = 0, dealt = 0, recorded = 0, vpip = 0, pfr = 0, premiums = 0, graded = 0;
   var strength = 0.0, strengthN = 0, gto = 0.0;
   final misses = <(LoggedHand, Spot, double)>[];
   for (final h in hands) {
+    logged++;
+    final a = h.action;
+    if (a != null) {
+      recorded++;
+      if (a != PreAction.fold) vpip++;
+      if (a == PreAction.raise) pfr++;
+    }
     final hc = h.hand;
     if (hc == null) continue;
     dealt++;
@@ -191,15 +265,11 @@ SessionStats computeStats(Iterable<LoggedHand> hands, SpotLibrary lib) {
       strength += lib.vsRandom[hc.index];
       strengthN++;
     }
-    final n = hc.name;
-    if (const {'AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo'}.contains(n)) premiums++;
-    final a = h.action;
-    if (a == null) continue;
-    // A BB check after limps isn't voluntary; we only count what was tapped.
-    recorded++;
-    if (a != PreAction.fold) vpip++;
-    if (a == PreAction.raise) pfr++;
-    if (h.facing == Facing.unopened && h.position != 'BB' && h.position != 'BTN/SB') {
+    if (const {'AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo'}.contains(hc.name)) premiums++;
+    if (a != null &&
+        h.facing == Facing.unopened &&
+        h.position != 'BB' &&
+        h.position != 'BTN/SB') {
       final spot = lib.byId('cash-rfi-${chartPosition(h.position)}');
       final f = spot.freqs(hc);
       // Limping isn't in the raise-or-fold charts: it scores 0.
@@ -214,6 +284,7 @@ SessionStats computeStats(Iterable<LoggedHand> hands, SpotLibrary lib) {
     }
   }
   return SessionStats(
+    logged: logged,
     dealt: dealt,
     recorded: recorded,
     vpip: vpip,
@@ -231,10 +302,18 @@ int rfiActionIndex(PreAction a) => a == PreAction.raise ? 0 : 1;
 
 String describeGrade(double freq) => gradeLabels[gradeFor(freq)]!;
 
+/// Dashboard delay choices, in minutes (0 = instant).
+const dashboardDelays = [0, 5, 15, 30, 60];
+
 class HomeGameModel extends ChangeNotifier {
   static const _key = 'home_sessions_v1';
+  static const _delayKey = 'dashboard_delay_min';
   final SpotLibrary library;
   final List<HomeSession> sessions = [];
+
+  /// The TV dashboard only shows hands logged at least this long ago, so
+  /// nobody can read the hand that just finished off the screen.
+  int dashboardDelayMinutes = 15;
 
   HomeGameModel(this.library);
 
@@ -255,6 +334,7 @@ class HomeGameModel extends ChangeNotifier {
             HomeSession.fromJson(j as Map<String, dynamic>)
         ]);
       }
+      dashboardDelayMinutes = prefs.getInt(_delayKey) ?? 15;
     } catch (_) {}
     notifyListeners();
   }
@@ -264,7 +344,18 @@ class HomeGameModel extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
           _key, jsonEncode([for (final s in sessions) s.toJson()]));
+      await prefs.setInt(_delayKey, dashboardDelayMinutes);
     } catch (_) {}
+  }
+
+  void _changed() {
+    _save();
+    notifyListeners();
+  }
+
+  void setDelay(int minutes) {
+    dashboardDelayMinutes = minutes;
+    _changed();
   }
 
   void start({
@@ -283,63 +374,64 @@ class HomeGameModel extends ChangeNotifier {
       started: now,
       players: players,
       heroSeat: heroSeat,
-      firstButtonSeat: buttonSeat,
+      buttonSeat: buttonSeat,
     ));
-    _save();
-    notifyListeners();
+    _changed();
   }
 
+  /// Records the current hand, then passes the button one seat clockwise.
   void logHand({List<int>? cards, PreAction? action, Facing? facing}) {
     final s = active!;
-    final n = s.hands.length + 1;
     s.hands.add(LoggedHand(
-      number: n,
+      number: s.hands.length + 1,
       cards: cards,
-      position: s.positionFor(n),
+      position: s.position,
+      dealer: s.players[s.buttonSeat],
       action: action,
-      facing: facing,
+      facing: action == null ? null : facing,
       ts: DateTime.now().millisecondsSinceEpoch,
     ));
-    _save();
-    notifyListeners();
+    s.buttonSeat = (s.buttonSeat + 1) % s.tableSize;
+    _changed();
   }
 
+  /// Removes the last hand and gives the button back to its dealer.
   void undo() {
     final s = active;
     if (s == null || s.hands.isEmpty) return;
-    s.hands.removeLast();
-    _save();
-    notifyListeners();
+    final last = s.hands.removeLast();
+    final seat = last.dealer == null ? -1 : s.players.indexOf(last.dealer!);
+    s.buttonSeat = seat >= 0 ? seat : (s.buttonSeat - 1) % s.tableSize;
+    _changed();
   }
 
-  /// The button moved more or less than once (misdeal, seat change): shift
-  /// the remaining hands by [delta] seats.
-  void nudgeButton(int delta) {
-    final s = active;
-    if (s == null) return;
-    final idx = sessions.indexOf(s);
-    sessions[idx] = HomeSession(
-      id: s.id,
-      name: s.name,
-      started: s.started,
-      players: s.players,
-      heroSeat: s.heroSeat,
-      firstButtonSeat: (s.firstButtonSeat + delta) % s.tableSize,
-      hands: s.hands,
-    );
-    _save();
-    notifyListeners();
+  void setPosition(String pos) {
+    active?.setPosition(pos);
+    _changed();
+  }
+
+  void setDealer(int seat) {
+    active?.buttonSeat = seat;
+    _changed();
+  }
+
+  void addPlayer(String name, int atSeat) {
+    active?.addPlayer(name, atSeat);
+    _changed();
+  }
+
+  void removePlayer(int seat) {
+    active?.removePlayer(seat);
+    _changed();
   }
 
   void end() {
     active?.closed = true;
-    _save();
-    notifyListeners();
+    _changed();
   }
 
   void delete(HomeSession s) {
     sessions.remove(s);
-    _save();
-    notifyListeners();
+    _changed();
   }
 }

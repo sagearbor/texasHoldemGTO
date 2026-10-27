@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../gto/coach.dart';
@@ -6,22 +8,51 @@ import '../theme.dart';
 import '../widgets/range_grid.dart';
 
 /// Big-type live view for a TV (screen-mirror the phone, or later Cast).
-/// Rebuilds as hands are logged.
-class DashboardScreen extends StatelessWidget {
+/// During a live game it only shows hands older than the chosen delay, so
+/// the table can't read the hand that just finished off the screen.
+class DashboardScreen extends StatefulWidget {
   final HomeGameModel model;
   final HomeSession? session;
   const DashboardScreen({super.key, required this.model, this.session});
 
   @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    // Delayed hands "arrive" over time even when nobody logs anything.
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final model = widget.model;
     return ListenableBuilder(
       listenable: model,
       builder: (context, _) {
-        final s = session ?? model.active;
+        final s = widget.session ?? model.active;
         if (s == null) {
           return const Scaffold(body: Center(child: Text('No game in progress')));
         }
-        final st = computeStats(s.hands, model.library);
+        final live = !s.closed;
+        final cutoff = DateTime.now().millisecondsSinceEpoch -
+            model.dashboardDelayMinutes * 60000;
+        final shown = live ? s.hands.where((h) => h.ts <= cutoff).toList() : s.hands;
+        final hidden = s.hands.length - shown.length;
+        final st = computeStats(shown, model.library);
         return Scaffold(
           backgroundColor: Felt.feltDark,
           appBar: AppBar(
@@ -29,9 +60,33 @@ class DashboardScreen extends StatelessWidget {
             foregroundColor: Colors.white,
             title: Text(s.name),
             actions: [
+              if (live)
+                PopupMenuButton<int>(
+                  tooltip: 'Delay',
+                  initialValue: model.dashboardDelayMinutes,
+                  onSelected: model.setDelay,
+                  itemBuilder: (_) => [
+                    for (final m in dashboardDelays)
+                      PopupMenuItem(
+                          value: m, child: Text(m == 0 ? 'Instant' : '$m min delay')),
+                  ],
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(children: [
+                      const Icon(Icons.schedule, size: 18, color: Felt.gold),
+                      const SizedBox(width: 4),
+                      Text(
+                          model.dashboardDelayMinutes == 0
+                              ? 'Instant'
+                              : '${model.dashboardDelayMinutes} min',
+                          style: const TextStyle(color: Felt.gold)),
+                    ]),
+                  ),
+                ),
               Padding(
                 padding: const EdgeInsets.only(right: 16),
-                child: Center(child: Text('${st.dealt} hands', style: const TextStyle(color: Felt.gold))),
+                child: Center(
+                    child: Text('${st.logged} hands', style: const TextStyle(color: Felt.gold))),
               ),
             ],
           ),
@@ -58,12 +113,20 @@ class DashboardScreen extends StatelessWidget {
             final map = _StyleMap(vpip: st.vpipPct, pfr: st.pfrPct, show: st.recorded > 0);
             final strip = _StrengthStrip(
                 values: [
-                  for (final h in s.hands)
+                  for (final h in shown)
                     if (h.hand != null) model.library.vsRandom.isEmpty ? 0.5 : model.library.vsRandom[h.hand!.index]
                 ]);
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if (live && hidden > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                        '$hidden recent hand${hidden == 1 ? '' : 's'} will appear after the '
+                        '${model.dashboardDelayMinutes}-minute delay',
+                        style: const TextStyle(color: Colors.white54)),
+                  ),
                 if (wide)
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Expanded(flex: 3, child: tiles),
