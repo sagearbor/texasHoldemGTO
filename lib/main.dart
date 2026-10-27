@@ -98,7 +98,7 @@ class _ShellState extends State<Shell> {
       ChartsScreen(library: m.library, onDrill: _drill),
       EquityScreen(library: m.library),
       StatsScreen(model: m, onDrill: _drill),
-      HomeGameScreen(model: widget.home),
+      HomeGameScreen(model: widget.home, trainer: m),
     ];
     return Scaffold(
       body: Center(

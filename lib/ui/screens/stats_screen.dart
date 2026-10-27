@@ -4,6 +4,7 @@ import '../../gto/coach.dart';
 import '../../gto/hand_class.dart';
 import '../../trainer/trainer_model.dart';
 import '../widgets/range_grid.dart';
+import 'daily_screen.dart';
 import 'help_screen.dart';
 import 'review_sheet.dart';
 
@@ -15,7 +16,7 @@ class StatsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: model,
+      listenable: Listenable.merge([model, model.daily]),
       builder: (context, _) {
         final t = Theme.of(context).textTheme;
         final h = model.history;
@@ -81,6 +82,13 @@ class StatsScreen extends StatelessWidget {
                 _Tile('Last 7 days',
                     pct(model.accuracy(h.where((a) => a.ts >= week)))),
               ]),
+              Row(children: [
+                _Tile('Due for review', '${model.dueCount}'),
+                _Tile('Leak cards', '${model.deck.cards.length}'),
+                _Tile('Mastered', '${model.deck.cards.values.where((c) => c.box >= srMaxBox).length}'),
+              ]),
+              const SizedBox(height: 8),
+              DailyCalendar(daily: model.daily),
               const SizedBox(height: 16),
               Text('You vs GTO, by hand', style: t.titleMedium),
               Text('Green = you play it like the solver, red = leak. Tap a hand.',

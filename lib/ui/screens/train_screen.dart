@@ -6,6 +6,7 @@ import '../../trainer/trainer_model.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/table_diagram.dart';
+import 'daily_screen.dart';
 import 'help_screen.dart';
 import 'review_sheet.dart';
 
@@ -32,6 +33,8 @@ class TrainScreen extends StatelessWidget {
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
                   children: [
+                    DailyCard(model: model),
+                    const SizedBox(height: 8),
                     _SessionBar(model: model),
                     const SizedBox(height: 12),
                     _DrillCard(model: model, drill: d),
@@ -56,9 +59,13 @@ class _ModeMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final due = model.dueCount;
+    String name(DrillMode m) => m == DrillMode.leaks && due > 0
+        ? '${labels[m]} · $due due'
+        : labels[m]!;
     final label = model.focusSpotId != null
         ? model.library.byId(model.focusSpotId!).title
-        : labels[model.mode]!;
+        : name(model.mode);
     return PopupMenuButton<Object>(
       tooltip: 'Drill mode',
       onSelected: (v) {
@@ -66,7 +73,7 @@ class _ModeMenu extends StatelessWidget {
       },
       itemBuilder: (_) => [
         for (final e in labels.entries)
-          PopupMenuItem(value: e.key, child: Text(e.value)),
+          PopupMenuItem(value: e.key, child: Text(name(e.key))),
       ],
       child: Chip(
         avatar: Icon(

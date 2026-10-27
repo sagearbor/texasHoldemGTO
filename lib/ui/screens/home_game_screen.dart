@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
+import '../../trainer/trainer_model.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
 import 'blind_clock_screen.dart';
@@ -14,7 +15,10 @@ import 'review_sheet.dart';
 
 class HomeGameScreen extends StatelessWidget {
   final HomeGameModel model;
-  const HomeGameScreen({super.key, required this.model});
+
+  /// When set, graded home-game misses are queued as leak drills.
+  final TrainerModel? trainer;
+  const HomeGameScreen({super.key, required this.model, this.trainer});
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +60,7 @@ class HomeGameScreen extends StatelessWidget {
                 ),
             ],
           ),
-          body: s == null ? _Setup(model: model) : _Logger(model: model, session: s),
+          body: s == null ? _Setup(model: model) : _Logger(model: model, session: s, trainer: trainer),
         );
       },
     );
@@ -196,7 +200,8 @@ String _summary(HomeGameModel m, HomeSession s) {
 class _Logger extends StatefulWidget {
   final HomeGameModel model;
   final HomeSession session;
-  const _Logger({required this.model, required this.session});
+  final TrainerModel? trainer;
+  const _Logger({required this.model, required this.session, this.trainer});
 
   @override
   State<_Logger> createState() => _LoggerState();
@@ -224,6 +229,7 @@ class _LoggerState extends State<_Logger> {
       final st = computeStats([last], widget.model.library);
       if (st.misses.isNotEmpty) {
         final (h, spot, _) = st.misses.first;
+        widget.trainer?.addExternalMisses([(spot.id, h.hand!.index)]);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${h.hand!.name} from ${h.position}: GTO says '
               '${strategyLine(spot, h.hand!)}'),
