@@ -1,4 +1,4 @@
-package com.sagearbor.felt_notes
+package com.sagearbor.feltnotes.app
 
 import io.flutter.embedding.android.FlutterActivity
 
