@@ -91,6 +91,16 @@ class TrainerModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Back to a fresh install: no history, default mode, no focus spot.
+  Future<void> resetAll() async {
+    history.clear();
+    streak = sessionCount = sessionGood = 0;
+    mode = DrillMode.mixed;
+    focusSpotId = null;
+    await _save();
+    next();
+  }
+
   List<Spot> get _pool {
     if (focusSpotId != null) return [library.byId(focusSpotId!)];
     switch (mode) {

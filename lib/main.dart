@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_data.dart';
 import 'gto/spots.dart';
 import 'homegame/home_game.dart';
 import 'trainer/trainer_model.dart';
@@ -13,30 +14,14 @@ import 'ui/theme.dart';
 
 void main() => runApp(const FeltNotesApp());
 
-class FeltNotesApp extends StatelessWidget {
+class FeltNotesApp extends StatefulWidget {
   const FeltNotesApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Felt Notes',
-      debugShowCheckedModeBanner: false,
-      theme: Felt.light(),
-      darkTheme: Felt.dark(),
-      themeMode: ThemeMode.dark,
-      home: const _Loader(),
-    );
-  }
+  State<FeltNotesApp> createState() => _FeltNotesAppState();
 }
 
-class _Loader extends StatefulWidget {
-  const _Loader();
-
-  @override
-  State<_Loader> createState() => _LoaderState();
-}
-
-class _LoaderState extends State<_Loader> {
+class _FeltNotesAppState extends State<FeltNotesApp> {
   TrainerModel? model;
   HomeGameModel? home;
 
@@ -58,7 +43,27 @@ class _LoaderState extends State<_Loader> {
 
   @override
   Widget build(BuildContext context) {
-    final m = model, h = home;
+    return MaterialApp(
+      title: 'Felt Notes',
+      debugShowCheckedModeBanner: false,
+      theme: Felt.light(),
+      darkTheme: Felt.dark(),
+      themeMode: ThemeMode.dark,
+      // Above the Navigator so every route (e.g. About's reset) can reach it.
+      builder: (context, child) =>
+          AppScope(trainer: model, home: home, child: child!),
+      home: const _Home(),
+    );
+  }
+}
+
+class _Home extends StatelessWidget {
+  const _Home();
+
+  @override
+  Widget build(BuildContext context) {
+    final scope = AppScope.maybeOf(context);
+    final m = scope?.trainer, h = scope?.home;
     if (m == null || h == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
