@@ -92,8 +92,10 @@ class GradeBadge extends StatelessWidget {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(icon, color: color, size: 20),
         const SizedBox(width: 8),
-        Text('${gradeLabels[grade]}  ·  you chose $action',
-            style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+        Flexible(
+          child: Text('${gradeLabels[grade]}  ·  you chose $action',
+              style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+        ),
       ]),
     );
   }

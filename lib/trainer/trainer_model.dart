@@ -11,6 +11,7 @@ import '../gto/coach.dart';
 import '../gto/hand_class.dart';
 import '../gto/spots.dart';
 import '../poker/cards.dart';
+import 'daily.dart';
 
 class Drill {
   final Spot spot;
@@ -38,13 +39,99 @@ class Answer {
 
 enum DrillMode { mixed, cashOnly, pushFoldOnly, leaks }
 
+/// Injectable wall clock (tests pass a fake one).
+typedef Clock = DateTime Function();
+
+/// Leitner review intervals, indexed by the box a card is in when it is
+/// answered correctly: a fresh miss (box 0) is re-checked 10 minutes later,
+/// then after 1, 3, 7 and 21 days. A miss always drops the card to box 0,
+/// due immediately.
+const srIntervals = [
+  Duration(minutes: 10),
+  Duration(days: 1),
+  Duration(days: 3),
+  Duration(days: 7),
+  Duration(days: 21),
+];
+const srMaxBox = 4;
+
+/// One spaced-repetition card: a (spot, hand class) pair you have missed.
+class SrCard {
+  final String spotId;
+  final int hand;
+  int box;
+
+  /// Epoch milliseconds when the card is next due.
+  int due;
+  SrCard(this.spotId, this.hand, this.box, this.due);
+
+  String get key => '$spotId:$hand';
+}
+
+/// Spaced-repetition deck. Cards enter on a miss (in the trainer or from a
+/// home-game hand) and climb boxes 0..4 on each correct answer.
+///
+/// The deck is NOT stored: it is replayed deterministically from the answer
+/// history (plus a tiny list of home-game seeds) on load. That needs no
+/// schema migration, gives existing users a deck straight away from their
+/// past misses, and can never drift out of sync with the history it is
+/// derived from. Replay of 3000 answers is a few hundred microseconds.
+class SrDeck {
+  final Map<String, SrCard> cards = {};
+
+  /// A graded answer at [ts]. Hits only matter for cards already in the deck.
+  void review(String spotId, int hand, bool hit, int ts) {
+    final k = '$spotId:$hand';
+    if (!hit) {
+      final c = cards.putIfAbsent(k, () => SrCard(spotId, hand, 0, ts));
+      c
+        ..box = 0
+        ..due = ts;
+      return;
+    }
+    final c = cards[k];
+    if (c == null) return;
+    c.due = ts + srIntervals[c.box].inMilliseconds;
+    if (c.box < srMaxBox) c.box++;
+  }
+
+  /// Cards due at [now], most overdue first (ties broken by key so the
+  /// order is fully deterministic).
+  List<SrCard> due(int now) {
+    final l = cards.values.where((c) => c.due <= now).toList()
+      ..sort((a, b) {
+        final d = a.due.compareTo(b.due);
+        return d != 0 ? d : a.key.compareTo(b.key);
+      });
+    return l;
+  }
+
+  void clear() => cards.clear();
+}
+
 class TrainerModel extends ChangeNotifier {
   static const _key = 'trainer_history_v1';
+  static const _seedKey = 'trainer_sr_seeds_v1';
   static const _maxHistory = 3000;
+  static const _maxSeeds = 500;
 
   final SpotLibrary library;
   final Random _rng;
+  final Clock _clock;
   final List<Answer> history = [];
+
+  /// Spaced-repetition deck, derived from [history] + [_seeds].
+  final SrDeck deck = SrDeck();
+
+  /// Home-game misses fed in via [addExternalMisses]: (spotId, hand, ts).
+  final List<(String, int, int)> _seeds = [];
+
+  /// Today's Daily 10 challenge (shares this model's clock).
+  late final DailyModel daily = DailyModel(library, clock: _clock);
+
+  /// Key of the card answered last, so a just-missed card (due "now") is not
+  /// served again straight away.
+  String? _lastKey;
   DrillMode mode = DrillMode.mixed;
 
   /// When non-null, drills stay in this one spot.
@@ -56,7 +143,11 @@ class TrainerModel extends ChangeNotifier {
   int sessionCount = 0;
   int sessionGood = 0;
 
-  TrainerModel(this.library, {Random? rng}) : _rng = rng ?? Random();
+  TrainerModel(this.library, {Random? rng, Clock? clock})
+      : _rng = rng ?? Random(),
+        _clock = clock ?? DateTime.now;
+
+  int get _now => _clock().millisecondsSinceEpoch;
 
   Future<void> load() async {
     try {
@@ -68,10 +159,71 @@ class TrainerModel extends ChangeNotifier {
             Answer.fromJson(j as Map<String, dynamic>)
         ]);
       }
+      final seeds = prefs.getString(_seedKey);
+      if (seeds != null) {
+        _seeds.addAll([
+          for (final j in jsonDecode(seeds) as List)
+            (j['s'] as String, j['h'] as int, j['t'] as int)
+        ]);
+      }
     } catch (_) {
       // Storage unavailable (private window etc.): run without history.
     }
+    _rebuildDeck();
+    await daily.load();
     next();
+  }
+
+  /// Replays history and home-game seeds, in time order, into the deck.
+  void _rebuildDeck() {
+    deck.clear();
+    final events = <(int, String, int, bool)>[
+      for (final a in history) (a.ts, a.spotId, a.hand, !a.isMiss),
+      for (final (s, h, t) in _seeds) (t, s, h, false),
+    ];
+    // List.sort is not guaranteed stable; sort by (ts, original index).
+    final idx = List.generate(events.length, (i) => i)
+      ..sort((a, b) {
+        final d = events[a].$1.compareTo(events[b].$1);
+        return d != 0 ? d : a.compareTo(b);
+      });
+    for (final i in idx) {
+      final (t, s, h, hit) = events[i];
+      deck.review(s, h, hit, t);
+    }
+  }
+
+  Spot? _spotOrNull(String id) {
+    for (final s in library.all) {
+      if (s.id == id) return s;
+    }
+    return null;
+  }
+
+  /// Cards due now, most overdue first (only spots that still exist).
+  List<SrCard> dueCards() =>
+      [for (final c in deck.due(_now)) if (_spotOrNull(c.spotId) != null) c];
+
+  int get dueCount => dueCards().length;
+
+  /// Seeds home-game misses into the deck: box 0, due now. Each entry is
+  /// (spotId, hand class index).
+  Future<void> addExternalMisses(List<(String, int)> misses) async {
+    if (misses.isEmpty) return;
+    final t = _now;
+    for (final (s, h) in misses) {
+      _seeds.add((s, h, t));
+      deck.review(s, h, false, t);
+    }
+    if (_seeds.length > _maxSeeds) {
+      _seeds.removeRange(0, _seeds.length - _maxSeeds);
+    }
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_seedKey,
+          jsonEncode([for (final (s, h, t) in _seeds) {'s': s, 'h': h, 't': t}]));
+    } catch (_) {}
   }
 
   Future<void> _save() async {
@@ -86,8 +238,14 @@ class TrainerModel extends ChangeNotifier {
 
   Future<void> clearHistory() async {
     history.clear();
+    _seeds.clear();
+    deck.clear();
     streak = sessionCount = sessionGood = 0;
     await _save();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_seedKey);
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -124,6 +282,15 @@ class TrainerModel extends ChangeNotifier {
   Drill _pick() {
     final pool = _pool;
     Spot spot;
+    // Spaced repetition first: the most overdue card that isn't the one just
+    // answered.
+    if (mode == DrillMode.leaks && focusSpotId == null) {
+      for (final c in dueCards()) {
+        if (c.key == _lastKey) continue;
+        final combos = HandClass.byIndex(c.hand).combos();
+        return Drill(_spotOrNull(c.spotId)!, combos[_rng.nextInt(combos.length)]);
+      }
+    }
     if (mode == DrillMode.leaks && focusSpotId == null && history.isNotEmpty) {
       // Weight spots by recent misses (+1 smoothing so nothing starves).
       final misses = <String, double>{};
@@ -144,7 +311,7 @@ class TrainerModel extends ChangeNotifier {
       hand = HandClass.fromCards(cards[0], cards[1]);
     } else {
       final weights = [
-        for (final h in allHandClasses) h.comboCount * _edginess(spot, h)
+        for (final h in allHandClasses) h.comboCount * edginess(spot, h)
       ];
       hand = HandClass.byIndex(_weighted(weights));
     }
@@ -161,18 +328,6 @@ class TrainerModel extends ChangeNotifier {
     return Drill(spot, combos[_rng.nextInt(combos.length)]);
   }
 
-  /// 0.05 for hands that are obviously in/out, up to 1 for borderline hands.
-  double _edginess(Spot spot, HandClass h) {
-    final p = playFreq(spot, h);
-    if (p > 0.03 && p < 0.97) return 1;
-    for (final (dr, dc) in [(0, 1), (0, -1), (1, 0), (-1, 0)]) {
-      final r = h.row + dr, c = h.col + dc;
-      if (r < 0 || r > 12 || c < 0 || c > 12) continue;
-      if ((playFreq(spot, HandClass(r, c)) - p).abs() > 0.5) return 0.7;
-    }
-    return 0.05;
-  }
-
   int _weighted(List<num> w) {
     final total = w.fold<double>(0, (a, b) => a + b);
     var x = _rng.nextDouble() * total;
@@ -183,12 +338,23 @@ class TrainerModel extends ChangeNotifier {
     return w.length - 1;
   }
 
+  /// Grades and records one answer (history + spaced-repetition deck)
+  /// without touching the current drill or session counters. Used by the
+  /// Daily 10 as well as [answer].
+  Answer record(Spot spot, HandClass hand, int actionIndex) {
+    final f = spot.freqs(hand)[actionIndex];
+    final a = Answer(spot.id, hand.index, actionIndex, f, _now);
+    history.add(a);
+    deck.review(a.spotId, a.hand, !a.isMiss, a.ts);
+    _lastKey = '${a.spotId}:${a.hand}';
+    _save();
+    notifyListeners();
+    return a;
+  }
+
   Answer answer(int actionIndex) {
     final d = current!;
-    final f = d.spot.freqs(d.hand)[actionIndex];
-    final a = Answer(d.spot.id, d.hand.index, actionIndex, f,
-        DateTime.now().millisecondsSinceEpoch);
-    history.add(a);
+    final a = record(d.spot, d.hand, actionIndex);
     lastAnswer = a;
     sessionCount++;
     if (!a.isMiss) {
@@ -197,7 +363,6 @@ class TrainerModel extends ChangeNotifier {
     } else {
       streak = 0;
     }
-    _save();
     notifyListeners();
     return a;
   }
@@ -249,4 +414,16 @@ class TrainerModel extends ChangeNotifier {
     misses.sort((a, b) => score(b).compareTo(score(a)));
     return misses.take(limit).toList();
   }
+}
+
+/// 0.05 for hands that are obviously in/out, up to 1 for borderline hands.
+double edginess(Spot spot, HandClass h) {
+  final p = playFreq(spot, h);
+  if (p > 0.03 && p < 0.97) return 1;
+  for (final (dr, dc) in [(0, 1), (0, -1), (1, 0), (-1, 0)]) {
+    final r = h.row + dr, c = h.col + dc;
+    if (r < 0 || r > 12 || c < 0 || c > 12) continue;
+    if ((playFreq(spot, HandClass(r, c)) - p).abs() > 0.5) return 0.7;
+  }
+  return 0.05;
 }
