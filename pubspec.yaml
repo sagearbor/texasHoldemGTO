@@ -1,7 +1,7 @@
 name: felt_notes
 description: "Felt Notes: GTO poker trainer and home-game stats."
 publish_to: 'none'
-version: 0.2.0+6
+version: 0.2.1+7
 
 environment:
   sdk: '>=3.4.3 <4.0.0'
