@@ -21,6 +21,10 @@ dependencies:
   # About screen version. 9.x needs a newer Flutter Gradle plugin (compileSdk
   # = flutter.compileSdkVersion fails on 3.22); 8.3.1 is the last 8.x and builds.
   package_info_plus: ">=8.3.1 <9.0.0"
+  # Board caller: push-to-talk, on-device speech recognition (OS engine, free).
+  # 7.2+ uses compileSdk = flutter.compileSdkVersion (fails on Flutter 3.22),
+  # 7.5+ needs Flutter 3.44 / Dart 3.12. 7.1.0 builds.
+  speech_to_text: ">=7.1.0 <7.2.0"
 
 dev_dependencies:
   flutter_test:
