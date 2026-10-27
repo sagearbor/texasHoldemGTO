@@ -279,7 +279,7 @@ class AboutScreen extends StatelessWidget {
       appBar: AppBar(
           title: const Text('About & privacy'),
           actions: const [SettingsButton()]),
-      body: ListView(
+      body: Felt.narrow(ListView(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
         children: [
           section(Icons.info_outline, 'Felt Notes', [
@@ -364,7 +364,7 @@ class AboutScreen extends StatelessWidget {
             ),
           ]),
         ],
-      ),
+      )),
     );
   }
 }

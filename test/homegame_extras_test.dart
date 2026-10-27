@@ -359,6 +359,21 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('logger: no story tags offered for a skipped hand', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final m = HomeGameModel(lib);
+      m.start(name: 'Tonight', players: ['Me', 'Alex', 'Sam'], heroSeat: 0, buttonSeat: 0);
+      m.logHand(action: PreAction.fold);
+      m.logHand(); // skipped: no cards, no action
+      expect(m.active!.hands.last.skipped, isTrue);
+      await pump(tester, HomeGameScreen(model: m), theme: Felt.light());
+      final list = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(find.text('Recent hands'), 200, scrollable: list);
+      expect(find.textContaining('a story? (optional)'), findsNothing);
+      expect(find.text('Cooler'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('end game night asks for my result, then shows recap', (tester) async {
       SharedPreferences.setMockInitialValues({});
       final m = HomeGameModel(lib);

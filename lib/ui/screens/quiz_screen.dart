@@ -113,7 +113,7 @@ class _QuizScreenState extends State<QuizScreen> {
             ),
         ],
       ),
-      body: s == null
+      body: Felt.narrow(s == null
           ? _StartView(
               focus: _focus,
               onFocus: (f) => setState(() => _focus = f),
@@ -141,7 +141,7 @@ class _QuizScreenState extends State<QuizScreen> {
                           last: _index + 1 >= s.length,
                         ),
                       ],
-                    ),
+                    )),
     );
   }
 }

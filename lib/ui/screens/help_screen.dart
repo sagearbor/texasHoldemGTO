@@ -45,7 +45,7 @@ const _topics = {
           'are above it, offsuit hands below.',
       'Colours: red = raise / 3-bet / all-in, green = call, dark = fold. A cell split '
           'between colours is a mixed hand: GTO plays it both ways at those rates.',
-      'Colour blind? The ⋮ menu on Charts (or Settings) turns on colour-blind friendly charts: blue / orange '
+      'Colour blind? The menu at the top right of Charts (or Settings) turns on colour-blind friendly charts: blue / orange '
           'plus stripes = raise, dots = call, plain = fold, on every grid and bar.',
       'Tap any hand for its frequencies and an explanation. "Drill" sends that spot to the trainer.',
       '6-max 100bb charts are approximate GTO baselines. Push/fold charts are an exact '
@@ -97,12 +97,12 @@ const _topics = {
       'The dealer moves one seat each time you log a hand, so your position is predicted. '
           'If it\'s wrong (you skipped hands, a re-deal), tap your real position or tap '
           '"Dealer" and pick who is dealing.',
-      'Someone joins or leaves: ⋮ menu → Players & seats.',
+      'Someone joins or leaves: the menu at the top right → Players & seats.',
       'Raise or fold mistakes in unopened pots pop up with a "Why?" link.',
       'The TV icon opens the dashboard. Mirror (cast) your phone screen to the TV to show it. '
           'By default it only shows hands from 15+ minutes ago, so nobody reads the last hand '
           'off the screen. Tap the clock at the top to choose Instant up to 60 minutes.',
-      'Undo last fixes a mis-tap. End the game night from the ⋮ menu. Past nights stay listed.',
+      'Undo last fixes a mis-tap. End the game night from the menu at the top right. Past nights stay listed.',
       'Snap my cards (Beta): tap the camera next to the card slots, then take or pick a photo '
           'of your two cards so the corners show. It reads them on your device (nothing is '
           'uploaded) and also hints the street from the board cards it sees; always check the '
@@ -115,7 +115,7 @@ const _topics = {
       'Remembered your cards late? Enter them, tap "That was hand…" and pick the hand by its '
           'board: they go on that hand instead of the one being played now.',
       'With boards the Night Recap adds flops seen and your best made hand.',
-      'Blind clock: from the setup screen or the ⋮ menu. Big countdown for the TV, levels and '
+      'Blind clock: from the setup screen or the menu at the top right. Big countdown for the TV, levels and '
           'breaks you can edit, or Cash game mode. It keeps time even if the phone sleeps.',
       'End game night shows the Night Recap: best hand, cold streaks, card luck, awards and '
           '"Dealer of Doom" (who dealt you the worst cards). Copy it for the group chat.',
@@ -123,7 +123,7 @@ const _topics = {
           'trends from night to night.',
       'Optional extras: tag a memorable hand (Bad beat, Cooler…) under the logger; it shows in '
           'the recap and, after the delay, on the dashboard. "Draw for the button" at setup deals '
-          'a card to each seat (high card deals, ♠ > ♥ > ♦ > ♣ break ties). ⋮ → My result stores '
+          'a card to each seat (high card deals, ♠ > ♥ > ♦ > ♣ break ties). The menu at the top right → My result stores '
           'your own buy-in and cash-out (just you — nobody else\'s money is tracked). '
           'Badges for milestones are on Crew & season.',
     ]
@@ -154,7 +154,7 @@ class HelpScreen extends StatelessWidget {
     final trainer = AppScope.maybeOf(context)?.trainer;
     return Scaffold(
       appBar: AppBar(title: const Text('How to use Felt Notes')),
-      body: ListView(
+      body: Felt.narrow(ListView(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
         children: [
           Card(
@@ -211,7 +211,7 @@ class HelpScreen extends StatelessWidget {
             ),
           ),
         ],
-      ),
+      )),
     );
   }
 }

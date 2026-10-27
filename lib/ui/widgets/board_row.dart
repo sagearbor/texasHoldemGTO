@@ -49,6 +49,21 @@ class _BoardRowState extends State<BoardRow> {
 
   List<int> get board => widget.session.currentBoard;
 
+  /// Hands logged when [_message] was last relevant: once the hand is logged
+  /// (or skipped) the old "Read … → Flop …" line no longer describes the
+  /// empty board row, so it is dropped.
+  late int _handsAtMessage = widget.session.hands.length;
+
+  @override
+  void didUpdateWidget(BoardRow old) {
+    super.didUpdateWidget(old);
+    final n = widget.session.hands.length;
+    if (_handsAtMessage != n) {
+      _message = null;
+      _handsAtMessage = n;
+    }
+  }
+
   @override
   void dispose() {
     _speech.cancel();

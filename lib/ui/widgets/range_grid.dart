@@ -164,7 +164,10 @@ class RangeGrid extends StatelessWidget {
           },
           textColor: (h) {
             final fold = spot.passiveIndex;
-            final folded = spot.freqs(h)[fold] > 0.5;
+            // Light theme: white text over a cell that is ~40% pale fold
+            // band washed out, so switch to dark text sooner.
+            final folded =
+                spot.freqs(h)[fold] > (b == Brightness.dark ? 0.5 : 0.3);
             if (!folded) return Colors.white;
             return b == Brightness.dark ? Colors.white60 : Colors.black54;
           },

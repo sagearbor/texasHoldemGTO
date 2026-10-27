@@ -125,22 +125,52 @@ class _ShellState extends State<Shell> {
       StatsScreen(model: m, onDrill: _drill),
       HomeGameScreen(model: widget.home, trainer: m),
     ];
-    return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: IndexedStack(index: tab, children: pages),
-        ),
+    const dests = [
+      (Icons.fitness_center, 'Train'),
+      (Icons.grid_on, 'Charts'),
+      (Icons.percent, 'Equity'),
+      (Icons.insights, 'Stats'),
+      (Icons.groups, 'Home game'),
+    ];
+    final content = Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 640),
+        child: IndexedStack(index: tab, children: pages),
       ),
+    );
+    void select(int i) => setState(() => tab = i);
+    // Wide screens (desktop browser, TV, tablet landscape): a rail on the left
+    // instead of a 1920-px-wide bottom bar under a 640-px column.
+    if (MediaQuery.sizeOf(context).width > 900) {
+      return Scaffold(
+        body: SafeArea(
+          child: Row(
+            children: [
+              NavigationRail(
+                selectedIndex: tab,
+                onDestinationSelected: select,
+                labelType: NavigationRailLabelType.all,
+                groupAlignment: -0.6,
+                destinations: [
+                  for (final d in dests)
+                    NavigationRailDestination(icon: Icon(d.$1), label: Text(d.$2)),
+                ],
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: content),
+            ],
+          ),
+        ),
+      );
+    }
+    return Scaffold(
+      body: content,
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
-        onDestinationSelected: (i) => setState(() => tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.fitness_center), label: 'Train'),
-          NavigationDestination(icon: Icon(Icons.grid_on), label: 'Charts'),
-          NavigationDestination(icon: Icon(Icons.percent), label: 'Equity'),
-          NavigationDestination(icon: Icon(Icons.insights), label: 'Stats'),
-          NavigationDestination(icon: Icon(Icons.groups), label: 'Home game'),
+        onDestinationSelected: select,
+        destinations: [
+          for (final d in dests)
+            NavigationDestination(icon: Icon(d.$1), label: d.$2),
         ],
       ),
     );

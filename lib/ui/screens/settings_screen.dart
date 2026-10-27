@@ -37,7 +37,7 @@ class SettingsScreen extends StatelessWidget {
     final trainer = scope?.trainer, home = scope?.home;
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: ListenableBuilder(
+      body: Felt.narrow(ListenableBuilder(
         listenable: Listenable.merge([
           AppSettings.all,
           ChartPrefs.colorBlind,
@@ -145,7 +145,7 @@ class SettingsScreen extends StatelessWidget {
             ]),
           ],
         ),
-      ),
+      )),
     );
   }
 }

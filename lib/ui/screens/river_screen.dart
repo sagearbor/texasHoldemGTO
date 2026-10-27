@@ -40,12 +40,12 @@ class _RiverScreenState extends State<RiverScreen> {
         final lib = snap.data;
         return Scaffold(
           appBar: AppBar(title: const Text('River spots')),
-          body: lib == null
+          body: Felt.narrow(lib == null
               ? Center(
                   child: snap.hasError
                       ? Text('Could not load river data: ${snap.error}')
                       : const CircularProgressIndicator())
-              : _body(context, lib),
+              : _body(context, lib)),
         );
       },
     );
