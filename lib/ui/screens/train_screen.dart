@@ -79,9 +79,9 @@ class _ModeMenu extends StatelessWidget {
         if (v is DrillMode) model.setMode(v);
         if (v is Difficulty) model.setDifficulty(v);
       },
-      // Plain items with a leading tick (not CheckedPopupMenuItem): the
-      // checked variant's inner ListTile swallowed taps with the web
-      // accessibility tree on, and its indent didn't match the mode rows.
+      // Plain items with a leading tick (not CheckedPopupMenuItem, whose
+      // indent didn't line up with the mode rows); the current drill
+      // mode gets a tick too, like the difficulty.
       itemBuilder: (_) {
         PopupMenuItem<Object> item(Object value, String text, bool on) =>
             PopupMenuItem<Object>(

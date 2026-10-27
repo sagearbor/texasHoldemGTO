@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -29,11 +28,7 @@ class AboutScreen extends StatelessWidget {
 
   Future<String> _version() async {
     try {
-      // Web: hand the plugin the page URL so it reads version.json from
-      // there first. Its own fallback (engine asset base URL) threw before
-      // any request on Flutter 3.22, so About showed "Version unknown".
-      final p = await PackageInfo.fromPlatform(
-          baseUrl: kIsWeb ? Uri.base.toString() : null);
+      final p = await PackageInfo.fromPlatform();
       return formatVersion(p.version, p.buildNumber);
     } catch (_) {
       return 'unknown';
