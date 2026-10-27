@@ -305,6 +305,24 @@ class TrainerModel extends ChangeNotifier {
     }
   }
 
+  /// Share of drills per format when a pool mixes them, so the 96 3-handed
+  /// push/fold spots don't crowd out cash spots in "All spots".
+  static const _formatShare = {
+    SpotFormat.cash100: 0.5,
+    SpotFormat.pushFold: 0.25,
+    SpotFormat.pushFold3: 0.25,
+  };
+
+  List<double> _formatWeights(List<Spot> pool) {
+    final counts = <SpotFormat, int>{};
+    for (final s in pool) {
+      counts[s.format] = (counts[s.format] ?? 0) + 1;
+    }
+    return [
+      for (final s in pool) (_formatShare[s.format] ?? 0.25) / counts[s.format]!
+    ];
+  }
+
   void setMode(DrillMode m) {
     mode = m;
     focusSpotId = null;
@@ -358,7 +376,7 @@ class TrainerModel extends ChangeNotifier {
       final weights = [for (final s in pool) 1 + 4 * (misses[s.id] ?? 0)];
       spot = pool[_weighted(weights)];
     } else {
-      spot = pool[_rng.nextInt(pool.length)];
+      spot = pool[_weighted(_formatWeights(pool))];
     }
 
     // Half the time deal a uniformly random hand; otherwise favour hands on
