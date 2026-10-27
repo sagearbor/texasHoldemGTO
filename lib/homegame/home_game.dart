@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../gto/coach.dart';
 import '../gto/hand_class.dart';
 import '../gto/spots.dart';
+import 'milestones.dart';
 
 enum PreAction { fold, call, raise }
 
@@ -23,6 +24,27 @@ const preActionLabels = {
   PreAction.raise: 'Raise',
 };
 
+/// Optional one-tap label for a memorable hand, added after it is logged.
+enum StoryTag { badBeat, cooler, bluff, suckout, heroFold, bigPot }
+
+const storyTagLabels = {
+  StoryTag.badBeat: 'Bad beat',
+  StoryTag.cooler: 'Cooler',
+  StoryTag.bluff: 'Bluff got through',
+  StoryTag.suckout: 'Suckout',
+  StoryTag.heroFold: 'Hero fold',
+  StoryTag.bigPot: 'Big pot',
+};
+
+/// Stored by name so reordering the enum never relabels old hands;
+/// unknown names (from a newer app version) read as no tag.
+StoryTag? storyTagFromName(Object? name) {
+  for (final t in StoryTag.values) {
+    if (t.name == name) return t;
+  }
+  return null;
+}
+
 class LoggedHand {
   final int number;
   final List<int>? cards;
@@ -32,6 +54,9 @@ class LoggedHand {
   final Facing? facing;
   final int ts;
 
+  /// Story tag, set (or cleared) after the hand is logged.
+  StoryTag? tag;
+
   LoggedHand({
     required this.number,
     required this.cards,
@@ -40,6 +65,7 @@ class LoggedHand {
     this.action,
     this.facing,
     required this.ts,
+    this.tag,
   });
 
   HandClass? get hand =>
@@ -56,6 +82,7 @@ class LoggedHand {
         'a': action?.index,
         'f': facing?.index,
         't': ts,
+        if (tag != null) 'g': tag!.name,
       };
 
   static LoggedHand fromJson(Map<String, dynamic> j) => LoggedHand(
@@ -66,6 +93,7 @@ class LoggedHand {
         action: j['a'] == null ? null : PreAction.values[j['a'] as int],
         facing: j['f'] == null ? null : Facing.values[j['f'] as int],
         ts: j['t'] as int,
+        tag: storyTagFromName(j['g']),
       );
 }
 
@@ -83,6 +111,13 @@ class HomeSession {
   final List<LoggedHand> hands;
   bool closed;
 
+  /// Your own money for the night, if you chose to enter it. Nobody
+  /// else's money is ever recorded.
+  double? buyIn, cashOut;
+
+  /// Net result when both numbers are in.
+  double? get net => buyIn == null || cashOut == null ? null : cashOut! - buyIn!;
+
   HomeSession({
     required this.id,
     required this.name,
@@ -92,6 +127,8 @@ class HomeSession {
     required this.buttonSeat,
     List<LoggedHand>? hands,
     this.closed = false,
+    this.buyIn,
+    this.cashOut,
   }) : hands = hands ?? [];
 
   int get tableSize => players.length;
@@ -149,6 +186,8 @@ class HomeSession {
         'btnNext': buttonSeat,
         'hands': [for (final h in hands) h.toJson()],
         'closed': closed,
+        if (buyIn != null) 'buyIn': buyIn,
+        if (cashOut != null) 'cashOut': cashOut,
       };
 
   static HomeSession fromJson(Map<String, dynamic> j) {
@@ -168,6 +207,8 @@ class HomeSession {
       buttonSeat: btn,
       hands: hands,
       closed: j['closed'] as bool? ?? false,
+      buyIn: (j['buyIn'] as num?)?.toDouble(),
+      cashOut: (j['cashOut'] as num?)?.toDouble(),
     );
   }
 }
@@ -308,8 +349,12 @@ const dashboardDelays = [0, 5, 15, 30, 60];
 class HomeGameModel extends ChangeNotifier {
   static const _key = 'home_sessions_v1';
   static const _delayKey = 'dashboard_delay_min';
+  static const _badgesKey = 'home_badges_seen';
   final SpotLibrary library;
   final List<HomeSession> sessions = [];
+
+  /// Milestone ids already announced, so each "Badge unlocked" shows once.
+  final Set<String> _seenBadges = {};
 
   /// The TV dashboard only shows hands logged at least this long ago, so
   /// nobody can read the hand that just finished off the screen.
@@ -335,6 +380,16 @@ class HomeGameModel extends ChangeNotifier {
         ]);
       }
       dashboardDelayMinutes = prefs.getInt(_delayKey) ?? 15;
+      final seen = prefs.getStringList(_badgesKey);
+      if (seen != null) {
+        _seenBadges.addAll(seen);
+      } else if (sessions.isNotEmpty) {
+        // Upgrading with history: don't announce badges earned long ago.
+        _seenBadges.addAll([
+          for (final m in milestones(sessions, library))
+            if (m.unlocked) m.id.name
+        ]);
+      }
     } catch (_) {}
     notifyListeners();
   }
@@ -345,6 +400,7 @@ class HomeGameModel extends ChangeNotifier {
       await prefs.setString(
           _key, jsonEncode([for (final s in sessions) s.toJson()]));
       await prefs.setInt(_delayKey, dashboardDelayMinutes);
+      await prefs.setStringList(_badgesKey, _seenBadges.toList());
     } catch (_) {}
   }
 
@@ -422,6 +478,32 @@ class HomeGameModel extends ChangeNotifier {
 
   void removePlayer(int seat) {
     active?.removePlayer(seat);
+    _changed();
+  }
+
+  /// Milestones unlocked since the last call (each is returned only once).
+  List<Milestone> claimNewBadges() {
+    final fresh = [
+      for (final m in milestones(sessions, library))
+        if (m.unlocked && !_seenBadges.contains(m.id.name)) m
+    ];
+    if (fresh.isNotEmpty) {
+      _seenBadges.addAll(fresh.map((m) => m.id.name));
+      _save();
+    }
+    return fresh;
+  }
+
+  /// Sets or clears the story tag on a logged hand.
+  void setTag(LoggedHand h, StoryTag? tag) {
+    h.tag = tag;
+    _changed();
+  }
+
+  /// Your own buy-in and cash-out for a night (null clears).
+  void setResult(HomeSession s, {double? buyIn, double? cashOut}) {
+    s.buyIn = buyIn;
+    s.cashOut = cashOut;
     _changed();
   }
 

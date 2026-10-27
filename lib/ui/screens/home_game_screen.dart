@@ -5,7 +5,11 @@ import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
 import '../../trainer/trainer_model.dart';
 import '../theme.dart';
+import '../widgets/badges.dart';
+import '../widgets/button_draw_dialog.dart';
+import '../widgets/my_result_dialog.dart';
 import '../widgets/playing_card.dart';
+import '../widgets/story_tags.dart';
 import 'blind_clock_screen.dart';
 import 'crew_screen.dart';
 import 'dashboard_screen.dart';
@@ -41,8 +45,12 @@ class HomeGameScreen extends StatelessWidget {
                 ),
               if (s != null)
                 PopupMenuButton<String>(
-                  onSelected: (v) {
+                  onSelected: (v) async {
+                    if (v == 'result') editMyResult(context, model, s);
                     if (v == 'end') {
+                      // Optional, yours only: Skip leaves it blank.
+                      await editMyResult(context, model, s, skipLabel: 'Skip');
+                      if (!context.mounted) return;
                       model.end();
                       // Wrapped: show tonight's recap straight away.
                       Navigator.of(context).push(MaterialPageRoute(
@@ -55,6 +63,7 @@ class HomeGameScreen extends StatelessWidget {
                   itemBuilder: (_) => const [
                     PopupMenuItem(value: 'clock', child: Text('Blind clock')),
                     PopupMenuItem(value: 'seats', child: Text('Players & seats')),
+                    PopupMenuItem(value: 'result', child: Text('My result')),
                     PopupMenuItem(value: 'end', child: Text('End game night')),
                   ],
                 ),
@@ -131,6 +140,19 @@ class _SetupState extends State<_Setup> {
                 selected: button == i,
                 onSelected: (_) => setState(() => button = i)),
         ]),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: p.length < 2 || p.length > 10
+                ? null
+                : () async {
+                    final w = await showButtonDraw(context, p);
+                    if (w != null && mounted) setState(() => button = w);
+                  },
+            icon: const Icon(Icons.style_outlined, size: 18),
+            label: const Text('Draw for the button'),
+          ),
+        ),
         const SizedBox(height: 20),
         FilledButton.icon(
           onPressed: p.length < 2 || p.length > 10
@@ -241,6 +263,7 @@ class _LoggerState extends State<_Logger> {
         ));
       }
     }
+    showBadgeSnack(context, widget.model.claimNewBadges());
   }
 
   Future<void> _pickCards() async {
@@ -304,10 +327,13 @@ class _LoggerState extends State<_Logger> {
               Row(children: [
                 Text('Hand $n', style: t.titleLarge),
                 const Spacer(),
-                ActionChip(
-                  avatar: const Icon(Icons.circle, size: 12),
-                  label: Text('Dealer: ${s.players[s.buttonSeat]}'),
-                  onPressed: _pickDealer,
+                Flexible(
+                  child: ActionChip(
+                    avatar: const Icon(Icons.circle, size: 12),
+                    label: Text('Dealer: ${s.players[s.buttonSeat]}',
+                        overflow: TextOverflow.ellipsis),
+                    onPressed: _pickDealer,
+                  ),
                 ),
               ]),
               const SizedBox(height: 8),
@@ -366,12 +392,11 @@ class _LoggerState extends State<_Logger> {
                 ],
               ]),
               const SizedBox(height: 8),
-              Row(children: [
+              Wrap(alignment: WrapAlignment.spaceBetween, children: [
                 TextButton(
                   onPressed: hasCards ? () => _save(null) : null,
                   child: const Text('Save cards only'),
                 ),
-                const Spacer(),
                 TextButton(
                   onPressed: () => _save(null, keepCards: false),
                   child: const Text('Skip hand'),
@@ -381,10 +406,12 @@ class _LoggerState extends State<_Logger> {
           ),
         ),
         const SizedBox(height: 12),
+        if (s.hands.isNotEmpty) StoryTagRow(model: widget.model, hand: s.hands.last),
         if (s.hands.isNotEmpty) ...[
           Row(children: [
-            Text('Recent hands', style: t.titleMedium),
-            const Spacer(),
+            Expanded(
+                child: Text('Recent hands',
+                    overflow: TextOverflow.ellipsis, style: t.titleMedium)),
             TextButton.icon(
               onPressed: widget.model.undo,
               icon: const Icon(Icons.undo, size: 18),

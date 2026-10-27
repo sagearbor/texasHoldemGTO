@@ -8,6 +8,8 @@ import '../gto/coach.dart';
 import '../gto/hand_class.dart';
 import '../gto/spots.dart';
 import 'home_game.dart';
+import 'moments.dart';
+import 'my_result.dart';
 
 const _premiumNames = {'AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo'};
 
@@ -355,6 +357,15 @@ String recapText(NightRecap r) {
       b.writeln('  ${d.name}: ${luckLabel(d.avgEquity)} over ${d.hands} hands');
     }
   }
+  final told = stories(r.session.hands);
+  if (told.isNotEmpty) {
+    b.writeln('Stories:');
+    for (final h in told.reversed) {
+      b.writeln('  ${storyLine(h)}');
+    }
+  }
+  final net = r.session.net;
+  if (net != null) b.writeln('My result: ${moneyLabel(net, signed: true)}');
   if (r.awards.isNotEmpty) {
     b.writeln('Awards:');
     for (final a in r.awards) {

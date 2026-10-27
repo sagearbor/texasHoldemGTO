@@ -7,6 +7,7 @@ import '../../homegame/home_game.dart';
 import '../theme.dart';
 import '../widgets/blind_clock_strip.dart';
 import '../widgets/dealer_luck_tile.dart';
+import '../widgets/moments_carousel.dart';
 import '../widgets/range_grid.dart';
 
 /// Big-type live view for a TV (screen-mirror the phone, or later Cast).
@@ -130,6 +131,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         '${model.dashboardDelayMinutes}-minute delay',
                         style: const TextStyle(color: Colors.white54)),
                   ),
+                MomentsCarousel(hands: shown, library: model.library),
+                DramaLine(hands: shown),
                 if (wide)
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Expanded(flex: 3, child: tiles),

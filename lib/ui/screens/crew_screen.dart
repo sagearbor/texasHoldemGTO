@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
+import '../../homegame/milestones.dart';
 import '../../homegame/recap.dart';
+import '../widgets/badges.dart';
+import '../widgets/my_result_dialog.dart';
 
 /// Everyone you've played with, plus your own numbers night by night.
 class CrewScreen extends StatelessWidget {
@@ -62,6 +65,11 @@ class CrewScreen extends StatelessWidget {
                           : null,
                     ),
                   ),
+                const SizedBox(height: 24),
+                MyResultSummary(sessions: model.sessions),
+                const SizedBox(height: 24),
+                Text('Badges', style: t.titleLarge),
+                BadgeWall(badges: milestones(model.sessions, model.library)),
               ],
             ),
     );

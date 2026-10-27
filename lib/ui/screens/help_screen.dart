@@ -73,6 +73,11 @@ const _topics = {
           'By default it only shows hands from 15+ minutes ago, so nobody reads the last hand '
           'off the screen. Tap the clock at the top to choose Instant up to 60 minutes.',
       'Undo last fixes a mis-tap. End the game night from the ⋮ menu. Past nights stay listed.',
+      'Optional extras: tag a memorable hand (Bad beat, Cooler…) under the logger; it shows in '
+          'the recap and, after the delay, on the dashboard. "Draw for the button" at setup deals '
+          'a card to each seat (high card deals, ♠ > ♥ > ♦ > ♣ break ties). ⋮ → My result stores '
+          'your own buy-in and cash-out (just you — nobody else\'s money is tracked). '
+          'Badges for milestones are on Crew & season.',
     ]
   ),
   HelpTopic.terms: (
