@@ -18,6 +18,13 @@ const _topics = {
       'The chip at the top right picks what you drill: all spots, 6-max 100bb, push/fold, '
           'or "Drill my leaks", which keeps serving the spots and hands you miss.',
       'Most hands dealt are borderline ones, because that is where mistakes happen.',
+      'Daily 10 (gold card at the top): the same 10 hands for everyone today. One try per day; '
+          'keep your streak going and tap Copy result to brag in the group chat.',
+      'Drill my leaks uses spaced repetition: a hand you miss comes back in 10 minutes, then '
+          'after 1, 3, 7 and 21 days as you keep getting it right. "N due" shows what is waiting. '
+          'Mistakes from your home game are added automatically.',
+      'Quizzes (quiz icon at the top): pot odds ("what equity do I need to call?") and '
+          'range reading ("which hand is NOT in the button\'s opening range?"), 10 per session.',
     ]
   ),
   HelpTopic.charts: (
@@ -76,6 +83,15 @@ const _topics = {
           'By default it only shows hands from 15+ minutes ago, so nobody reads the last hand '
           'off the screen. Tap the clock at the top to choose Instant up to 60 minutes.',
       'Undo last fixes a mis-tap. End the game night from the ⋮ menu. Past nights stay listed.',
+      'Snap my cards (Beta, phone only): tap the camera next to the card slots and photograph '
+          'your two cards so the corners show. It reads them on the phone (nothing is uploaded); '
+          'always check the suits before saving.',
+      'Blind clock: from the setup screen or the ⋮ menu. Big countdown for the TV, levels and '
+          'breaks you can edit, or Cash game mode. It keeps time even if the phone sleeps.',
+      'End game night shows the Night Recap: best hand, cold streaks, card luck, awards and '
+          '"Dealer of Doom" (who dealt you the worst cards). Copy it for the group chat.',
+      'Crew & season (setup screen): everyone who has played, attendance streaks and your '
+          'trends from night to night.',
     ]
   ),
   HelpTopic.terms: (
