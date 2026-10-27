@@ -7,6 +7,8 @@ library;
 import '../gto/coach.dart';
 import '../gto/hand_class.dart';
 import '../gto/spots.dart';
+import '../poker/cards.dart';
+import 'board_stats.dart';
 import 'home_game.dart';
 
 const _premiumNames = {'AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo'};
@@ -22,6 +24,7 @@ class RecapGates {
   static const dealerMinHands = 4;
   static const luckAwardMinDealt = 20;
   static const banditMinSamples = 5;
+  static const flopsMinChances = 3;
 }
 
 double? _equity(LoggedHand h, SpotLibrary lib) {
@@ -334,6 +337,15 @@ String recapText(NightRecap r) {
   if (r.best != null) {
     b.writeln('Best hand: ${r.best!.hand!.name} (hand #${r.best!.number}, ${r.best!.position}, '
         '${pct(r.bestEquity)} vs random)');
+  }
+  final bs = boardStats(r.session.hands);
+  if (bs.flopChances >= RecapGates.flopsMinChances) {
+    b.writeln('Flops seen: ${pct(bs.flopSeenPct)} (${bs.flopsSeen} of ${bs.flopChances})');
+  }
+  if (bs.best != null) {
+    String cs(List<int> c) => c.map(cardToString).join(' ');
+    b.writeln('Best made hand: ${bs.bestName} (hand #${bs.best!.number}, '
+        '${cs(bs.best!.cards!)} on ${cs(bs.best!.board!)})');
   }
   if (r.coldRun != null) {
     b.writeln('Coldest stretch: hands #${r.coldRun!.from}-#${r.coldRun!.to}, '

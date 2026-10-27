@@ -32,6 +32,10 @@ class LoggedHand {
   final Facing? facing;
   final int ts;
 
+  /// Community cards called for this hand (0, 3, 4 or 5 cards; a partial
+  /// flop is possible). Recorded by the board caller; null when nobody did.
+  final List<int>? board;
+
   LoggedHand({
     required this.number,
     required this.cards,
@@ -40,7 +44,26 @@ class LoggedHand {
     this.action,
     this.facing,
     required this.ts,
+    this.board,
   });
+
+  LoggedHand copyWith({
+    List<int>? cards,
+    PreAction? action,
+    Facing? facing,
+    List<int>? board,
+    bool clearAction = false,
+  }) =>
+      LoggedHand(
+        number: number,
+        cards: cards ?? this.cards,
+        position: position,
+        dealer: dealer,
+        action: clearAction ? null : action ?? this.action,
+        facing: clearAction ? null : facing ?? this.facing,
+        ts: ts,
+        board: board ?? this.board,
+      );
 
   HandClass? get hand =>
       cards == null ? null : HandClass.fromCards(cards![0], cards![1]);
@@ -56,6 +79,7 @@ class LoggedHand {
         'a': action?.index,
         'f': facing?.index,
         't': ts,
+        if (board != null && board!.isNotEmpty) 'b': board,
       };
 
   static LoggedHand fromJson(Map<String, dynamic> j) => LoggedHand(
@@ -66,6 +90,7 @@ class LoggedHand {
         action: j['a'] == null ? null : PreAction.values[j['a'] as int],
         facing: j['f'] == null ? null : Facing.values[j['f'] as int],
         ts: j['t'] as int,
+        board: (j['b'] as List?)?.cast<int>(),
       );
 }
 
@@ -83,6 +108,11 @@ class HomeSession {
   final List<LoggedHand> hands;
   bool closed;
 
+  /// Board called so far for the hand being played now. Saved with the
+  /// session so a locked or killed phone does not lose it, and moved onto
+  /// the hand when it is logged.
+  List<int> currentBoard;
+
   HomeSession({
     required this.id,
     required this.name,
@@ -92,7 +122,9 @@ class HomeSession {
     required this.buttonSeat,
     List<LoggedHand>? hands,
     this.closed = false,
-  }) : hands = hands ?? [];
+    List<int>? currentBoard,
+  })  : hands = hands ?? [],
+        currentBoard = currentBoard ?? [];
 
   int get tableSize => players.length;
 
@@ -149,6 +181,7 @@ class HomeSession {
         'btnNext': buttonSeat,
         'hands': [for (final h in hands) h.toJson()],
         'closed': closed,
+        if (currentBoard.isNotEmpty) 'cb': currentBoard,
       };
 
   static HomeSession fromJson(Map<String, dynamic> j) {
@@ -168,6 +201,7 @@ class HomeSession {
       buttonSeat: btn,
       hands: hands,
       closed: j['closed'] as bool? ?? false,
+      currentBoard: (j['cb'] as List?)?.cast<int>().toList(),
     );
   }
 }
@@ -379,9 +413,12 @@ class HomeGameModel extends ChangeNotifier {
     _changed();
   }
 
-  /// Records the current hand, then passes the button one seat clockwise.
+  /// Records the current hand (with the board called for it, if any), then
+  /// passes the button one seat clockwise.
   void logHand({List<int>? cards, PreAction? action, Facing? facing}) {
     final s = active!;
+    final board = s.currentBoard.isEmpty ? null : List<int>.of(s.currentBoard);
+    s.currentBoard = [];
     s.hands.add(LoggedHand(
       number: s.hands.length + 1,
       cards: cards,
@@ -390,6 +427,7 @@ class HomeGameModel extends ChangeNotifier {
       action: action,
       facing: action == null ? null : facing,
       ts: DateTime.now().millisecondsSinceEpoch,
+      board: board,
     ));
     s.buttonSeat = (s.buttonSeat + 1) % s.tableSize;
     _changed();
@@ -400,10 +438,66 @@ class HomeGameModel extends ChangeNotifier {
     final s = active;
     if (s == null || s.hands.isEmpty) return;
     final last = s.hands.removeLast();
+    // The board comes back with the hand, unless a new one is being called.
+    if (last.board != null && s.currentBoard.isEmpty) {
+      s.currentBoard = List.of(last.board!);
+    }
     final seat = last.dealer == null ? -1 : s.players.indexOf(last.dealer!);
     s.buttonSeat = seat >= 0 ? seat : (s.buttonSeat - 1) % s.tableSize;
     _changed();
   }
+
+  /// Replaces the board for the hand being played now.
+  void setCurrentBoard(List<int> board) {
+    final s = active;
+    if (s == null) return;
+    s.currentBoard = List.of(board.take(5));
+    _changed();
+  }
+
+  /// Removes the last called board card of the current hand.
+  void undoBoardCard() {
+    final s = active;
+    if (s == null || s.currentBoard.isEmpty) return;
+    s.currentBoard = s.currentBoard.sublist(0, s.currentBoard.length - 1);
+    _changed();
+  }
+
+  /// Late logging: you remember your cards (and maybe what you did) after
+  /// the table has moved on. Puts them on the already-logged hand
+  /// [handNumber] (picked by its board) instead of the hand being played
+  /// now. Position, dealer, time and board of that hand stay as they were;
+  /// the button does not move. Null [cards] / [action] leave what was there.
+  /// Returns false when there is no such hand.
+  ///
+  /// Multi-phone later: every phone keeps its own copy of the night, so a
+  /// hand is identified across phones by (night id, hand number, board).
+  /// The night id is shared when phones join the same game (QR code); hand
+  /// numbers can drift if one phone missed a "log", so the board, which the
+  /// board caller's phone broadcasts, is the tie-breaker: a player's hand
+  /// attaches to the caller's hand whose number is within a few of theirs
+  /// and whose board matches. No sync exists yet; this is the single-phone
+  /// version of that match.
+  bool attachToHand(int handNumber, {List<int>? cards, PreAction? action, Facing? facing}) {
+    final s = active;
+    if (s == null) return false;
+    final i = s.hands.indexWhere((h) => h.number == handNumber);
+    if (i < 0) return false;
+    final old = s.hands[i];
+    s.hands[i] = old.copyWith(
+      cards: cards,
+      action: action,
+      facing: action == null ? null : facing ?? Facing.unopened,
+    );
+    _changed();
+    return true;
+  }
+
+  /// Tonight's hands that have a board, newest first ("That was hand…").
+  List<LoggedHand> handsWithBoards() => [
+        for (final h in (active?.hands ?? const <LoggedHand>[]).reversed)
+          if (h.board != null && h.board!.isNotEmpty) h
+      ];
 
   void setPosition(String pos) {
     active?.setPosition(pos);
