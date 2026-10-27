@@ -70,7 +70,8 @@ class ActionBand extends StatelessWidget {
     final box = ColoredBox(color: chartColor(action, b, colorBlind: patterned));
     final kind = actionKind(action);
     if (!patterned || kind == ActionKind.fold) return box;
-    return CustomPaint(foregroundPainter: ActionPatternPainter(kind), child: box);
+    return CustomPaint(
+        foregroundPainter: ActionPatternPainter(kind), child: box);
   }
 }
 
@@ -96,7 +97,8 @@ class ActionPatternPainter extends CustomPainter {
           ..strokeWidth = 1.3;
         // Diagonal hatching, bottom-left to top-right.
         for (var x = -size.height; x < size.width; x += _spacing) {
-          canvas.drawLine(Offset(x, size.height), Offset(x + size.height, 0), paint);
+          canvas.drawLine(
+              Offset(x, size.height), Offset(x + size.height, 0), paint);
         }
       case ActionKind.call:
         paint.style = PaintingStyle.fill;
@@ -113,7 +115,8 @@ class ActionPatternPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(ActionPatternPainter oldDelegate) => oldDelegate.kind != kind;
+  bool shouldRepaint(ActionPatternPainter oldDelegate) =>
+      oldDelegate.kind != kind;
 }
 
 /// 13×13 strategy grid. Each cell is filled left-to-right with one band per
@@ -125,7 +128,12 @@ class RangeGrid extends StatelessWidget {
 
   /// Forces pattern mode on or off; null follows [ChartPrefs.colorBlind].
   final bool? patterns;
-  const RangeGrid({super.key, required this.spot, this.highlight, this.onTap, this.patterns});
+  const RangeGrid(
+      {super.key,
+      required this.spot,
+      this.highlight,
+      this.onTap,
+      this.patterns});
 
   @override
   Widget build(BuildContext context) {
@@ -139,16 +147,19 @@ class RangeGrid extends StatelessWidget {
           semantics: (h) => cellSemantics(spot, h),
           cell: (h) {
             final f = spot.freqs(h);
-            return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              for (var i = 0; i < f.length; i++)
-                if (f[i] > 0.001)
-                  Expanded(
-                      flex: (f[i] * 1000).round(),
-                      child: ActionBand(action: spot.actions[i], patterned: cb)),
-            ]);
+            return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < f.length; i++)
+                    if (f[i] > 0.001)
+                      Expanded(
+                          flex: (f[i] * 1000).round(),
+                          child: ActionBand(
+                              action: spot.actions[i], patterned: cb)),
+                ]);
           },
           textColor: (h) {
-            final fold = spot.actions.indexOf('Fold');
+            final fold = spot.passiveIndex;
             final folded = spot.freqs(h)[fold] > 0.5;
             if (!folded) return Colors.white;
             return b == Brightness.dark ? Colors.white60 : Colors.black54;
@@ -168,7 +179,11 @@ class ActionFreqBar extends StatelessWidget {
   /// Forces pattern mode on or off; null follows [ChartPrefs.colorBlind].
   final bool? patterns;
   const ActionFreqBar(
-      {super.key, required this.spot, required this.hand, this.height = 14, this.patterns});
+      {super.key,
+      required this.spot,
+      required this.hand,
+      this.height = 14,
+      this.patterns});
 
   @override
   Widget build(BuildContext context) {
@@ -182,12 +197,14 @@ class ActionFreqBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
           child: SizedBox(
             height: height,
-            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            child:
+                Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               for (var i = 0; i < f.length; i++)
                 if (f[i] > 0.001)
                   Expanded(
                       flex: (f[i] * 1000).round(),
-                      child: ActionBand(action: spot.actions[i], patterned: cb)),
+                      child:
+                          ActionBand(action: spot.actions[i], patterned: cb)),
             ]),
           ),
         ),
@@ -225,8 +242,9 @@ class HeatGrid extends StatelessWidget {
         final v = value(h);
         return ColoredBox(color: v == null ? empty : heat(v));
       },
-      textColor: (h) =>
-          value(h) == null ? Theme.of(context).colorScheme.onSurfaceVariant : Colors.white,
+      textColor: (h) => value(h) == null
+          ? Theme.of(context).colorScheme.onSurfaceVariant
+          : Colors.white,
     );
   }
 }
@@ -278,7 +296,9 @@ class _Grid extends StatelessWidget {
         onTap: onTap == null ? null : () => onTap!(h),
         child: Container(
           margin: const EdgeInsets.all(0.5),
-          decoration: hl ? BoxDecoration(border: Border.all(color: Felt.gold, width: 2.5)) : null,
+          decoration: hl
+              ? BoxDecoration(border: Border.all(color: Felt.gold, width: 2.5))
+              : null,
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -292,7 +312,9 @@ class _Grid extends StatelessWidget {
                     fontSize: (size * 0.3).clamp(6, 14),
                     fontWeight: FontWeight.w600,
                     color: textColor(h),
-                    shadows: const [Shadow(blurRadius: 2, color: Colors.black26)],
+                    shadows: const [
+                      Shadow(blurRadius: 2, color: Colors.black26)
+                    ],
                   ),
                 ),
               ),

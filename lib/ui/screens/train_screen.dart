@@ -77,16 +77,27 @@ class _ModeMenu extends StatelessWidget {
       tooltip: 'Drill mode',
       onSelected: (v) {
         if (v is DrillMode) model.setMode(v);
+        if (v is Difficulty) model.setDifficulty(v);
       },
       itemBuilder: (_) => [
         for (final e in labels.entries)
           PopupMenuItem(value: e.key, child: Text(name(e.key))),
+        const PopupMenuDivider(),
+        const PopupMenuItem<Object>(
+            enabled: false, height: 32, child: Text('Difficulty')),
+        for (final e in difficultyLabels.entries)
+          CheckedPopupMenuItem<Object>(
+              value: e.key,
+              checked: model.difficulty == e.key,
+              child: Text(e.value)),
       ],
       child: Chip(
         avatar: Icon(
             model.mode == DrillMode.leaks ? Icons.healing : Icons.tune,
             size: 18),
-        label: Text(label),
+        label: Text(model.difficulty == Difficulty.intermediate
+            ? label
+            : '$label · ${difficultyLabels[model.difficulty]}'),
         onDeleted: model.focusSpotId != null ? () => model.focus(null) : null,
       ),
     );
@@ -192,10 +203,12 @@ class _DrillCard extends StatelessWidget {
                   spot: spot,
                   hand: drill.hand,
                   chosen: ans.chosen,
-                  showGrid: ans.grade != Grade.correct),
+                  roll: model.lastRoll,
+                  simple: model.difficulty == Difficulty.beginner,
+                  showGrid: model.gradeOf(ans) != Grade.correct),
               const SizedBox(height: 14),
               Row(children: [
-                if (ans.grade == Grade.correct)
+                if (model.gradeOf(ans) == Grade.correct)
                   TextButton(
                     onPressed: () => showCoachSheet(context, spot, drill.hand),
                     child: const Text('See chart'),

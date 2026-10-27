@@ -5,6 +5,7 @@ import '../../gto/hand_class.dart';
 import '../../gto/spots.dart';
 import '../theme.dart';
 import '../widgets/range_grid.dart';
+import '../widgets/solver_dice.dart';
 
 /// Coaching panel for one hand in one spot. [chosen] is the action the
 /// player took (null when browsing charts).
@@ -13,19 +14,34 @@ class CoachPanel extends StatelessWidget {
   final HandClass hand;
   final int? chosen;
   final bool showGrid;
+
+  /// Solver-dice roll (0..99); when set and the hand is mixed, the dice
+  /// explainer is shown under the strategy line.
+  final int? roll;
+
+  /// Beginner mode: >= 50% counts as right and coaching is shortened.
+  final bool simple;
   const CoachPanel(
       {super.key,
       required this.spot,
       required this.hand,
       this.chosen,
-      this.showGrid = true});
+      this.showGrid = true,
+      this.roll,
+      this.simple = false});
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final f = spot.freqs(hand);
-    final grade = chosen == null ? null : gradeFor(f[chosen!]);
-    final notes = coachNotes(spot, hand, chosen ?? _best(f));
+    final grade = chosen == null
+        ? null
+        : simple
+            ? beginnerGradeFor(f[chosen!])
+            : gradeFor(f[chosen!]);
+    final notes = simple && chosen != null
+        ? simpleCoachNotes(spot, hand, chosen!)
+        : coachNotes(spot, hand, chosen ?? _best(f));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -36,6 +52,10 @@ class CoachPanel extends StatelessWidget {
         ActionFreqBar(spot: spot, hand: hand),
         const SizedBox(height: 4),
         Text(strategyLine(spot, hand), style: t.bodyMedium),
+        if (roll != null && SolverDice.applies(spot, hand)) ...[
+          const SizedBox(height: 10),
+          SolverDice(spot: spot, hand: hand, roll: roll!),
+        ],
         const SizedBox(height: 10),
         for (final n in notes)
           Padding(

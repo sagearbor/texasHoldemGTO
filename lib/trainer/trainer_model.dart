@@ -39,6 +39,30 @@ class Answer {
 
 enum DrillMode { mixed, cashOnly, pushFoldOnly, leaks }
 
+/// Which hands the free-play trainer deals, and how strictly it grades.
+/// Beginner: clear-cut hands only, the >= 50% action counts as right,
+/// short coaching. Intermediate: the original mix. Expert: borderline hands
+/// only. The Daily 10 and the spaced-repetition deck ignore this.
+enum Difficulty { beginner, intermediate, expert }
+
+const difficultyLabels = {
+  Difficulty.beginner: 'Beginner',
+  Difficulty.intermediate: 'Intermediate',
+  Difficulty.expert: 'Expert',
+};
+
+/// Whether [h] is dealt in [spot] at difficulty [d].
+bool handFitsDifficulty(Spot spot, HandClass h, Difficulty d) {
+  switch (d) {
+    case Difficulty.intermediate:
+      return true;
+    case Difficulty.beginner:
+      return edginess(spot, h) <= 0.05 && spot.freqs(h).any((f) => f >= 0.8);
+    case Difficulty.expert:
+      return edginess(spot, h) >= 0.7;
+  }
+}
+
 /// Injectable wall clock (tests pass a fake one).
 typedef Clock = DateTime Function();
 
@@ -112,6 +136,7 @@ class SrDeck {
 class TrainerModel extends ChangeNotifier {
   static const _key = 'trainer_history_v1';
   static const _seedKey = 'trainer_sr_seeds_v1';
+  static const _difficultyKey = 'trainer_difficulty_v1';
   static const _maxHistory = 3000;
   static const _maxSeeds = 500;
 
@@ -133,6 +158,10 @@ class TrainerModel extends ChangeNotifier {
   /// served again straight away.
   String? _lastKey;
   DrillMode mode = DrillMode.mixed;
+  Difficulty difficulty = Difficulty.intermediate;
+
+  /// Solver-dice roll (0..99) for the last answer, when the hand is mixed.
+  int? lastRoll;
 
   /// When non-null, drills stay in this one spot.
   String? focusSpotId;
@@ -158,6 +187,10 @@ class TrainerModel extends ChangeNotifier {
           for (final j in jsonDecode(raw) as List)
             Answer.fromJson(j as Map<String, dynamic>)
         ]);
+      }
+      final diff = prefs.getString(_difficultyKey);
+      for (final d in Difficulty.values) {
+        if (d.name == diff) difficulty = d;
       }
       final seeds = prefs.getString(_seedKey);
       if (seeds != null) {
@@ -278,6 +311,20 @@ class TrainerModel extends ChangeNotifier {
     next();
   }
 
+  Future<void> setDifficulty(Difficulty d) async {
+    difficulty = d;
+    next();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_difficultyKey, d.name);
+    } catch (_) {}
+  }
+
+  /// Grade shown for [a] at the current difficulty. The stored answer keeps
+  /// the true frequency, so history and the deck are unaffected.
+  Grade gradeOf(Answer a) =>
+      difficulty == Difficulty.beginner ? beginnerGradeFor(a.freq) : a.grade;
+
   void focus(String? spotId) {
     focusSpotId = spotId;
     next();
@@ -285,6 +332,7 @@ class TrainerModel extends ChangeNotifier {
 
   void next() {
     lastAnswer = null;
+    lastRoll = null;
     current = _pick();
     notifyListeners();
   }
@@ -316,7 +364,12 @@ class TrainerModel extends ChangeNotifier {
     // Half the time deal a uniformly random hand; otherwise favour hands on
     // the edge of the range, which is where people actually make mistakes.
     HandClass hand;
-    if (_rng.nextBool()) {
+    final filtered = difficulty == Difficulty.intermediate
+        ? null
+        : _pickForDifficulty(spot);
+    if (filtered != null) {
+      hand = filtered;
+    } else if (_rng.nextBool()) {
       final cards = dealRandom(_rng, 2, {});
       hand = HandClass.fromCards(cards[0], cards[1]);
     } else {
@@ -336,6 +389,27 @@ class TrainerModel extends ChangeNotifier {
     }
     final combos = hand.combos();
     return Drill(spot, combos[_rng.nextInt(combos.length)]);
+  }
+
+  /// A hand for Beginner / Expert, or null when no hand in [spot] fits.
+  HandClass? _pickForDifficulty(Spot spot) {
+    final fits = [
+      for (final h in allHandClasses)
+        if (handFitsDifficulty(spot, h, difficulty)) h
+    ];
+    if (fits.isEmpty) return null;
+    var from = fits;
+    if (difficulty == Difficulty.beginner) {
+      // Clear-cut hands are mostly folds; deal played and folded hands
+      // equally often so beginners learn what IS in the range.
+      final passive = spot.passiveIndex;
+      final play = fits.where((h) => spot.freqs(h)[passive] < 0.5).toList();
+      final fold = fits.where((h) => spot.freqs(h)[passive] >= 0.5).toList();
+      if (play.isNotEmpty && fold.isNotEmpty) {
+        from = _rng.nextBool() ? play : fold;
+      }
+    }
+    return from[_weighted([for (final h in from) h.comboCount])];
   }
 
   int _weighted(List<num> w) {
@@ -366,8 +440,12 @@ class TrainerModel extends ChangeNotifier {
     final d = current!;
     final a = record(d.spot, d.hand, actionIndex);
     lastAnswer = a;
+    lastRoll = isMixedHand(d.spot, d.hand) ? _rng.nextInt(100) : null;
     sessionCount++;
-    if (!a.isMiss) {
+    final good = difficulty == Difficulty.beginner
+        ? gradeOf(a) == Grade.correct
+        : !a.isMiss;
+    if (good) {
       sessionGood++;
       streak++;
     } else {

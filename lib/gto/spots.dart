@@ -4,6 +4,10 @@
 ///  * 6-max 100bb cash: baseline ranges written from standard modern theory
 ///    (2.5x opens, 3x SB open, ~3x IP / ~3.5x OOP 3-bets). They are
 ///    approximations of solver output, labelled as such in the UI.
+///  * 6-max 100bb facing limpers: hand-authored approximations for
+///    limp-heavy home games (iso / overlimp / fold; BB raise / check).
+///    Limped pots are not in standard solver trees, so these are labelled
+///    "approximate" more loudly than the rest.
 ///  * Heads-up push/fold: true Nash equilibrium computed by
 ///    tool/solve_pushfold.dart (assets/data/pushfold.json).
 ///  * 3-handed push/fold (BTN, SB, BB): equilibrium computed by
@@ -54,9 +58,16 @@ class Spot {
 
   List<double> freqs(HandClass h) => strategy[h.index];
 
-  /// Percent of all combos that take a non-fold action.
+  /// Index of the "do nothing" action: Fold, or Check for the big blind
+  /// facing limpers (which has no fold).
+  int get passiveIndex {
+    final f = actions.indexOf('Fold');
+    return f >= 0 ? f : actions.indexOf('Check');
+  }
+
+  /// Percent of all combos that take a non-fold (non-check) action.
   double get playPercent {
-    final foldIdx = actions.indexOf('Fold');
+    final foldIdx = passiveIndex;
     var c = 0.0;
     for (final h in allHandClasses) {
       c += h.comboCount * (1 - strategy[h.index][foldIdx]);
@@ -64,6 +75,9 @@ class Spot {
     return c / 1326;
   }
 }
+
+/// Group name of the hand-authored facing-limpers spots.
+const limperGroup = 'Facing limpers';
 
 List<List<double>> _rfi(String raise) {
   final r = parseRange(raise);
@@ -181,6 +195,85 @@ const _vsOpenRanges = {
   ),
 };
 
+/// Rows of [iso, passive, fold] (or [raise, check] when [check] is true).
+/// [passive] is the extra overlimp / complete range, capped so a row never
+/// exceeds 1 (iso takes priority).
+List<List<double>> _vsLimp(String iso, String passive, {bool check = false}) {
+  final r = parseRange(iso), p = parseRange(passive);
+  return [
+    for (var i = 0; i < 169; i++)
+      () {
+        final rr = r[i] ?? 0;
+        if (check) return [rr, 1 - rr];
+        final pp = (p[i] ?? 0).clamp(0.0, 1 - rr);
+        return [rr, pp, 1 - rr - pp];
+      }()
+  ];
+}
+
+/// Facing limpers, 6-max 100bb. (hero, limpers) -> (raise, overlimp or
+/// complete). Hand-authored from standard theory, not solved:
+///  * iso-raises are tighter than RFI and value-heavy (pairs, big cards);
+///  * overlimps are mostly small pairs and suited connectors in position,
+///    more of them vs two limpers (better price, multiway implied odds);
+///  * the SB completes a fair amount for half a big blind;
+///  * the BB raises for value and checks everything else for free.
+const _vsLimpRanges = {
+  ('CO', 1): (
+    '88+, 77:0.6, A9s+, A5s-A4s:0.4, KTs+, QJs, QTs:0.5, AJo+, ATo:0.5, KQo, '
+        'KJo:0.3',
+    '77:0.4, 66-22, A8s-A6s:0.5, A5s-A2s:0.6, K9s:0.5, QTs:0.5, Q9s:0.4, JTs, '
+        'J9s:0.5, T9s, 98s, 87s:0.8, 76s:0.6, 65s:0.5'
+  ),
+  ('BTN', 1): (
+    '77+, 66:0.5, A8s+, A5s-A2s:0.5, K9s+, Q9s+, J9s+, T9s:0.5, ATo+, A9o:0.4, '
+        'KJo+, KTo:0.4, QJo:0.5',
+    '66:0.5, 55-22, A7s-A6s:0.6, A5s-A2s:0.5, K8s-K6s:0.5, Q8s:0.5, J8s:0.5, '
+        'T9s:0.5, T8s:0.6, 98s, 97s:0.4, 87s, 86s:0.4, 76s, 75s:0.3, 65s, '
+        '54s:0.6, A8o:0.3, KTo:0.3, QTo:0.4, JTo:0.4'
+  ),
+  ('SB', 1): (
+    '88+, 77:0.5, ATs+, A5s:0.5, KJs+, QJs:0.5, AJo+, KQo:0.6',
+    '77:0.5, 66-22, A9s-A2s, KTs-K7s, QTs-Q8s, QJs:0.5, J8s+, T8s+, 97s+, '
+        '86s+, 75s+, 64s+, 54s, ATo-A8o, KJo-KTo, KQo:0.4, QTo+, JTo, '
+        'T9o:0.5, 98o:0.4'
+  ),
+  ('BB', 1): (
+    '99+, 88:0.6, ATs+, A5s:0.4, KJs+, KTs:0.4, QJs:0.4, AJo+, ATo:0.3, KQo, '
+        'KJo:0.3',
+    ''
+  ),
+  ('CO', 2): (
+    'TT+, 99:0.6, 88:0.3, AJs+, ATs:0.5, KQs, KJs:0.4, AQo+, AJo:0.4, KQo:0.3',
+    '99:0.4, 88:0.7, 77-22, ATs:0.5, A9s-A2s:0.7, KJs:0.6, KTs:0.8, K9s:0.4, '
+        'QTs+, Q9s:0.5, JTs, J9s:0.6, T9s, 98s, 87s, 76s:0.8, 65s:0.7, 54s:0.4'
+  ),
+  ('BTN', 2): (
+    'TT+, 99:0.6, 88:0.3, ATs+, A5s:0.3, KJs+, QJs:0.3, AQo+, AJo:0.6, KQo:0.5',
+    '99:0.4, 88:0.7, 77-22, A9s-A2s, A5s:0.7, KTs-K6s, QJs:0.7, QTs-Q8s, J8s+, '
+        'T8s+, 97s+, 86s+, 75s+, 64s+, 54s, 43s:0.5, ATo-A9o:0.5, AJo:0.4, '
+        'KJo:0.6, KTo:0.4, KQo:0.5, QJo:0.5, QTo:0.3, JTo:0.5'
+  ),
+  ('SB', 2): (
+    'JJ+, TT:0.6, AQs+, AJs:0.5, AKo, AQo:0.5',
+    'TT:0.4, 99-22, AJs:0.5, ATs-A2s, KTs+, K9s-K5s, Q8s+, J8s+, T7s+, 97s+, '
+        '86s+, 75s+, 64s+, 53s+, 43s:0.5, AQo:0.5, AJo-A8o, A7o-A2o:0.3, KTo+, '
+        'K9o:0.4, QTo+, Q9o:0.4, JTo, J9o:0.4, T9o, 98o:0.5, 87o:0.3'
+  ),
+  ('BB', 2): (
+    'TT+, 99:0.5, AQs+, AJs:0.6, KQs:0.5, AKo, AQo:0.6',
+    ''
+  ),
+};
+
+/// Iso-raise size label: 4bb in position vs one limper, +1bb per extra
+/// limper, +1bb more out of position (SB/BB).
+String isoLabel(String hero, int limpers) {
+  final oop = hero == 'SB' || hero == 'BB';
+  final size = 3 + limpers + (oop ? 1 : 0);
+  return hero == 'BB' ? 'Raise ${size}bb' : 'Iso ${size}bb';
+}
+
 const positions6max = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
 
 List<Spot> buildCashSpots() {
@@ -219,6 +312,35 @@ List<Spot> buildCashSpots() {
                 [row[0], 1 - row[0]]
             ]
           : _vsOpen(ranges.$1, ranges.$2),
+    ));
+  });
+  _vsLimpRanges.forEach((key, ranges) {
+    final (hero, n) = key;
+    final limpers = n == 1 ? 'UTG limps' : 'UTG and HJ limp';
+    final between = positions6max
+        .sublist(n == 1 ? 1 : 2, positions6max.indexOf(hero));
+    final folds = between.isEmpty
+        ? ''
+        : ', ${between.join(', ')} fold${between.length == 1 ? 's' : ''}';
+    final situation = switch (hero) {
+      'BB' => '$limpers$folds. Check for free or raise?',
+      'SB' => '$limpers$folds. Action is on you in the SB.',
+      _ => '$limpers$folds. Action is on you on the $hero.',
+    };
+    spots.add(Spot(
+      id: 'cash-limp$n-$hero',
+      format: SpotFormat.cash100,
+      group: limperGroup,
+      title: '$hero vs $n limper${n == 1 ? '' : 's'}',
+      situation: situation,
+      hero: hero,
+      villain: n == 1 ? 'UTG' : 'HJ',
+      actions: [
+        isoLabel(hero, n),
+        if (hero == 'BB') 'Check' else if (hero == 'SB') 'Complete' else 'Overlimp',
+        if (hero != 'BB') 'Fold',
+      ],
+      strategy: _vsLimp(ranges.$1, ranges.$2, check: hero == 'BB'),
     ));
   });
   return spots;
