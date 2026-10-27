@@ -200,8 +200,8 @@ class _ChartsScreenState extends State<ChartsScreen> {
             child: ListTile(
               leading: const Icon(Icons.layers),
               title: const Text('Flop c-bets (simplified)'),
-              subtitle:
-                  const Text('BTN vs BB flop c-betting by texture + drill'),
+              subtitle: const Text(
+                  'Experimental: BTN vs BB c-bets by texture + drill'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context)
                   .push(MaterialPageRoute(builder: (_) => const FlopScreen())),

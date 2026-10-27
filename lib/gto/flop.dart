@@ -2,9 +2,10 @@
 /// computed offline by tool/solve_flop.dart with CFR+ and stored in
 /// assets/data/flops.json.
 ///
-/// SIMPLIFIED MODEL: one street only. Check-check and called bets are settled
-/// by each combo's exact flop equity (all turn+river runouts) times an equity
-/// realisation factor (BB realises 90%, BTN the rest). No turn or river play.
+/// EXPERIMENTAL, SIMPLIFIED MODEL: the flop is solved together with a small
+/// turn game (BB check / bet 75%, BTN check / bet 75%, fold / call); the river
+/// is not played: turn showdowns use exact river-card equity with a mild,
+/// zero-sum equity-realisation adjustment. Only flop strategies are stored.
 /// Every number and sentence here comes from that solution: the coaching is
 /// templated text filled from frequencies and equities.
 library;
@@ -23,7 +24,8 @@ const flopBb = 0, flopBtn = 1;
 const flopSeatName = ['BB', 'BTN'];
 
 /// Label shown wherever flop data is used.
-const flopModelLabel = 'Simplified: one street, equity realisation';
+const flopModelLabel =
+    'Experimental, simplified: flop + turn, no river betting';
 
 class FlopSide {
   final List<int> c1, c2;
@@ -315,9 +317,8 @@ class FlopBoard {
 class FlopLibrary {
   final List<FlopBoard> boards;
   final String format;
-  final double realiseOop;
   final int solveSeconds;
-  FlopLibrary(this.boards, this.format, this.realiseOop, this.solveSeconds);
+  FlopLibrary(this.boards, this.format, this.solveSeconds);
 
   static FlopLibrary parse(String text) {
     final j = jsonDecode(text) as Map<String, dynamic>;
@@ -327,7 +328,6 @@ class FlopLibrary {
           FlopBoard.fromJson(b as Map<String, dynamic>)
       ],
       j['format'] as String,
-      (j['realiseOop'] as num).toDouble(),
       (j['solveSeconds'] as num).toInt(),
     );
   }

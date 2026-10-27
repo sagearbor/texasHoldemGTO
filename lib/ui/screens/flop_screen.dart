@@ -61,10 +61,10 @@ class _FlopScreenState extends State<FlopScreen> {
       children: [
         Text(
             '$flopModelLabel. BTN opened, BB called and checks the flop. '
-            '${lib.boards.length} flops solved with CFR+. Called bets and '
-            'checked-through pots are settled by flop equity over all '
-            'runouts; BB realises ${pct(lib.realiseOop)} of its equity, BTN '
-            'the rest. No turn or river play.',
+            '${lib.boards.length} flops solved with CFR+ together with a '
+            'small turn game (one 75% bet size); the river is not played, '
+            'turn showdowns use river-card equity. Fewer sizes and streets '
+            'than a full solver: treat frequencies as a rough guide.',
             style: t.bodySmall?.copyWith(fontStyle: FontStyle.italic)),
         const SizedBox(height: 8),
         DropdownButton<int>(

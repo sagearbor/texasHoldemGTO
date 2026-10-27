@@ -22,7 +22,7 @@ void main() {
     expect(file.lengthSync(), lessThan(2 << 20));
     expect(lib.boards.length, greaterThanOrEqualTo(30));
     expect(lib.textures.length, 8);
-    expect(lib.format, startsWith('Simplified: one street'));
+    expect(lib.format, startsWith('Simplified: flop + turn'));
     for (final b in lib.boards) {
       expect(b.cards.toSet().length, 3);
       expect(b.nodes.keys,
@@ -48,8 +48,9 @@ void main() {
           expect(f.reduce((a, c) => a + c), closeTo(1, 1e-9));
         }
         for (final row in b.classStrategy(n)) {
-          if (row != null)
+          if (row != null) {
             expect(row.reduce((a, c) => a + c), closeTo(1, 1e-6));
+          }
         }
         expect(b.rangeFreqs(n).reduce((a, c) => a + c), closeTo(1, 1e-6));
       }
@@ -119,6 +120,65 @@ void main() {
     }
   });
 
+  // Qualitative results every full BTN-vs-BB SRP solver agrees on. Tests
+  // listed in [knownGaps] fail in this simplified model and are skipped with
+  // the reason, so the gap stays visible instead of silently passing.
+  group('benchmarks vs well-known BTN vs BB SRP solver results', () {
+    List<FlopBoard> tex(String t) =>
+        lib.boards.where((b) => b.texture == t).toList();
+    double avg(List<FlopBoard> bs, double Function(FlopBoard) f) =>
+        bs.fold<double>(0, (a, b) => a + f(b)) / bs.length;
+    double small(FlopBoard b) => b.btnFreq('Bet 33%');
+    double big(FlopBoard b) => b.btnFreq('Bet 75%');
+    final aHigh = tex('A-high dry');
+    final pairedLow = lib.boards
+        .where((b) =>
+            b.texture == 'Paired' &&
+            b.cards.map(cardRank).reduce(max) <= rankChars.indexOf('8'))
+        .toList();
+
+    test('A-high dry: small size used more than large (texture average)', () {
+      expect(avg(aHigh, small), greaterThan(avg(aHigh, big)));
+    });
+
+    test('A-high dry: small size used more than large on every board', () {
+      for (final b in aHigh) {
+        expect(small(b), greaterThan(big(b)), reason: b.boardStr);
+      }
+    }, skip: knownGaps['aHighSmall']);
+
+    test('A-high dry: overall c-bet >= 70%', () {
+      for (final b in aHigh) {
+        expect(b.cbet, greaterThanOrEqualTo(0.7), reason: b.boardStr);
+      }
+    }, skip: knownGaps['aHighFreq']);
+
+    test('low connected, middling connected and 987ss: c-bet <= 50%', () {
+      final wet = [
+        ...tex('Low connected'),
+        ...tex('Middling connected'),
+        ...lib.boards.where((b) => b.boardStr == '9s8s7d'),
+      ];
+      expect(wet.length, greaterThanOrEqualTo(11));
+      for (final b in wet) {
+        expect(b.cbet, lessThanOrEqualTo(0.5), reason: b.boardStr);
+      }
+    }, skip: knownGaps['wetLow']);
+
+    test('monotone c-bets less than A-high dry', () {
+      expect(avg(tex('Monotone'), (b) => b.cbet),
+          lessThan(avg(aHigh, (b) => b.cbet)));
+    }, skip: knownGaps['monotone']);
+
+    test('paired low boards: high frequency, mostly small', () {
+      expect(pairedLow, isNotEmpty);
+      for (final b in pairedLow) {
+        expect(b.cbet, greaterThanOrEqualTo(0.6), reason: b.boardStr);
+        expect(small(b), greaterThan(big(b)), reason: b.boardStr);
+      }
+    }, skip: knownGaps['pairedLow']);
+  });
+
   testWidgets('Charts shows the flop entry on a 360px phone', (tester) async {
     tester.view.physicalSize = const Size(1080, 7200);
     tester.view.devicePixelRatio = 3;
@@ -164,3 +224,15 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 }
+
+/// Benchmarks the simplified model does not reproduce (null = must pass).
+const knownGaps = <String, String?>{
+  'aHighSmall': 'KNOWN GAP: AsJd5c bets 75% (23%) slightly more than 33% '
+      '(21%); the other four A-high dry flops prefer the small size.',
+  'aHighFreq': 'KNOWN GAP: A-high dry c-bet is 44-54% in this flop+turn '
+      'model (no river betting), not the >= 70% of full solvers.',
+  'wetLow': null,
+  'monotone': null,
+  'pairedLow': 'KNOWN GAP: 8h8d3c c-bets 48% (16% small, 32% big); full '
+      'solvers bet most of the range small.',
+};

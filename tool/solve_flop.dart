@@ -1,46 +1,52 @@
 // SIMPLIFIED heads-up FLOP c-bet solver: BTN (preflop raiser, in position)
-// vs BB (caller, out of position), single-raised pot, ONE street only.
+// vs BB (caller, out of position), single-raised pot. The flop is solved
+// together with a small TURN game; the river is not played.
 //
-// Game (pot normalised to 1 at the start of the flop, each player has 0.5
-// of it invested; stacks are deep enough that nobody is all-in):
+// Pot normalised to 1 at the start of the flop (0.5 each invested); stacks
+// are deep enough that nobody is all-in.
 //
+// FLOP (the strategies the app shows):
 //   BB checks (assumed: BB checks its whole range to the raiser).
 //   BTN: Check | Bet 33% | Bet 75%
 //     vs bet b:  BB Fold | Call | Raise 3x (to 3b)
 //       vs raise: BTN Fold | Call
-//
-// Terminal values:
-//   * fold: the bettor wins the pot.
-//   * check-check, call, raise-call: the hand is NOT played out street by
-//     street. Instead each player receives a share of the final pot from its
-//     exact flop equity (all 990 turn+river runouts, combo vs combo, exact
-//     card removal), adjusted by an EQUITY REALISATION factor:
-//        BB (out of position) realises 90% of its equity,
-//        BTN (in position) realises the rest (its equity + 10% of BB's).
-//     This keeps the game zero-sum (so CFR+ and exploitability are well
-//     defined) and models the positional edge in the crudest way. Real
-//     solvers play the turn and river; this is a teaching model, labelled
-//     "simplified: one street, equity realisation" in the app.
+// TURN (after check-check, call, or raise-call; every one of the 49 turn
+// cards is dealt and solved, then discarded from the output):
+//   BB: Check | Bet 75%
+//     vs check: BTN Check | Bet 75%  (vs bet: BB Fold | Call)
+//     vs bet:   BTN Fold | Call
+// RIVER: not played. Turn showdowns are settled by each pair's exact equity
+// over the 44 river cards (combo vs combo, card removal), with a mild
+// equity-realisation adjustment for the skipped river street:
+//   realised share of BB = e*Ro / (e*Ro + (1-e)*Ri),
+//   Ro = rO0 + (rO1 - rO0) * h,   Ri = rI0 + (rI1 - rI0) * h',
+// where e is the pair's river-card equity and h / h' are the two combos'
+// equities vs the opponent's whole (preflop-weighted) range on that turn.
+// Weak hands out of position realise less; the shares sum to 1 so the game
+// stays zero-sum.
 //
 // Ranges: the full preflop ranges (BTN open from the 6-max chart; BB's
 // flat-call part of the BB-vs-BTN defence), weighted by preflop frequency,
-// minus combos blocked by the flop. Copied from lib/gto/spots.dart (the same
-// strings as tool/solve_river.dart).
+// minus combos blocked by the board. Copied from lib/gto/spots.dart.
+// Turn ranges are NOT narrowed beyond what the flop strategies imply (they
+// are: the solver plays flop and turn as one game).
 //
 // Solve: CFR+ (regret-matching+, alternating updates, linear averaging),
-// vectorised over combos; showdown terminals are a matrix-vector product
-// with the precomputed equity matrix. Iterates until the exploitability of
-// the average strategy is below [targetExpl] (% of the flop pot) or the cap.
+// vectorised over combos; turn showdowns are matrix-vector products with
+// the per-turn-card equity matrices. Exploitability of the average strategy
+// (whole flop+turn game, % of the flop pot) is measured every 25
+// iterations; stops below [targetExpl]. Boards run in parallel isolates.
 //
-// Output: assets/data/flops.json. Strategies are stored PER COMBO for every
-// board (suits matter on two-tone and monotone flops: flush draws, the
-// nut-flush blocker) and quantised to 1%; the app aggregates to 13x13 hand
-// classes for the grids.
+// Output: assets/data/flops.json: per-combo FLOP strategies for every board
+// (suits matter on two-tone and monotone flops), quantised to 1%; the app
+// aggregates to 13x13 hand classes for the grids.
 //
 // Run: dart compile exe tool/solve_flop.dart -o tool/.cache/solve_flop
-//      tool/.cache/solve_flop [maxIters=3000] [maxBoards]
+//      tool/.cache/solve_flop [maxIters=400]
+//   env: FLOPS=As7d2c,... (subset)  OUT=path  WORKERS=9
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:felt_notes/gto/hand_class.dart';
@@ -59,7 +65,7 @@ const _bbDefend = '22+, A2s+, K2s+, Q2s+, J4s+, T5s+, 95s+, 85s+, 74s+, '
     '63s+, 53s+, 42s+, A2o+, K5o+, K4o:0.5, Q7o+, Q6o:0.4, J7o+, T7o+, 97o+, '
     '87o, 76o:0.6, 65o:0.4';
 
-/// Representative flops grouped by texture (r = rainbow, s = suited).
+/// Representative flops grouped by texture.
 const flopsByTexture = {
   'A-high dry': ['As7d2c', 'Ah8c3d', 'AdTc4s', 'Ac6h2d', 'AsJd5c'],
   'K-high dry': ['Ks7d2c', 'Kh8c3d', 'KdTc4s', 'Kc6h2d', 'Ks9d4c'],
@@ -71,60 +77,91 @@ const flopsByTexture = {
   'Two-tone': ['9s8s7d', 'AhKh5d', 'Jd9d3c', 'Kc8c4h', '7h6h2c'],
 };
 
-const realiseOop = 0.9; // BB's equity realisation (BTN gets the rest)
-const targetExpl = 0.05; // % of pot: stop below this
+double _env(String k, double d) =>
+    double.tryParse(Platform.environment[k] ?? '') ?? d;
+
+// River realisation (one skipped street), see header.
+final double rO0 = _env('RO0', 0.8), rO1 = _env('RO1', 1.0);
+final double rI0 = _env('RI0', 0.95), rI1 = _env('RI1', 1.05);
+final double turnBet = _env('TURNBET', 0.75);
+final double targetExpl = _env('TARGET', 0.1); // % of flop pot
 const oop = 0, ip = 1;
 
 // ---------------------------------------------------------------- tree ----
 
 class Node {
-  final String? id;
-  final int kind; // 0 decision, 1 fold, 2 showdown
+  final String? id; // flop decision nodes only
+  final int kind; // 0 decision, 1 fold, 2 showdown, 3 chance (turn deal)
   final int player; // decision: actor; fold: who folded
   final List<String> actions;
   final List<Node> children;
-  final double invO, invI; // flop money put in (on top of 0.5 each)
+  final double invO, invI; // total invested (incl. the 0.5 each preflop)
+  final int turn; // index into the turn-card list, -1 on the flop
   late List<Float64List> regret, stratSum;
-  Node.decision(this.id, this.player, this.actions, this.children)
-      : kind = 0,
-        invO = 0,
-        invI = 0;
-  Node.fold(this.player, this.invO, this.invI)
-      : id = null,
-        kind = 1,
-        actions = const [],
-        children = const [];
-  Node.showdown(double inv)
-      : id = null,
-        kind = 2,
-        player = -1,
-        actions = const [],
-        children = const [],
-        invO = inv,
-        invI = inv;
+  Node(this.id, this.kind, this.player, this.actions, this.children, this.invO,
+      this.invI, this.turn);
 }
 
-Node buildTree() {
-  Node vsBet(String id, String raiseId, double b) => Node.decision(
+Node _dec(String? id, int p, List<String> a, List<Node> c, int turn) =>
+    Node(id, 0, p, a, c, 0, 0, turn);
+Node _fold(int p, double o, double i) =>
+    Node(null, 1, p, const [], const [], o, i, -1);
+Node _show(double x, int turn) =>
+    Node(null, 2, -1, const [], const [], x, x, turn);
+
+Node turnTree(int t, double x) {
+  final b = turnBet * 2 * x;
+  return _dec(
+      null,
+      oop,
+      ['Check', 'Bet'],
+      [
+        _dec(
+            null,
+            ip,
+            ['Check', 'Bet'],
+            [
+              _show(x, t),
+              _dec(null, oop, ['Fold', 'Call'],
+                  [_fold(oop, x, x + b), _show(x + b, t)], t),
+            ],
+            t),
+        _dec(null, ip, ['Fold', 'Call'], [_fold(ip, x + b, x), _show(x + b, t)],
+            t),
+      ],
+      t);
+}
+
+Node chance(int nTurns, double x) => Node(null, 3, -1, const [],
+    [for (var t = 0; t < nTurns; t++) turnTree(t, x)], x, x, -1);
+
+Node buildTree(int nTurns) {
+  Node vsBet(String id, String raiseId, double b) => _dec(
         id,
         oop,
         ['Fold', 'Call', 'Raise'],
         [
-          Node.fold(oop, 0, b),
-          Node.showdown(b),
-          Node.decision(raiseId, ip, ['Fold', 'Call'],
-              [Node.fold(ip, 3 * b, b), Node.showdown(3 * b)]),
+          _fold(oop, 0.5, 0.5 + b),
+          chance(nTurns, 0.5 + b),
+          _dec(
+              raiseId,
+              ip,
+              ['Fold', 'Call'],
+              [_fold(ip, 0.5 + 3 * b, 0.5 + b), chance(nTurns, 0.5 + 3 * b)],
+              -1),
         ],
+        -1,
       );
-  return Node.decision('root', ip, [
-    'Check',
-    'Bet 33%',
-    'Bet 75%'
-  ], [
-    Node.showdown(0),
-    vsBet('bbVs33', 'btnVsRaise33', 0.33),
-    vsBet('bbVs75', 'btnVsRaise75', 0.75),
-  ]);
+  return _dec(
+      'root',
+      ip,
+      ['Check', 'Bet 33%', 'Bet 75%'],
+      [
+        chance(nTurns, 0.5),
+        vsBet('bbVs33', 'btnVsRaise33', 0.33),
+        vsBet('bbVs75', 'btnVsRaise75', 0.75),
+      ],
+      -1);
 }
 
 void visit(Node n, void Function(Node) f) {
@@ -134,10 +171,11 @@ void visit(Node n, void Function(Node) f) {
   }
 }
 
+/// Owner's flop action path to each flop decision node (for reach).
 Map<String, List<List<Object>>> ownerPaths(Node root) {
   final out = <String, List<List<Object>>>{};
   void go(Node n, List<List<Object>> path) {
-    if (n.kind != 0) return;
+    if (n.kind != 0 || n.id == null) return;
     out[n.id!] = [
       for (final p in path)
         if (p[2] == n.player) [p[0], p[1]]
@@ -163,7 +201,7 @@ class Side {
   int get n => c1.length;
 }
 
-Side buildSide(RangeMap range, Set<int> board) {
+Side buildSide(Map<int, double> range, Set<int> board) {
   final s = Side();
   for (final e in range.entries) {
     if (e.value <= 0) continue;
@@ -187,25 +225,24 @@ void linkSides(Side a, Side b) {
       [for (var i = 0; i < b.n; i++) ma[key(b.c1[i], b.c2[i])] ?? -1]);
 }
 
-/// Exact flop equity of every OOP combo vs every IP combo (0 when the two
-/// combos share a card), enumerating all turn+river runouts.
-Float64List equityMatrix(Side o, Side p, List<int> flop) {
+/// For each turn card: OOP-vs-IP equity over the 44 rivers (0 when the
+/// combos share a card or hold the turn card).
+List<Float32List> turnEquities(
+    Side o, Side p, List<int> flop, List<int> turns) {
   final nO = o.n, nI = p.n;
-  final acc = Int32List(nO * nI);
-  final live = [
-    for (var c = 0; c < 52; c++)
-      if (!flop.contains(c)) c
-  ];
+  final out = <Float32List>[];
   final sO = Int32List(nO), sI = Int32List(nI);
+  final vO = Int32List(nO), vI = Int32List(nI);
   final cards = List<int>.filled(7, 0);
   cards[2] = flop[0];
   cards[3] = flop[1];
   cards[4] = flop[2];
-  final vO = Int32List(nO), vI = Int32List(nI);
-  for (var a = 0; a < live.length; a++) {
-    for (var b = a + 1; b < live.length; b++) {
-      final t = live[a], r = live[b];
-      cards[5] = t;
+  final acc = Int32List(nO * nI);
+  for (final t in turns) {
+    acc.fillRange(0, acc.length, 0);
+    cards[5] = t;
+    for (final r in turns) {
+      if (r == t) continue;
       cards[6] = r;
       var kO = 0, kI = 0;
       for (var i = 0; i < nO; i++) {
@@ -235,23 +272,28 @@ Float64List equityMatrix(Side o, Side p, List<int> flop) {
         }
       }
     }
-  }
-  final eq = Float64List(nO * nI);
-  for (var i = 0; i < nO; i++) {
-    for (var j = 0; j < nI; j++) {
-      final c = o.c1[i], d = o.c2[i], e = p.c1[j], f = p.c2[j];
-      if (c == e || c == f || d == e || d == f) continue;
-      eq[i * nI + j] = acc[i * nI + j] / (2 * 990);
+    final eq = Float32List(nO * nI);
+    for (var i = 0; i < nO; i++) {
+      final c = o.c1[i], d = o.c2[i];
+      if (c == t || d == t) continue;
+      for (var j = 0; j < nI; j++) {
+        final e = p.c1[j], f = p.c2[j];
+        if (e == t || f == t || c == e || c == f || d == e || d == f) continue;
+        eq[i * nI + j] = acc[i * nI + j] / (2 * 44);
+      }
     }
+    out.add(eq);
   }
-  return eq;
+  return out;
 }
 
 class Game {
   final List<Side> sides;
   final Node root;
-  final Float64List eq; // OOP-major, OOP equity vs IP
-  Game(this.sides, this.root, this.eq);
+  final List<Float32List> eqT; // realised OOP share per turn card
+  final List<List<Uint8List>> live; // [turn][player][combo] 1 = no clash
+  final int nTurns;
+  Game(this.sides, this.root, this.eqT, this.live) : nTurns = eqT.length;
 
   final _cs = Float64List(52);
 
@@ -273,8 +315,7 @@ class Game {
     return out;
   }
 
-  /// Sum over opponent combos of reach * OOP equity, for each of [p]'s.
-  Float64List eqMass(int p, Float64List oppR) {
+  Float64List eqMass(int p, Float64List oppR, Float32List eq) {
     final nO = sides[0].n, nI = sides[1].n;
     if (p == oop) {
       final out = Float64List(nO);
@@ -303,20 +344,18 @@ class Game {
   Float64List terminal(Node n, int p, Float64List oppR) {
     final m = oppMass(p, oppR);
     if (n.kind == 1) {
-      final lost = 0.5 + (n.player == oop ? n.invO : n.invI);
+      final lost = n.player == oop ? n.invO : n.invI;
       final u = n.player == p ? -lost : lost;
       for (var i = 0; i < m.length; i++) {
         m[i] *= u;
       }
       return m;
     }
-    final pot = 1 + 2 * n.invO, inv = 0.5 + n.invO;
-    final e = eqMass(p, oppR);
-    // OOP gets pot * 0.9 * eqO; IP gets pot * (1 - 0.9 * eqO).
+    final pot = 2 * n.invO, inv = n.invO;
+    final e = eqMass(p, oppR, eqT[n.turn]);
     for (var i = 0; i < m.length; i++) {
-      m[i] = p == oop
-          ? pot * realiseOop * e[i] - inv * m[i]
-          : (pot - inv) * m[i] - pot * realiseOop * e[i];
+      m[i] =
+          p == oop ? pot * e[i] - inv * m[i] : (pot - inv) * m[i] - pot * e[i];
     }
     return m;
   }
@@ -361,9 +400,39 @@ class Game {
     return out;
   }
 
+  Float64List _mask(Float64List r, Uint8List l) {
+    final o = Float64List(r.length);
+    for (var i = 0; i < r.length; i++) {
+      if (l[i] != 0) o[i] = r[i];
+    }
+    return o;
+  }
+
+  /// Chance node: average over turn cards (each hand pair sees 45 of them).
+  Float64List _chance(Node n, int p, Float64List selfR, Float64List oppR,
+      Float64List Function(Node, Float64List, Float64List) rec) {
+    final m = selfR.length;
+    final v = Float64List(m);
+    for (var t = 0; t < nTurns; t++) {
+      final ls = live[t][p], lo = live[t][1 - p];
+      final va = rec(n.children[t], _mask(selfR, ls), _mask(oppR, lo));
+      for (var i = 0; i < m; i++) {
+        if (ls[i] != 0) v[i] += va[i];
+      }
+    }
+    final inv = 1 / (nTurns - 4);
+    for (var i = 0; i < m; i++) {
+      v[i] *= inv;
+    }
+    return v;
+  }
+
   Float64List cfr(
       Node n, int p, Float64List selfR, Float64List oppR, double t) {
-    if (n.kind != 0) return terminal(n, p, oppR);
+    if (n.kind == 1 || n.kind == 2) return terminal(n, p, oppR);
+    if (n.kind == 3) {
+      return _chance(n, p, selfR, oppR, (c, s, o) => cfr(c, p, s, o, t));
+    }
     final sigma = current(n);
     final k = n.actions.length;
     if (n.player == p) {
@@ -409,8 +478,12 @@ class Game {
     return v!;
   }
 
-  Float64List evalAvg(Node n, int p, Float64List oppR, bool br) {
-    if (n.kind != 0) return terminal(n, p, oppR);
+  Float64List evalAvg(
+      Node n, int p, Float64List selfR, Float64List oppR, bool br) {
+    if (n.kind == 1 || n.kind == 2) return terminal(n, p, oppR);
+    if (n.kind == 3) {
+      return _chance(n, p, selfR, oppR, (c, s, o) => evalAvg(c, p, s, o, br));
+    }
     final sigma = average(n);
     final k = n.actions.length;
     if (n.player == p) {
@@ -418,7 +491,7 @@ class Game {
       final v = Float64List(m);
       if (br) v.fillRange(0, m, double.negativeInfinity);
       for (var a = 0; a < k; a++) {
-        final va = evalAvg(n.children[a], p, oppR, br);
+        final va = evalAvg(n.children[a], p, selfR, oppR, br);
         for (var i = 0; i < m; i++) {
           if (br) {
             if (va[i] > v[i]) v[i] = va[i];
@@ -435,7 +508,7 @@ class Game {
       for (var j = 0; j < r.length; j++) {
         r[j] = oppR[j] * sigma[a][j];
       }
-      final va = evalAvg(n.children[a], p, r, br);
+      final va = evalAvg(n.children[a], p, selfR, r, br);
       if (v == null) {
         v = va;
       } else {
@@ -470,22 +543,88 @@ List<int> pctRound(List<double> f) {
 
 double r3(double v) => (v * 1000).round() / 1000;
 
-Map<String, dynamic> solveBoard(String boardStr, String texture, RangeMap oopR,
-    RangeMap ipR, int maxIters) {
+Map<String, dynamic> solveBoard(String boardStr, String texture,
+    Map<int, double> oopR, Map<int, double> ipR, int maxIters) {
   final sw = Stopwatch()..start();
   final flop = parseCards(boardStr);
   final bset = flop.toSet();
   final so = buildSide(oopR, bset), si = buildSide(ipR, bset);
   linkSides(so, si);
-  final eq = equityMatrix(so, si, flop);
+  final nO = so.n, nI = si.n;
+  final turns = [
+    for (var c = 0; c < 52; c++)
+      if (!bset.contains(c)) c
+  ];
+  final raw = turnEquities(so, si, flop, turns);
   final eqSecs = sw.elapsedMilliseconds / 1000;
-  final root = buildTree();
-  final g = Game([so, si], root, eq)..init();
+
+  bool blocked(int i, int j) =>
+      so.c1[i] == si.c1[j] ||
+      so.c1[i] == si.c2[j] ||
+      so.c2[i] == si.c1[j] ||
+      so.c2[i] == si.c2[j];
+  final live = [
+    for (final t in turns)
+      [
+        Uint8List.fromList([
+          for (var i = 0; i < nO; i++) so.c1[i] == t || so.c2[i] == t ? 0 : 1
+        ]),
+        Uint8List.fromList([
+          for (var j = 0; j < nI; j++) si.c1[j] == t || si.c2[j] == t ? 0 : 1
+        ]),
+      ]
+  ];
+
+  // Raw flop equity (average over the 45 live turn cards of each pair).
+  final flopEq = Float64List(nO * nI);
+  for (final e in raw) {
+    for (var k = 0; k < e.length; k++) {
+      flopEq[k] += e[k];
+    }
+  }
+  for (var k = 0; k < flopEq.length; k++) {
+    flopEq[k] /= turns.length - 4;
+  }
+
+  // Realised shares per turn card (see header).
+  final real = <Float32List>[];
+  for (var t = 0; t < turns.length; t++) {
+    final e = raw[t];
+    final hO = Float64List(nO), hI = Float64List(nI);
+    final mO = Float64List(nO), mI = Float64List(nI);
+    for (var i = 0; i < nO; i++) {
+      if (live[t][0][i] == 0) continue;
+      for (var j = 0; j < nI; j++) {
+        if (live[t][1][j] == 0 || blocked(i, j)) continue;
+        final x = e[i * nI + j];
+        hO[i] += si.w[j] * x;
+        mO[i] += si.w[j];
+        hI[j] += so.w[i] * (1 - x);
+        mI[j] += so.w[i];
+      }
+    }
+    final r = Float32List(nO * nI);
+    for (var i = 0; i < nO; i++) {
+      if (mO[i] <= 0) continue;
+      final ro = rO0 + (rO1 - rO0) * hO[i] / mO[i];
+      for (var j = 0; j < nI; j++) {
+        if (mI[j] <= 0 || live[t][1][j] == 0 || blocked(i, j)) continue;
+        final ri = rI0 + (rI1 - rI0) * hI[j] / mI[j];
+        final x = e[i * nI + j];
+        final a = x * ro, b = (1 - x) * ri;
+        r[i * nI + j] = a + b > 0 ? a / (a + b) : 0.5;
+      }
+    }
+    real.add(r);
+  }
+
+  final root = buildTree(turns.length);
+  final g = Game([so, si], root, real, live)..init();
   final wO = Float64List.fromList(so.w), wI = Float64List.fromList(si.w);
   final pairs = dot(g.oppMass(oop, wI), so.w);
   double expl() {
-    final bo = dot(g.evalAvg(root, oop, wI, true), so.w);
-    final bi = dot(g.evalAvg(root, ip, wO, true), si.w);
+    final bo = dot(g.evalAvg(root, oop, wO, wI, true), so.w);
+    final bi = dot(g.evalAvg(root, ip, wI, wO, true), si.w);
     return (bo + bi) / 2 / pairs * 100;
   }
 
@@ -496,32 +635,42 @@ Map<String, dynamic> solveBoard(String boardStr, String texture, RangeMap oopR,
     g.cfr(root, ip, wI, wO, t.toDouble());
     g.cfr(root, oop, wO, wI, t.toDouble());
     iters = t;
-    if (t % 50 == 0 || t == maxIters) {
+    if (t % 25 == 0 || t == maxIters) {
       ex = expl();
       trace.add([t, r3(ex)]);
-      if (ex < targetExpl && t >= 200) break;
+      if (ex < targetExpl && t >= 50) break;
     }
   }
 
   final nodes = <String, Node>{};
   visit(root, (n) {
-    if (n.kind == 0) nodes[n.id!] = n;
+    if (n.kind == 0 && n.id != null) nodes[n.id!] = n;
   });
   final avg = {for (final e in nodes.entries) e.key: g.average(e.value)};
 
-  // Raw flop equity of each combo vs the opponent's whole range.
   Float64List eqVs(int p, Float64List oppR) {
-    final e = g.eqMass(p, oppR), m = g.oppMass(p, oppR);
-    return Float64List.fromList([
-      for (var i = 0; i < m.length; i++)
-        m[i] <= 0 ? 0 : (p == oop ? e[i] / m[i] : 1 - e[i] / m[i])
-    ]);
+    final m = g.oppMass(p, oppR);
+    final out = Float64List(p == oop ? nO : nI);
+    for (var i = 0; i < nO; i++) {
+      for (var j = 0; j < nI; j++) {
+        if (blocked(i, j)) continue;
+        final x = flopEq[i * nI + j];
+        if (p == oop) {
+          out[i] += x * oppR[j];
+        } else {
+          out[j] += (1 - x) * oppR[i];
+        }
+      }
+    }
+    for (var i = 0; i < out.length; i++) {
+      out[i] = m[i] > 0 ? out[i] / m[i] : 0;
+    }
+    return out;
   }
 
   final eqO = eqVs(oop, wI), eqI = eqVs(ip, wO);
   double wavg(List<double> v, List<double> w) =>
       dot(v, w) / w.reduce((a, b) => a + b);
-  // Nut advantage: share of each range that has two pair or better now.
   double nutShare(Side s) {
     var n = 0.0, tot = 0.0;
     for (var i = 0; i < s.n; i++) {
@@ -532,7 +681,6 @@ Map<String, dynamic> solveBoard(String boardStr, String texture, RangeMap oopR,
     return n / tot;
   }
 
-  // Strong equity share: combos with > 75% equity vs the other range.
   double strongShare(Float64List e, List<double> w) {
     var n = 0.0, tot = 0.0;
     for (var i = 0; i < e.length; i++) {
@@ -542,7 +690,6 @@ Map<String, dynamic> solveBoard(String boardStr, String texture, RangeMap oopR,
     return n / tot;
   }
 
-  final rootAvg = avg['root']!;
   Map<String, num> freqs(
       List<double> reach, List<Float64List> s, List<String> acts) {
     final tot = reach.reduce((a, b) => a + b);
@@ -551,10 +698,9 @@ Map<String, dynamic> solveBoard(String boardStr, String texture, RangeMap oopR,
     };
   }
 
-  // BB's response frequencies, weighted by BB's full range.
-  final evI = dot(g.evalAvg(root, ip, wO, false), si.w) / pairs;
+  final evI = dot(g.evalAvg(root, ip, wI, wO, false), si.w) / pairs;
   final stats = {
-    'btn': freqs(si.w, rootAvg, nodes['root']!.actions),
+    'btn': freqs(si.w, avg['root']!, nodes['root']!.actions),
     'bbVs33': freqs(so.w, avg['bbVs33']!, nodes['bbVs33']!.actions),
     'bbVs75': freqs(so.w, avg['bbVs75']!, nodes['bbVs75']!.actions),
     'btnEquity': r3(wavg(eqI, si.w)),
@@ -571,9 +717,8 @@ Map<String, dynamic> solveBoard(String boardStr, String texture, RangeMap oopR,
           cardToString(s.c1[i]) + cardToString(s.c2[i])
       ].join();
   final paths = ownerPaths(root);
-  final st = stats['btn'] as Map;
   stderr.writeln('$boardStr ($texture): ${so.n}x${si.n} eq ${eqSecs}s, '
-      '$iters it, expl ${r3(ex)}% pot, BTN $st '
+      '$iters it, expl ${r3(ex)}% pot, BTN ${stats['btn']} '
       '[${sw.elapsedMilliseconds / 1000}s]');
   return {
     'board': boardStr,
@@ -608,9 +753,9 @@ Map<String, dynamic> solveBoard(String boardStr, String texture, RangeMap oopR,
   };
 }
 
-void main(List<String> args) {
-  final maxIters = args.isNotEmpty ? int.parse(args[0]) : 3000;
-  final maxBoards = args.length > 1 ? int.parse(args[1]) : 1000;
+Future<void> main(List<String> args) async {
+  final maxIters = args.isNotEmpty ? int.parse(args[0]) : 400;
+  final workers = _env('WORKERS', 9).toInt();
   final ipR = parseRange(_btnOpen);
   final three = parseRange(_bb3bet), def = parseRange(_bbDefend);
   final oopR = <int, double>{};
@@ -618,28 +763,49 @@ void main(List<String> args) {
     final c = v - (three[k] ?? 0);
     if (c > 0.001) oopR[k] = c;
   });
+  final ipMap = Map<int, double>.of(ipR);
+  final only = Platform.environment['FLOPS']?.split(',');
+  final jobs = <(String, String)>[
+    for (final e in flopsByTexture.entries)
+      for (final b in e.value)
+        if (only == null || only.contains(b)) (b, e.key)
+  ];
+  stderr.writeln('realisation BB $rO0..$rO1 BTN $rI0..$rI1, turn bet '
+      '$turnBet, ${jobs.length} flops on $workers isolates');
   final sw = Stopwatch()..start();
-  final out = <Map<String, dynamic>>[];
-  var count = 0;
-  for (final e in flopsByTexture.entries) {
-    for (final b in e.value) {
-      if (count++ >= maxBoards) break;
-      if (parseCards(b).toSet().length != 3) throw StateError('bad flop $b');
-      out.add(solveBoard(b, e.key, oopR, ipR, maxIters));
+  final results = List<Map<String, dynamic>?>.filled(jobs.length, null);
+  var next = 0;
+  Future<void> worker() async {
+    while (next < jobs.length) {
+      final k = next++;
+      final (b, tex) = jobs[k];
+      results[k] =
+          await Isolate.run(() => solveBoard(b, tex, oopR, ipMap, maxIters));
     }
   }
+
+  await Future.wait([for (var w = 0; w < workers; w++) worker()]);
+  final out = results.cast<Map<String, dynamic>>();
   final expl = [for (final r in out) r['exploitabilityPctPot'] as num];
-  final f = File('assets/data/flops.json');
+  final f = File(Platform.environment['OUT'] ?? 'assets/data/flops.json');
   f.writeAsStringSync(jsonEncode({
-    'format': 'Simplified: one street, equity realisation. HU flop, BTN '
-        '(opener, IP) vs BB (caller, OOP), single-raised pot, BB checks. '
-        'Pot = 1. Check-check and called bets are settled by exact flop '
-        'equity (all turn+river runouts); BB realises '
-        '${(realiseOop * 100).round()}% of its equity, BTN the rest. Ranges: '
-        'full preflop ranges (BTN open, BB flat call) minus board blockers.',
+    'format': 'Simplified: flop + turn, no river betting. HU, BTN (opener, '
+        'IP) vs BB (caller, OOP), single-raised pot, BB checks the flop. '
+        'Pot = 1. Flop: BTN check / bet 33% / bet 75%, BB fold / call / '
+        'raise 3x, BTN fold / call. Turn (every card solved): BB check / '
+        'bet 75%, BTN check / bet 75% / fold / call. Turn showdowns use '
+        'exact river-card equity with a mild realisation adjustment '
+        '(BB $rO0..$rO1, BTN $rI0..$rI1 by hand strength, zero-sum). '
+        'Ranges: full preflop ranges (BTN open, BB flat call) minus board '
+        'blockers.',
     'solver': 'CFR+ (regret-matching+, alternating updates, linear '
-        'averaging), stops below $targetExpl% pot exploitability',
-    'realiseOop': realiseOop,
+        'averaging) on the flop+turn game, stops below $targetExpl% pot '
+        'exploitability',
+    'realisation': {
+      'oop': [rO0, rO1],
+      'ip': [rI0, rI1],
+      'turnBet': turnBet,
+    },
     'solveSeconds': sw.elapsed.inSeconds,
     'maxExploitabilityPctPot': expl.reduce((a, b) => a > b ? a : b),
     'boards': out,
