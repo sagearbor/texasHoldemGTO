@@ -278,14 +278,16 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
                   'Check the cards. Camera reading is a beta guess; fix any suit '
                   'here, or tap a card later to use the picker.',
                   style: t.bodySmall),
-              if (r.street != null) ...[
+              // Only positive evidence: the board detector looks for photo-faced
+              // cards (the owner's deck), so 0 may just mean "not this deck".
+              if (r.street != null && r.boardCount > 0) ...[
                 const SizedBox(height: 6),
                 Row(children: [
                   const Icon(Icons.info_outline, size: 16),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                        'Board: ${r.street}${r.boardCount > 0 ? ' (${r.boardCount} cards seen)' : ''}. '
+                        'Board: ${r.street} (${r.boardCount} cards seen). '
                         'Info only, nothing is logged from it.',
                         style: t.bodySmall),
                   ),
