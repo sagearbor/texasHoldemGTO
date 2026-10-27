@@ -18,6 +18,9 @@ dependencies:
   # On-device card reading (Snap my cards). 0.15.1+ / 1.2.0+ need newer Flutter.
   google_mlkit_text_recognition: 0.15.0
   image_picker: ">=1.1.2 <1.2.0"
+  # About screen version. 9.x needs a newer Flutter Gradle plugin (compileSdk
+  # = flutter.compileSdkVersion fails on 3.22); 8.3.1 is the last 8.x and builds.
+  package_info_plus: ">=8.3.1 <9.0.0"
 
 dev_dependencies:
   flutter_test:

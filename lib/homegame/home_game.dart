@@ -430,6 +430,14 @@ class HomeGameModel extends ChangeNotifier {
     _changed();
   }
 
+  /// Forgets every game night and setting in memory (storage is wiped by
+  /// resetAllData).
+  void clearAll() {
+    sessions.clear();
+    dashboardDelayMinutes = 15;
+    notifyListeners();
+  }
+
   void delete(HomeSession s) {
     sessions.remove(s);
     _changed();

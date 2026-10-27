@@ -47,3 +47,4 @@ tmp/
 camera_data/
 .claude/worktrees/
 tool/.cache/
+/android/build/

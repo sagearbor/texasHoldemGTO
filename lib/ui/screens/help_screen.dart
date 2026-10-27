@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme.dart';
+import 'about_screen.dart';
 
 enum HelpTopic { train, charts, equity, stats, homeGame, terms }
 
@@ -128,6 +129,16 @@ class HelpScreen extends StatelessWidget {
                 ],
               ),
             ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.info_outline, color: Felt.gold),
+              title: Text('About & privacy', style: t.titleMedium),
+              subtitle: const Text('Version, privacy, credits, feedback, reset data'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const AboutScreen())),
+            ),
+          ),
         ],
       ),
     );
