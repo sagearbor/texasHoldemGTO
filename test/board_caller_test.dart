@@ -6,6 +6,9 @@ import 'package:felt_notes/homegame/board_stats.dart';
 import 'package:felt_notes/homegame/home_game.dart';
 import 'package:felt_notes/homegame/recap.dart';
 import 'package:felt_notes/poker/cards.dart';
+import 'package:felt_notes/ui/screens/home_game_screen.dart';
+import 'package:felt_notes/ui/theme.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -232,6 +235,44 @@ void main() {
       final text = recapText(nightRecap(m.active!, lib));
       expect(text, contains('Flops seen: 67% (2 of 3)'));
       expect(text, contains('Best made hand: Three of a kind (hand #4'));
+    });
+  });
+
+  group('logger UI', () {
+    testWidgets('type the board, log the hand, attach cards later', (tester) async {
+      tester.view.physicalSize = const Size(1080, 4400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      final m = await tester.runAsync(fresh);
+      await tester.pumpWidget(MaterialApp(theme: Felt.light(), home: HomeGameScreen(model: m!)));
+      await tester.pumpAndSettle();
+      expect(find.text('Board'), findsOneWidget);
+      // Widget tests run as Android: the mic is shown, never started here.
+      expect(find.text('Hold to talk'), findsOneWidget);
+      expect(find.textContaining('Recognised on this phone'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Type the board'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'flop king of hearts seven of spades for of clubs');
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+      expect(m.active!.currentBoard, parseCards('Kh7s4c'));
+      expect(find.textContaining('Flop K♥ 7♠ 4♣'), findsOneWidget);
+
+      await tester.tap(find.text('Fold'));
+      await tester.pumpAndSettle();
+      expect(m.active!.hands.single.board, parseCards('Kh7s4c'));
+      expect(m.active!.currentBoard, isEmpty);
+      expect(find.text('Board K♥ 7♠ 4♣'), findsOneWidget);
+
+      await tester.tap(find.text('That was hand…'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Raise').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Hand 1 · K♥ 7♠ 4♣'));
+      await tester.pumpAndSettle();
+      expect(m.active!.hands.single.action, PreAction.raise);
+      expect(m.active!.hands.length, 1);
     });
   });
 }

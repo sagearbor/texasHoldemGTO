@@ -6,6 +6,8 @@ import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
 import '../../trainer/trainer_model.dart';
 import '../theme.dart';
+import '../../homegame/board_speech.dart';
+import '../widgets/board_row.dart';
 import '../widgets/playing_card.dart';
 import 'blind_clock_screen.dart';
 import 'crew_screen.dart';
@@ -244,6 +246,20 @@ class _LoggerState extends State<_Logger> {
     }
   }
 
+  /// "That was hand…": put the cards/action being entered on an earlier
+  /// hand picked by its board, instead of the hand being played now.
+  Future<void> _attachLate() async {
+    final done = await showAttachSheet(context, widget.model,
+        cards: hasCards ? cards.cast<int>() : null, facing: facing);
+    if (!done || !mounted) return;
+    setState(() {
+      cards = [null, null];
+      facing = Facing.unopened;
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Added to that hand')));
+  }
+
   Future<void> _pickCards() async {
     final picked = await pickTwoCards(context);
     if (picked != null) setState(() => cards = picked);
@@ -404,8 +420,23 @@ class _LoggerState extends State<_Logger> {
                   child: const Text('Skip hand'),
                 ),
               ]),
+              // Late logging: match an earlier hand by its board.
+              if (widget.model.handsWithBoards().isNotEmpty)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _attachLate,
+                    icon: const Icon(Icons.history, size: 18),
+                    label: const Text('That was hand…'),
+                  ),
+                ),
             ]),
           ),
+        ),
+        BoardRow(
+          model: widget.model,
+          session: s,
+          dead: [for (final c in cards) if (c != null) c],
         ),
         const SizedBox(height: 12),
         if (s.hands.isNotEmpty) ...[
@@ -428,6 +459,7 @@ class _LoggerState extends State<_Logger> {
               title: Text(h.skipped
                   ? 'Skipped · ${h.position}'
                   : '${h.cards == null ? 'No cards' : '${cardToString(h.cards![0])} ${cardToString(h.cards![1])}'}  ·  ${h.position}'),
+              subtitle: h.board == null ? null : Text('Board ${boardLabel(h.board!)}'),
               trailing: Text(h.action == null ? '' : preActionLabels[h.action]!),
             ),
         ],
