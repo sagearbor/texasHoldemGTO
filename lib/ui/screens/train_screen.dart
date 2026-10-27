@@ -8,6 +8,7 @@ import '../widgets/playing_card.dart';
 import '../widgets/table_diagram.dart';
 import 'daily_screen.dart';
 import 'help_screen.dart';
+import 'quiz_screen.dart';
 import 'review_sheet.dart';
 
 class TrainScreen extends StatelessWidget {
@@ -25,6 +26,12 @@ class TrainScreen extends StatelessWidget {
             title: const Text('Train'),
             actions: [
               _ModeMenu(model: model),
+              IconButton(
+                tooltip: 'Quizzes',
+                icon: const Icon(Icons.quiz_outlined),
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const QuizScreen())),
+              ),
               const HelpButton(HelpTopic.train),
             ],
           ),
