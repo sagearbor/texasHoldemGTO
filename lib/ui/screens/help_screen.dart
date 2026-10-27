@@ -94,6 +94,11 @@ const _topics = {
           '"Dealer of Doom" (who dealt you the worst cards). Copy it for the group chat.',
       'Crew & season (setup screen): everyone who has played, attendance streaks and your '
           'trends from night to night.',
+      'Optional extras: tag a memorable hand (Bad beat, Cooler…) under the logger; it shows in '
+          'the recap and, after the delay, on the dashboard. "Draw for the button" at setup deals '
+          'a card to each seat (high card deals, ♠ > ♥ > ♦ > ♣ break ties). ⋮ → My result stores '
+          'your own buy-in and cash-out (just you — nobody else\'s money is tracked). '
+          'Badges for milestones are on Crew & season.',
     ]
   ),
   HelpTopic.terms: (

@@ -3,9 +3,12 @@ import 'package:flutter/services.dart';
 
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
+import '../../homegame/moments.dart';
+import '../../homegame/my_result.dart';
 import '../../homegame/recap.dart';
 import '../../poker/cards.dart';
 import '../theme.dart';
+import '../widgets/my_result_dialog.dart';
 import '../widgets/share_card.dart';
 
 /// End-of-night "Wrapped": one big felt card per stat, swipe through them.
@@ -39,6 +42,15 @@ class _RecapScreenState extends State<RecapScreen> {
         backgroundColor: Felt.feltDark,
         foregroundColor: Colors.white,
         title: Text(widget.session.name),
+        actions: [
+          IconButton(
+            tooltip: 'My result',
+            icon: const Icon(Icons.payments_outlined),
+            onPressed: () async {
+              if (await editMyResult(context, widget.model, widget.session)) setState(() {});
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(children: [
@@ -222,6 +234,29 @@ List<Widget> recapCards(NightRecap r) {
     ));
   }
   if (r.showDealers) out.add(_DealerCard(r.dealers));
+  final told = stories(r.session.hands);
+  if (told.isNotEmpty) {
+    out.add(RecapCard(
+      icon: Icons.local_fire_department_outlined,
+      label: 'Stories',
+      value: '${told.length}',
+      caption: told.length == 1 ? 'hand worth retelling' : 'hands worth retelling',
+      lines: [for (final h in told.reversed.take(8)) storyLine(h)],
+    ));
+  }
+  final s = r.session;
+  if (s.buyIn != null || s.cashOut != null) {
+    out.add(RecapCard(
+      icon: Icons.payments_outlined,
+      label: 'My result',
+      value: s.net == null ? '–' : moneyLabel(s.net!, signed: true),
+      caption: myResultNote,
+      lines: [
+        if (s.buyIn != null) 'Buy-in ${moneyLabel(s.buyIn!)}',
+        if (s.cashOut != null) 'Cash-out ${moneyLabel(s.cashOut!)}',
+      ],
+    ));
+  }
   if (r.awards.isNotEmpty) {
     out.add(RecapCard(
       icon: Icons.military_tech_outlined,
