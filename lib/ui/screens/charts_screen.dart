@@ -5,6 +5,7 @@ import '../../gto/spots.dart';
 import '../widgets/range_grid.dart';
 import 'help_screen.dart';
 import 'review_sheet.dart';
+import 'river_screen.dart';
 
 class ChartsScreen extends StatefulWidget {
   final SpotLibrary library;
@@ -168,6 +169,17 @@ class _ChartsScreenState extends State<ChartsScreen> {
             onPressed: () => widget.onDrill(s.id),
             icon: const Icon(Icons.fitness_center),
             label: Text('Drill ${s.title}'),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.water),
+              title: const Text('River spots (solved)'),
+              subtitle: const Text('BB vs BTN river strategies + drill'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const RiverScreen())),
+            ),
           ),
         ],
       ),
