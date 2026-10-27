@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
 import '../theme.dart';
+import '../widgets/dealer_luck_tile.dart';
 import '../widgets/range_grid.dart';
 
 /// Big-type live view for a TV (screen-mirror the phone, or later Cast).
@@ -143,6 +144,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     style: TextStyle(color: Colors.white70)),
                 const SizedBox(height: 6),
                 strip,
+                const SizedBox(height: 16),
+                DealerLuckTile(hands: shown, library: model.library),
                 if (st.misses.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   const Text('Most teachable so far',
