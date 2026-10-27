@@ -58,7 +58,12 @@ class _RecapScreenState extends State<RecapScreen> {
           ),
         ],
       ),
-      body: SafeArea(
+      // Same 640 px column as the main shell: on a TV the story card
+      // stretched edge to edge with tiny text in the middle.
+      body: Center(
+          child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: SafeArea(
         child: Column(children: [
           Expanded(
             child: PageView(
@@ -144,7 +149,7 @@ class _RecapScreenState extends State<RecapScreen> {
             ]),
           ),
         ]),
-      ),
+      ))),
     );
   }
 }

@@ -79,18 +79,31 @@ class _ModeMenu extends StatelessWidget {
         if (v is DrillMode) model.setMode(v);
         if (v is Difficulty) model.setDifficulty(v);
       },
-      itemBuilder: (_) => [
-        for (final e in labels.entries)
-          PopupMenuItem(value: e.key, child: Text(name(e.key))),
-        const PopupMenuDivider(),
-        const PopupMenuItem<Object>(
-            enabled: false, height: 32, child: Text('Difficulty')),
-        for (final e in difficultyLabels.entries)
-          CheckedPopupMenuItem<Object>(
-              value: e.key,
-              checked: model.difficulty == e.key,
-              child: Text(e.value)),
-      ],
+      // Plain items with a leading tick (not CheckedPopupMenuItem, whose
+      // indent didn't line up with the mode rows); the current drill
+      // mode gets a tick too, like the difficulty.
+      itemBuilder: (_) {
+        PopupMenuItem<Object> item(Object value, String text, bool on) =>
+            PopupMenuItem<Object>(
+              value: value,
+              child: Row(children: [
+                SizedBox(
+                    width: 28,
+                    child: on ? const Icon(Icons.check, size: 18) : null),
+                Text(text),
+              ]),
+            );
+        return [
+          for (final e in labels.entries)
+            item(e.key, name(e.key),
+                model.focusSpotId == null && model.mode == e.key),
+          const PopupMenuDivider(),
+          const PopupMenuItem<Object>(
+              enabled: false, height: 32, child: Text('Difficulty')),
+          for (final e in difficultyLabels.entries)
+            item(e.key, e.value, model.difficulty == e.key),
+        ];
+      },
       child: Chip(
         avatar: Icon(
             model.mode == DrillMode.leaks ? Icons.healing : Icons.tune,
@@ -199,11 +212,18 @@ class _DrillCard extends StatelessWidget {
                             ? Colors.black87
                             : Colors.white,
                         minimumSize: const Size.fromHeight(52),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
                       ),
                       onPressed: () => model.answer(i),
-                      child: Text(spot.actions[i],
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      // One line always: "Overlimp" / "Iso 5bb" used to
+                      // wrap mid-word in three-button rows at phone width.
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(spot.actions[i],
+                            maxLines: 1,
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w700)),
+                      ),
                     ),
                   ),
                 ],

@@ -72,6 +72,11 @@ class Felt {
     return aggressive;
   }
 
+  // No divider lines above/below an expanded tile: they cut across the
+  // rounded Card the tiles sit in (Help, quiz review).
+  static const _expansion = ExpansionTileThemeData(
+      shape: Border(), collapsedShape: Border());
+
   static final ThemeData _darkOnly = dark();
 
   /// Forces the dark felt theme under [child] whatever the app theme. For
@@ -91,9 +96,14 @@ class Felt {
       colorScheme: scheme,
       scaffoldBackgroundColor: feltDark,
       cardTheme: const CardTheme(color: feltCard, elevation: 0),
-      appBarTheme: const AppBarTheme(backgroundColor: feltDark, elevation: 0),
+      expansionTileTheme: _expansion,
+      appBarTheme: const AppBarTheme(
+          backgroundColor: feltDark, elevation: 0, centerTitle: false),
       navigationBarTheme: const NavigationBarThemeData(
           backgroundColor: feltSurface, indicatorColor: Color(0x33E2B857)),
+      // Selected choice chips get the same gold tint as the nav indicator;
+      // the default grey-green fill was hard to tell from unselected.
+      chipTheme: const ChipThemeData(selectedColor: Color(0x4DE2B857)),
     );
   }
 
@@ -120,7 +130,11 @@ class Felt {
         ),
       ),
       appBarTheme: const AppBarTheme(
-          backgroundColor: paper, surfaceTintColor: Colors.transparent, elevation: 0),
+          backgroundColor: paper,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: false),
+      expansionTileTheme: _expansion,
       navigationBarTheme: const NavigationBarThemeData(
           backgroundColor: cream, indicatorColor: Color(0x55E2B857)),
     );

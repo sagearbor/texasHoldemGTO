@@ -144,7 +144,12 @@ class _SetupState extends State<_Setup> {
         Wrap(spacing: 6, children: [
           for (var i = 0; i < p.length; i++)
             ChoiceChip(
-                avatar: button == i ? const Icon(Icons.circle, size: 14) : null,
+                // The gold disc is the dealer button; a tick on top of it
+                // looked like a greyed-out radio.
+                showCheckmark: false,
+                avatar: button == i
+                    ? const Icon(Icons.circle, size: 14, color: Felt.gold)
+                    : null,
                 label: Text(p[i]),
                 selected: button == i,
                 onSelected: (_) => setState(() => button = i)),
@@ -371,13 +376,19 @@ class _LoggerState extends State<_Logger> {
                 children: [
                   Row(children: [
                     Text('Hand $n', style: t.titleLarge),
-                    const Spacer(),
-                    Flexible(
-                      child: ActionChip(
-                        avatar: const Icon(Icons.circle, size: 12),
-                        label: Text('Dealer: ${s.players[s.buttonSeat]}',
-                            overflow: TextOverflow.ellipsis),
-                        onPressed: _pickDealer,
+                    const SizedBox(width: 12),
+                    // Spacer + Flexible split the free width in half, so even
+                    // "Dealer: Me" was cut to "Dealer: …".
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: ActionChip(
+                          avatar: Icon(Icons.circle,
+                              size: 12, color: Felt.accent(context)),
+                          label: Text('Dealer: ${s.players[s.buttonSeat]}',
+                              overflow: TextOverflow.ellipsis),
+                          onPressed: _pickDealer,
+                        ),
                       ),
                     ),
                   ]),
@@ -390,19 +401,29 @@ class _LoggerState extends State<_Logger> {
                         label: Text(p),
                         selected: p == s.position,
                         visualDensity: VisualDensity.compact,
+                        // A tick made the chip wider, so correcting the
+                        // position reflowed the whole row.
+                        showCheckmark: false,
                         onSelected: (_) => widget.model.setPosition(p),
                       ),
                   ]),
                   const SizedBox(height: 14),
                   Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                     if (snapCardsSupported) const SizedBox(width: 56),
-                    GestureDetector(
-                      onTap: _pickCards,
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        PlayingCard(card: cards[0], width: 66),
-                        const SizedBox(width: 10),
-                        PlayingCard(card: cards[1], width: 66),
-                      ]),
+                    // Without Semantics the card slots were invisible to screen
+                    // readers (a bare GestureDetector has no tap action).
+                    Semantics(
+                      container: true,
+                      button: true,
+                      label: hasCards ? 'Change my cards' : 'Add my cards',
+                      child: GestureDetector(
+                        onTap: _pickCards,
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          PlayingCard(card: cards[0], width: 66),
+                          const SizedBox(width: 10),
+                          PlayingCard(card: cards[1], width: 66),
+                        ]),
+                      ),
                     ),
                     if (snapCardsSupported)
                       SizedBox(
@@ -451,9 +472,14 @@ class _LoggerState extends State<_Logger> {
                                     ? Colors.black87
                                     : Colors.white,
                             minimumSize: const Size.fromHeight(50),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
                           ),
                           onPressed: () => _save(a),
-                          child: Text(preActionLabels[a]!),
+                          // "Call / limp" wrapped onto two lines at 390 px.
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(preActionLabels[a]!, maxLines: 1),
+                          ),
                         ),
                       ),
                     ],
@@ -554,9 +580,9 @@ void showSeatsEditor(BuildContext context, HomeGameModel model) {
                     _AddHere(onAdd: (name) => model.addPlayer(name, i)),
                     ListTile(
                       dense: true,
-                      leading: Icon(
-                          i == s.buttonSeat ? Icons.circle : Icons.event_seat,
-                          size: 18),
+                      leading: i == s.buttonSeat
+                          ? Icon(Icons.circle, size: 18, color: Felt.accent(ctx))
+                          : const Icon(Icons.event_seat, size: 18),
                       title: Text(i == s.heroSeat
                           ? '${s.players[i]} (you)'
                           : s.players[i]),

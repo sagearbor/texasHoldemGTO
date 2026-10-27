@@ -99,22 +99,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           body: LayoutBuilder(builder: (context, c) {
             final wide = c.maxWidth > 800;
+            // Phone: two tiles fill the row (fixed 160 px left a ragged
+            // 50 px gap on the right at 390 px).
+            final tileW = wide ? null : ((c.maxWidth - 32 - 12) / 2).floorToDouble();
             final tiles = Wrap(
               spacing: 12,
               runSpacing: 12,
               children: [
                 _Tile('VPIP', st.recorded == 0 ? '–' : pct(st.vpipPct),
-                    'put money in preflop', wide),
+                    'put money in preflop', wide, width: tileW),
                 _Tile('PFR', st.recorded == 0 ? '–' : pct(st.pfrPct),
-                    'raised preflop', wide),
-                _Tile('Style', st.style, '', wide, small: true),
+                    'raised preflop', wide, width: tileW),
+                _Tile('Style', st.style, '', wide, small: true, width: tileW),
                 _Tile('GTO preflop', st.graded == 0 ? '–' : pct(st.gtoScore),
-                    '${st.graded} unopened spots graded', wide),
+                    '${st.graded} unopened spots graded', wide, width: tileW),
                 _Tile('Card luck', st.dealt == 0 ? '–' : _luck(st.avgStrength),
-                    'avg equity vs a random hand', wide),
+                    'avg equity vs a random hand', wide, width: tileW),
                 _Tile('Premiums', '${st.premiums}',
                     'JJ+/AK · expected ${(st.dealt * SessionStats.premiumRate).toStringAsFixed(1)}',
-                    wide),
+                    wide, width: tileW),
               ],
             );
             final map = _StyleMap(vpip: st.vpipPct, pfr: st.pfrPct, show: st.recorded > 0);
@@ -193,12 +196,14 @@ class _Tile extends StatelessWidget {
   final String label, value, sub;
   final bool wide;
   final bool small;
-  const _Tile(this.label, this.value, this.sub, this.wide, {this.small = false});
+  final double? width;
+  const _Tile(this.label, this.value, this.sub, this.wide,
+      {this.small = false, this.width});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: wide ? 220 : 160,
+      width: width ?? (wide ? 220 : 160),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
           color: Felt.feltCard, borderRadius: BorderRadius.circular(14)),
@@ -262,11 +267,14 @@ class _StylePainter extends CustomPainter {
       canvas.drawLine(pt(v, 0), pt(v, maxP), grid);
     }
     canvas.drawLine(pt(0, 0), pt(maxV, maxV * 0.6), grid..color = Colors.white38);
+    // Region labels grow with the map: a fixed 11 px was unreadable on a
+    // TV across the table.
+    final fs = (size.width / 36).clamp(11.0, 22.0);
     void label(String s, double v, double p) {
       final tp = TextPainter(
         text: TextSpan(
             text: s,
-            style: base.copyWith(color: Colors.white54, fontSize: 11)),
+            style: base.copyWith(color: Colors.white54, fontSize: fs)),
         textDirection: TextDirection.ltr,
       )..layout();
       tp.paint(canvas, pt(v, p) - Offset(tp.width / 2, tp.height / 2));
@@ -282,12 +290,16 @@ class _StylePainter extends CustomPainter {
     final axis = TextPainter(
       text: TextSpan(
           text: 'VPIP →   ·   PFR ↑',
-          style: base.copyWith(color: Colors.white38, fontSize: 10)),
+          style: base.copyWith(color: Colors.white38, fontSize: fs - 1)),
       textDirection: TextDirection.ltr,
     )..layout();
     axis.paint(canvas, Offset(size.width - axis.width, size.height - axis.height));
     if (show) {
-      final p = pt(vpip.clamp(0, maxV), pfr.clamp(0, maxP));
+      // Keep the whole marker inside the card: a 63% / 50% maniac sat on
+      // the top-right corner, half outside it.
+      final raw = pt(vpip.clamp(0, maxV), pfr.clamp(0, maxP));
+      final p = Offset(raw.dx.clamp(13.0, size.width - 13),
+          raw.dy.clamp(13.0, size.height - 13));
       canvas.drawCircle(p, 13, Paint()..color = Felt.gold.withOpacity(0.3));
       canvas.drawCircle(p, 8, Paint()..color = Felt.gold);
     }
