@@ -64,6 +64,18 @@ void main(List<String> args) {
     'bbCall': {},
     'sbJamEdge': {},
     'bbCallEdge': {},
+    // Equity of each hand class vs a random hand (card-removal weighted).
+    'vsRandom': [
+      for (var i = 0; i < 169; i++)
+        () {
+          var num = 0.0, den = 0.0;
+          for (var j = 0; j < 169; j++) {
+            num += w[i][j] * eq[i][j];
+            den += w[i][j];
+          }
+          return (num / den * 1000).round() / 1000;
+        }()
+    ],
   };
 
   for (final stack in stacks) {

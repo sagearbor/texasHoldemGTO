@@ -261,14 +261,22 @@ Future<List<Spot>> loadPushFoldSpots() async {
   return spots;
 }
 
+/// Equity of each hand class vs one random hand (0..1), from the solver run.
+Future<List<double>> loadVsRandom() async {
+  final data = jsonDecode(await rootBundle.loadString('assets/data/pushfold.json'))
+      as Map<String, dynamic>;
+  return [for (final v in data['vsRandom'] as List) (v as num).toDouble()];
+}
+
 class SpotLibrary {
   final List<Spot> cash;
   final List<Spot> pushFold;
-  SpotLibrary(this.cash, this.pushFold);
+  final List<double> vsRandom;
+  SpotLibrary(this.cash, this.pushFold, [this.vsRandom = const []]);
 
   List<Spot> get all => [...cash, ...pushFold];
   Spot byId(String id) => all.firstWhere((s) => s.id == id);
 
-  static Future<SpotLibrary> load() async =>
-      SpotLibrary(buildCashSpots(), await loadPushFoldSpots());
+  static Future<SpotLibrary> load() async => SpotLibrary(
+      buildCashSpots(), await loadPushFoldSpots(), await loadVsRandom());
 }

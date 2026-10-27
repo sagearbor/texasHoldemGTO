@@ -14,7 +14,10 @@ GTO poker trainer and (soon) home-game stats tracker. Flutter app for web
 - **Equity**: hand vs hand (up to 6 players) and hand vs range calculator.
 - **Stats**: "you vs GTO" heatmap by hand, weakest spots, most teachable
   mistakes.
-- **Home game**: roadmap for the monthly-game mode.
+- **Home game** (single phone, no account): log your own hole cards each
+  hand, plus an optional one-tap preflop action. Seats are fixed, so your
+  position follows the dealer button. Live VPIP/PFR, player style, card luck,
+  preflop GTO grade, and a big-type **TV dashboard** (mirror the phone to the TV).
 
 ## Development
 ```bash

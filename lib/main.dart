@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'gto/spots.dart';
+import 'homegame/home_game.dart';
 import 'trainer/trainer_model.dart';
 import 'ui/screens/charts_screen.dart';
 import 'ui/screens/equity_screen.dart';
@@ -36,30 +37,38 @@ class _Loader extends StatefulWidget {
 
 class _LoaderState extends State<_Loader> {
   TrainerModel? model;
+  HomeGameModel? home;
 
   @override
   void initState() {
     super.initState();
     SpotLibrary.load().then((lib) async {
       final m = TrainerModel(lib);
-      await m.load();
-      if (mounted) setState(() => model = m);
+      final h = HomeGameModel(lib);
+      await Future.wait([m.load(), h.load()]);
+      if (mounted) {
+        setState(() {
+          model = m;
+          home = h;
+        });
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final m = model;
-    if (m == null) {
+    final m = model, h = home;
+    if (m == null || h == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return Shell(model: m);
+    return Shell(model: m, home: h);
   }
 }
 
 class Shell extends StatefulWidget {
   final TrainerModel model;
-  const Shell({super.key, required this.model});
+  final HomeGameModel home;
+  const Shell({super.key, required this.model, required this.home});
 
   @override
   State<Shell> createState() => _ShellState();
@@ -81,7 +90,7 @@ class _ShellState extends State<Shell> {
       ChartsScreen(library: m.library, onDrill: _drill),
       EquityScreen(library: m.library),
       StatsScreen(model: m, onDrill: _drill),
-      const HomeGameScreen(),
+      HomeGameScreen(model: widget.home),
     ];
     return Scaffold(
       body: Center(
