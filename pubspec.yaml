@@ -21,6 +21,8 @@ dependencies:
   # About screen version. 9.x needs a newer Flutter Gradle plugin (compileSdk
   # = flutter.compileSdkVersion fails on 3.22); 8.3.1 is the last 8.x and builds.
   package_info_plus: ">=8.3.1 <9.0.0"
+  # Share the report-card PNG. 10.1.x is the last line built for Flutter 3.22 / Dart 3.4.
+  share_plus: ">=10.1.4 <10.2.0"
 
 dev_dependencies:
   flutter_test:

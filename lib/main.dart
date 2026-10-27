@@ -4,6 +4,7 @@ import 'app_data.dart';
 import 'gto/spots.dart';
 import 'homegame/home_game.dart';
 import 'trainer/trainer_model.dart';
+import 'ui/chart_prefs.dart';
 import 'ui/screens/charts_screen.dart';
 import 'ui/screens/equity_screen.dart';
 import 'ui/screens/help_screen.dart';
@@ -31,7 +32,7 @@ class _FeltNotesAppState extends State<FeltNotesApp> {
     SpotLibrary.load().then((lib) async {
       final m = TrainerModel(lib);
       final h = HomeGameModel(lib);
-      await Future.wait([m.load(), h.load()]);
+      await Future.wait([m.load(), h.load(), ChartPrefs.load()]);
       if (mounted) {
         setState(() {
           model = m;

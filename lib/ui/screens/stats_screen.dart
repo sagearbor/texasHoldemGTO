@@ -5,6 +5,7 @@ import '../../gto/hand_class.dart';
 import '../../trainer/trainer_model.dart';
 import '../widgets/range_grid.dart';
 import 'daily_screen.dart';
+import '../widgets/share_card.dart';
 import 'help_screen.dart';
 import 'review_sheet.dart';
 
@@ -50,6 +51,19 @@ class StatsScreen extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(title: const Text('My stats'), actions: [
             const HelpButton(HelpTopic.stats),
+            Builder(
+              builder: (bc) => IconButton(
+                tooltip: 'Share my GTO report card',
+                icon: const Icon(Icons.ios_share),
+                onPressed: () {
+                  final r = TrainerReport.from(model);
+                  shareCardImage(bc,
+                      card: TrainerShareCard(r),
+                      fileName: 'felt-notes-report-card.png',
+                      fallbackText: r.toText());
+                },
+              ),
+            ),
             IconButton(
               tooltip: 'Reset history',
               icon: const Icon(Icons.delete_outline),
