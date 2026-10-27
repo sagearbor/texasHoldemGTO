@@ -95,9 +95,18 @@ class _ModeMenu extends StatelessWidget {
         avatar: Icon(
             model.mode == DrillMode.leaks ? Icons.healing : Icons.tune,
             size: 18),
-        label: Text(model.difficulty == Difficulty.intermediate
-            ? label
-            : '$label · ${difficultyLabels[model.difficulty]}'),
+        // Long focus-spot titles ellipsize instead of overflowing the
+        // app bar on a 360px phone.
+        label: ConstrainedBox(
+          constraints: BoxConstraints(
+              maxWidth: MediaQuery.sizeOf(context).width * 0.32),
+          child: Text(
+              model.difficulty == Difficulty.intermediate
+                  ? label
+                  : '$label · ${difficultyLabels[model.difficulty]}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+        ),
         onDeleted: model.focusSpotId != null ? () => model.focus(null) : null,
       ),
     );
@@ -167,6 +176,7 @@ class _DrillCard extends StatelessWidget {
             TableDiagram(
                 hero: spot.hero,
                 villain: spot.villain,
+                otherVillains: spot.otherVillains,
                 headsUp: spot.format == SpotFormat.pushFold,
                 threeHanded: spot.format == SpotFormat.pushFold3),
             const SizedBox(height: 16),

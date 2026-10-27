@@ -214,6 +214,7 @@ class _DailyDrillCard extends StatelessWidget {
             TableDiagram(
                 hero: spot.hero,
                 villain: spot.villain,
+                otherVillains: spot.otherVillains,
                 headsUp: spot.format == SpotFormat.pushFold),
             const SizedBox(height: 16),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [

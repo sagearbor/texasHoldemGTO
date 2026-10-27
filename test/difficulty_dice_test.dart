@@ -108,11 +108,13 @@ void main() {
       expect(m.deck.cards.containsKey('${spot.id}:${trash.index}'), isTrue);
     });
 
-    test('Daily 10 never uses facing-limper spots (stable across versions)',
-        () {
-      final noLimp = SpotLibrary(
-          [for (final s in lib.cash) if (s.group != limperGroup) s],
-          lib.pushFold);
+    test(
+        'Daily 10 never uses facing-limper or facing-a-3-bet spots '
+        '(stable across versions)', () {
+      final noLimp = SpotLibrary([
+        for (final s in lib.cash)
+          if (s.group != limperGroup && s.group != threeBetGroup) s
+      ], lib.pushFold);
       for (var d = 0; d < 20; d++) {
         final date = DateTime(2026, 11, 1 + d);
         final a = dailySet(lib, date), b = dailySet(noLimp, date);

@@ -51,6 +51,28 @@ void main() {
     expect(a.where((d) => d.spot.format == SpotFormat.cash100), hasLength(6));
   });
 
+  test('daily set is frozen: new spot groups never change it', () {
+    // Captured from main before the facing-a-3-bet spots were added.
+    expect(
+        sig(dailySet(lib, DateTime(2026, 10, 27))),
+        'cash-rfi-SB/29,17 cash-BB-vs-CO/20,18 cash-BB-vs-HJ/11,4 '
+        'cash-CO-vs-HJ/28,25 pf-sb-15/38,14 pf-bb-19/29,30 '
+        'cash-SB-vs-BTN/17,1 pf-sb-8/47,5 pf-sb-16/17,18 '
+        'cash-BTN-vs-CO/18,14');
+    expect(
+        sig(dailySet(lib, DateTime(2027, 1, 1))),
+        'pf-bb-24/43,14 pf-sb-11/27,17 cash-HJ-vs-UTG/45,15 '
+        'cash-rfi-UTG/29,30 pf-bb-12/28,24 cash-SB-vs-BTN/24,20 '
+        'cash-BTN-vs-CO/48,17 cash-CO-vs-HJ/42,36 cash-rfi-HJ/44,34 '
+        'pf-bb-25/11,7');
+    expect(lib.cash.where((s) => s.group == threeBetGroup), isNotEmpty);
+    for (var d = 0; d < 60; d++) {
+      for (final x in dailySet(lib, DateTime(2026, 11, 1 + d))) {
+        expect(dailyExcludedGroups.contains(x.spot.group), isFalse);
+      }
+    }
+  });
+
   test('daily sets favour borderline hands', () {
     var edgy = 0, total = 0;
     for (var d = 0; d < 30; d++) {

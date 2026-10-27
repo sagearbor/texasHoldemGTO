@@ -10,12 +10,16 @@ import '../theme.dart';
 class TableDiagram extends StatelessWidget {
   final String hero;
   final String? villain;
+
+  /// Further aggressor seats for grouped spots ("HJ, CO or BTN 3-bets").
+  final List<String> otherVillains;
   final bool headsUp;
   final bool threeHanded;
   const TableDiagram(
       {super.key,
       required this.hero,
       this.villain,
+      this.otherVillains = const [],
       this.headsUp = false,
       this.threeHanded = false});
 
@@ -53,7 +57,8 @@ class TableDiagram extends StatelessWidget {
               final x = w / 2 + cos(ang) * w * 0.40;
               final y = h / 2 + sin(ang) * h * 0.40;
               final s = seats[i];
-              final isHero = s == hero, isVillain = s == villain;
+              final isHero = s == hero, isVillain =
+                  s == villain || otherVillains.contains(s);
               return Positioned(
                 left: x - 24,
                 top: y - 14,
