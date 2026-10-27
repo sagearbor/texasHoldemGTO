@@ -2,6 +2,10 @@
     <!-- Beta "Snap my cards": one still photo, read on-device by ML Kit. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Board caller: push-to-talk speech recognition by the phone's own
+         engine (on-device where available). Audio is never stored. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <application
         android:label="Felt Notes"
         android:name="${applicationName}"
@@ -43,6 +47,10 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Android 11+: lets speech_to_text find the speech recognizer. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
         </intent>
     </queries>
 </manifest>

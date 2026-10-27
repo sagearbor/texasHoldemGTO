@@ -47,6 +47,10 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>While you hold the board button, Felt Notes listens so you can call the flop, turn and river aloud. Nothing is recorded or uploaded.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>The board cards you call aloud are recognised on this iPhone and turned into cards. Nothing is uploaded.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Felt Notes (beta) can photograph your own two hole cards to fill them in. The photo is read on your phone and never uploaded.</string>
 </dict>

@@ -9,6 +9,8 @@ import '../theme.dart';
 import '../widgets/badges.dart';
 import '../widgets/button_draw_dialog.dart';
 import '../widgets/my_result_dialog.dart';
+import '../../homegame/board_speech.dart';
+import '../widgets/board_row.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/story_tags.dart';
 import 'blind_clock_screen.dart';
@@ -56,21 +58,25 @@ class HomeGameScreen extends StatelessWidget {
                       // Wrapped: show tonight's recap straight away.
                       Navigator.of(context).push(MaterialPageRoute(
                           fullscreenDialog: true,
-                          builder: (_) => RecapScreen(model: model, session: s)));
+                          builder: (_) =>
+                              RecapScreen(model: model, session: s)));
                     }
                     if (v == 'seats') showSeatsEditor(context, model);
                     if (v == 'clock') openBlindClock(context);
                   },
                   itemBuilder: (_) => const [
                     PopupMenuItem(value: 'clock', child: Text('Blind clock')),
-                    PopupMenuItem(value: 'seats', child: Text('Players & seats')),
+                    PopupMenuItem(
+                        value: 'seats', child: Text('Players & seats')),
                     PopupMenuItem(value: 'result', child: Text('My result')),
                     PopupMenuItem(value: 'end', child: Text('End game night')),
                   ],
                 ),
             ],
           ),
-          body: s == null ? _Setup(model: model) : _Logger(model: model, session: s, trainer: trainer),
+          body: s == null
+              ? _Setup(model: model)
+              : _Logger(model: model, session: s, trainer: trainer),
         );
       },
     );
@@ -86,7 +92,8 @@ class _Setup extends StatefulWidget {
 }
 
 class _SetupState extends State<_Setup> {
-  final names = TextEditingController(text: 'Me, Alex, Sam, Jordan, Casey, Riley');
+  final names =
+      TextEditingController(text: 'Me, Alex, Sam, Jordan, Casey, Riley');
   int hero = 0;
   int button = 0;
 
@@ -132,7 +139,8 @@ class _SetupState extends State<_Setup> {
                 onSelected: (_) => setState(() => hero = i)),
         ]),
         const SizedBox(height: 12),
-        Text('Who has the dealer button for the first hand?', style: t.labelLarge),
+        Text('Who has the dealer button for the first hand?',
+            style: t.labelLarge),
         Wrap(spacing: 6, children: [
           for (var i = 0; i < p.length; i++)
             ChoiceChip(
@@ -176,8 +184,8 @@ class _SetupState extends State<_Setup> {
         if (past.isNotEmpty) ...[
           const SizedBox(height: 10),
           OutlinedButton.icon(
-            onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => CrewScreen(model: widget.model))),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => CrewScreen(model: widget.model))),
             icon: const Icon(Icons.groups_outlined),
             label: const Text('Crew & season'),
           ),
@@ -193,16 +201,20 @@ class _SetupState extends State<_Setup> {
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                   TextButton(
                     child: const Text('Recap'),
-                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                        fullscreenDialog: true,
-                        builder: (_) => RecapScreen(model: widget.model, session: s))),
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            fullscreenDialog: true,
+                            builder: (_) =>
+                                RecapScreen(model: widget.model, session: s))),
                   ),
                   IconButton(
                     tooltip: 'Dashboard',
                     icon: const Icon(Icons.bar_chart),
-                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                        fullscreenDialog: true,
-                        builder: (_) => DashboardScreen(model: widget.model, session: s))),
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            fullscreenDialog: true,
+                            builder: (_) => DashboardScreen(
+                                model: widget.model, session: s))),
                   ),
                 ]),
               ),
@@ -248,7 +260,9 @@ class _LoggerState extends State<_Logger> {
       facing = Facing.unopened;
     });
     // Instant feedback for graded spots.
-    if (last.hand != null && last.action != null && last.facing == Facing.unopened) {
+    if (last.hand != null &&
+        last.action != null &&
+        last.facing == Facing.unopened) {
       final st = computeStats([last], widget.model.library);
       if (st.misses.isNotEmpty) {
         final (h, spot, _) = st.misses.first;
@@ -265,6 +279,20 @@ class _LoggerState extends State<_Logger> {
       }
     }
     showBadgeSnack(context, widget.model.claimNewBadges());
+  }
+
+  /// "That was hand…": put the cards/action being entered on an earlier
+  /// hand picked by its board, instead of the hand being played now.
+  Future<void> _attachLate() async {
+    final done = await showAttachSheet(context, widget.model,
+        cards: hasCards ? cards.cast<int>() : null, facing: facing);
+    if (!done || !mounted) return;
+    setState(() {
+      cards = [null, null];
+      facing = Facing.unopened;
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Added to that hand')));
   }
 
   Future<void> _pickCards() async {
@@ -296,8 +324,11 @@ class _LoggerState extends State<_Logger> {
           ),
           for (var i = 0; i < s.tableSize; i++)
             ListTile(
-              leading: Icon(i == s.buttonSeat ? Icons.radio_button_checked : Icons.radio_button_off),
-              title: Text(i == s.heroSeat ? '${s.players[i]} (you)' : s.players[i]),
+              leading: Icon(i == s.buttonSeat
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off),
+              title: Text(
+                  i == s.heroSeat ? '${s.players[i]} (you)' : s.players[i]),
               onTap: () => Navigator.pop(ctx, i),
             ),
         ]),
@@ -335,105 +366,133 @@ class _LoggerState extends State<_Logger> {
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Row(children: [
-                Text('Hand $n', style: t.titleLarge),
-                const Spacer(),
-                Flexible(
-                  child: ActionChip(
-                    avatar: const Icon(Icons.circle, size: 12),
-                    label: Text('Dealer: ${s.players[s.buttonSeat]}',
-                        overflow: TextOverflow.ellipsis),
-                    onPressed: _pickDealer,
-                  ),
-                ),
-              ]),
-              const SizedBox(height: 8),
-              Text('Your position (tap to correct)', style: t.labelMedium),
-              const SizedBox(height: 4),
-              Wrap(spacing: 6, runSpacing: 4, children: [
-                for (final p in s.positionsInOrder)
-                  ChoiceChip(
-                    label: Text(p),
-                    selected: p == s.position,
-                    visualDensity: VisualDensity.compact,
-                    onSelected: (_) => widget.model.setPosition(p),
-                  ),
-              ]),
-              const SizedBox(height: 14),
-              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                if (snapCardsSupported) const SizedBox(width: 56),
-                GestureDetector(
-                  onTap: _pickCards,
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    PlayingCard(card: cards[0], width: 66),
-                    const SizedBox(width: 10),
-                    PlayingCard(card: cards[1], width: 66),
-                  ]),
-                ),
-                if (snapCardsSupported)
-                  SizedBox(
-                    width: 56,
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      IconButton(
-                        tooltip: 'Snap my cards (beta)',
-                        icon: const Icon(Icons.photo_camera_outlined),
-                        onPressed: _snapCards,
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(children: [
+                    Text('Hand $n', style: t.titleLarge),
+                    const Spacer(),
+                    Flexible(
+                      child: ActionChip(
+                        avatar: const Icon(Icons.circle, size: 12),
+                        label: Text('Dealer: ${s.players[s.buttonSeat]}',
+                            overflow: TextOverflow.ellipsis),
+                        onPressed: _pickDealer,
                       ),
-                      const BetaBadge(),
-                    ]),
-                  ),
-              ]),
-              const SizedBox(height: 6),
-              Center(
-                child: Text(
-                    hasCards ? 'Tap to change' : 'Cards are optional: tap to add them',
-                    style: t.bodySmall),
-              ),
-              const SizedBox(height: 14),
-              SegmentedButton<Facing>(
-                segments: const [
-                  ButtonSegment(value: Facing.unopened, label: Text('Folded to me')),
-                  ButtonSegment(value: Facing.raised, label: Text('Someone raised')),
-                ],
-                selected: {facing},
-                onSelectionChanged: (v) => setState(() => facing = v.first),
-              ),
-              const SizedBox(height: 10),
-              Row(children: [
-                for (final a in PreAction.values) ...[
-                  if (a != PreAction.fold) const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Felt.actionColor(preActionLabels[a]!, b),
-                        foregroundColor: a == PreAction.fold && b == Brightness.light
-                            ? Colors.black87
-                            : Colors.white,
-                        minimumSize: const Size.fromHeight(50),
-                      ),
-                      onPressed: () => _save(a),
-                      child: Text(preActionLabels[a]!),
                     ),
+                  ]),
+                  const SizedBox(height: 8),
+                  Text('Your position (tap to correct)', style: t.labelMedium),
+                  const SizedBox(height: 4),
+                  Wrap(spacing: 6, runSpacing: 4, children: [
+                    for (final p in s.positionsInOrder)
+                      ChoiceChip(
+                        label: Text(p),
+                        selected: p == s.position,
+                        visualDensity: VisualDensity.compact,
+                        onSelected: (_) => widget.model.setPosition(p),
+                      ),
+                  ]),
+                  const SizedBox(height: 14),
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    if (snapCardsSupported) const SizedBox(width: 56),
+                    GestureDetector(
+                      onTap: _pickCards,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        PlayingCard(card: cards[0], width: 66),
+                        const SizedBox(width: 10),
+                        PlayingCard(card: cards[1], width: 66),
+                      ]),
+                    ),
+                    if (snapCardsSupported)
+                      SizedBox(
+                        width: 56,
+                        child:
+                            Column(mainAxisSize: MainAxisSize.min, children: [
+                          IconButton(
+                            tooltip: 'Snap my cards (beta)',
+                            icon: const Icon(Icons.photo_camera_outlined),
+                            onPressed: _snapCards,
+                          ),
+                          const BetaBadge(),
+                        ]),
+                      ),
+                  ]),
+                  const SizedBox(height: 6),
+                  Center(
+                    child: Text(
+                        hasCards
+                            ? 'Tap to change'
+                            : 'Cards are optional: tap to add them',
+                        style: t.bodySmall),
                   ),
-                ],
-              ]),
-              const SizedBox(height: 8),
-              Wrap(alignment: WrapAlignment.spaceBetween, children: [
-                TextButton(
-                  onPressed: hasCards ? () => _save(null) : null,
-                  child: const Text('Save cards only'),
-                ),
-                TextButton(
-                  onPressed: () => _save(null, keepCards: false),
-                  child: const Text('Skip hand'),
-                ),
-              ]),
-            ]),
+                  const SizedBox(height: 14),
+                  SegmentedButton<Facing>(
+                    segments: const [
+                      ButtonSegment(
+                          value: Facing.unopened, label: Text('Folded to me')),
+                      ButtonSegment(
+                          value: Facing.raised, label: Text('Someone raised')),
+                    ],
+                    selected: {facing},
+                    onSelectionChanged: (v) => setState(() => facing = v.first),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    for (final a in PreAction.values) ...[
+                      if (a != PreAction.fold) const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor:
+                                Felt.actionColor(preActionLabels[a]!, b),
+                            foregroundColor:
+                                a == PreAction.fold && b == Brightness.light
+                                    ? Colors.black87
+                                    : Colors.white,
+                            minimumSize: const Size.fromHeight(50),
+                          ),
+                          onPressed: () => _save(a),
+                          child: Text(preActionLabels[a]!),
+                        ),
+                      ),
+                    ],
+                  ]),
+                  const SizedBox(height: 8),
+                  Wrap(alignment: WrapAlignment.spaceBetween, children: [
+                    TextButton(
+                      onPressed: hasCards ? () => _save(null) : null,
+                      child: const Text('Save cards only'),
+                    ),
+                    TextButton(
+                      onPressed: () => _save(null, keepCards: false),
+                      child: const Text('Skip hand'),
+                    ),
+                  ]),
+                  // Late logging: match an earlier hand by its board.
+                  if (widget.model.handsWithBoards().isNotEmpty)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _attachLate,
+                        icon: const Icon(Icons.history, size: 18),
+                        label: const Text('That was hand…'),
+                      ),
+                    ),
+                ]),
           ),
         ),
+        BoardRow(
+          model: widget.model,
+          session: s,
+          dead: [
+            for (final c in cards)
+              if (c != null) c
+          ],
+        ),
         const SizedBox(height: 12),
-        if (s.hands.isNotEmpty) StoryTagRow(model: widget.model, hand: s.hands.last),
+        if (s.hands.isNotEmpty)
+          StoryTagRow(model: widget.model, hand: s.hands.last),
         if (s.hands.isNotEmpty) ...[
           Row(children: [
             Expanded(
@@ -455,7 +514,11 @@ class _LoggerState extends State<_Logger> {
               title: Text(h.skipped
                   ? 'Skipped · ${h.position}'
                   : '${h.cards == null ? 'No cards' : '${cardToString(h.cards![0])} ${cardToString(h.cards![1])}'}  ·  ${h.position}'),
-              trailing: Text(h.action == null ? '' : preActionLabels[h.action]!),
+              subtitle: h.board == null
+                  ? null
+                  : Text('Board ${boardLabel(h.board!)}'),
+              trailing:
+                  Text(h.action == null ? '' : preActionLabels[h.action]!),
             ),
         ],
       ],
@@ -475,31 +538,42 @@ void showSeatsEditor(BuildContext context, HomeGameModel model) {
         final s = model.active;
         if (s == null) return const SizedBox();
         return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
           child: SafeArea(
-            child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
-              Text('Players & seats (clockwise)', style: Theme.of(ctx).textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text('Tap + between two players to seat someone there.',
-                  style: Theme.of(ctx).textTheme.bodySmall),
-              for (var i = 0; i < s.tableSize; i++) ...[
-                _AddHere(onAdd: (name) => model.addPlayer(name, i)),
-                ListTile(
-                  dense: true,
-                  leading: Icon(i == s.buttonSeat ? Icons.circle : Icons.event_seat, size: 18),
-                  title: Text(i == s.heroSeat ? '${s.players[i]} (you)' : s.players[i]),
-                  subtitle: i == s.buttonSeat ? const Text('dealer this hand') : null,
-                  trailing: i == s.heroSeat || s.tableSize <= 2
-                      ? null
-                      : IconButton(
-                          tooltip: 'Remove',
-                          icon: const Icon(Icons.person_remove_outlined),
-                          onPressed: () => model.removePlayer(i),
-                        ),
-                ),
-              ],
-              _AddHere(onAdd: (name) => model.addPlayer(name, s.tableSize)),
-            ]),
+            child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                children: [
+                  Text('Players & seats (clockwise)',
+                      style: Theme.of(ctx).textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text('Tap + between two players to seat someone there.',
+                      style: Theme.of(ctx).textTheme.bodySmall),
+                  for (var i = 0; i < s.tableSize; i++) ...[
+                    _AddHere(onAdd: (name) => model.addPlayer(name, i)),
+                    ListTile(
+                      dense: true,
+                      leading: Icon(
+                          i == s.buttonSeat ? Icons.circle : Icons.event_seat,
+                          size: 18),
+                      title: Text(i == s.heroSeat
+                          ? '${s.players[i]} (you)'
+                          : s.players[i]),
+                      subtitle: i == s.buttonSeat
+                          ? const Text('dealer this hand')
+                          : null,
+                      trailing: i == s.heroSeat || s.tableSize <= 2
+                          ? null
+                          : IconButton(
+                              tooltip: 'Remove',
+                              icon: const Icon(Icons.person_remove_outlined),
+                              onPressed: () => model.removePlayer(i),
+                            ),
+                    ),
+                  ],
+                  _AddHere(onAdd: (name) => model.addPlayer(name, s.tableSize)),
+                ]),
           ),
         );
       },
@@ -532,8 +606,12 @@ class _AddHere extends StatelessWidget {
                 onSubmitted: (v) => Navigator.pop(d, v),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cancel')),
-                FilledButton(onPressed: () => Navigator.pop(d, c.text), child: const Text('Add')),
+                TextButton(
+                    onPressed: () => Navigator.pop(d),
+                    child: const Text('Cancel')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(d, c.text),
+                    child: const Text('Add')),
               ],
             ),
           );
@@ -556,7 +634,8 @@ class _Mini extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Column(children: [
-            Text(value, style: t.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            Text(value,
+                style: t.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             Text(label, style: t.bodySmall),
           ]),
         ),
@@ -577,7 +656,10 @@ Future<List<int?>?> pickTwoCards(BuildContext context) {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 16),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Text(chosen.isEmpty ? 'Tap your first card' : 'Now your second card',
+              Text(
+                  chosen.isEmpty
+                      ? 'Tap your first card'
+                      : 'Now your second card',
                   style: Theme.of(ctx).textTheme.titleSmall),
               const SizedBox(height: 8),
               for (var s = 3; s >= 0; s--)
@@ -618,7 +700,8 @@ class _TwoPickCell extends StatelessWidget {
   final int card;
   final bool selected;
   final VoidCallback onTap;
-  const _TwoPickCell({required this.card, required this.selected, required this.onTap});
+  const _TwoPickCell(
+      {required this.card, required this.selected, required this.onTap});
 
   static const _colors = [
     Color(0xFF1F7A3F),

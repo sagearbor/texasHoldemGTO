@@ -102,6 +102,14 @@ const _topics = {
       'Snap my cards (Beta, phone only): tap the camera next to the card slots and photograph '
           'your two cards so the corners show. It reads them on the phone (nothing is uploaded); '
           'always check the suits before saving.',
+      'Board caller (optional): whoever reads the flop, turn and river aloud holds the mic '
+          'button under the hand and says it, e.g. "flop king of hearts seven of spades four '
+          'of clubs", then "turn jack diamonds". Speech is recognised on the phone and never '
+          'recorded. Or tap the keyboard to type "Kh 7s 4c", or ✎ to pick the cards. The board '
+          'is saved with the hand when you log it.',
+      'Remembered your cards late? Enter them, tap "That was hand…" and pick the hand by its '
+          'board: they go on that hand instead of the one being played now.',
+      'With boards the Night Recap adds flops seen and your best made hand.',
       'Blind clock: from the setup screen or the ⋮ menu. Big countdown for the TV, levels and '
           'breaks you can edit, or Cash game mode. It keeps time even if the phone sleeps.',
       'End game night shows the Night Recap: best hand, cold streaks, card luck, awards and '

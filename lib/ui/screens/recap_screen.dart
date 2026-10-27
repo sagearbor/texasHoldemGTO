@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../gto/coach.dart';
+import '../../homegame/board_speech.dart';
+import '../../homegame/board_stats.dart';
 import '../../homegame/home_game.dart';
 import '../../homegame/moments.dart';
 import '../../homegame/my_result.dart';
@@ -174,6 +176,7 @@ List<Widget> recapCards(NightRecap r) {
       ],
     ));
   }
+  out.addAll(boardRecapCards(boardStats(r.session.hands)));
   if (r.coldRun != null) {
     out.add(RecapCard(
       icon: Icons.ac_unit,
@@ -268,6 +271,31 @@ List<Widget> recapCards(NightRecap r) {
   }
   return out;
 }
+
+/// Cards from the board caller's boards: flops seen and best made hand.
+List<Widget> boardRecapCards(BoardStats b) => [
+      if (b.flopChances >= RecapGates.flopsMinChances)
+        RecapCard(
+          icon: Icons.filter_3_outlined,
+          label: 'Flops seen',
+          value: pct(b.flopSeenPct),
+          caption: '${b.flopsSeen} of ${b.flopChances} hands with a flop called',
+          lines: const ['Hands where you did not fold before the flop'],
+        ),
+      if (b.best != null)
+        RecapCard(
+          icon: Icons.workspace_premium_outlined,
+          label: 'Best made hand',
+          value: b.bestName!,
+          small: true,
+          caption: '${boardLabel(b.best!.cards!)}  on  ${boardLabel(b.best!.board!)}',
+          lines: [
+            'Hand #${b.best!.number}${b.best!.dealer == null ? '' : ', dealt by ${b.best!.dealer}'}',
+            if (b.showdowns > 1)
+              'Your hands by the river: ${[for (final (n, c) in b.categoryRows) '$n $c'].join(' · ')}',
+          ],
+        ),
+    ];
 
 class RecapCard extends StatelessWidget {
   final IconData icon;

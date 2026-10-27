@@ -23,6 +23,10 @@ dependencies:
   package_info_plus: ">=8.3.1 <9.0.0"
   # Share the report-card PNG. 10.1.x is the last line built for Flutter 3.22 / Dart 3.4.
   share_plus: ">=10.1.4 <10.2.0"
+  # Board caller: push-to-talk, on-device speech recognition (OS engine, free).
+  # 7.2+ uses compileSdk = flutter.compileSdkVersion (fails on Flutter 3.22),
+  # 7.5+ needs Flutter 3.44 / Dart 3.12. 7.1.0 builds.
+  speech_to_text: ">=7.1.0 <7.2.0"
 
 dev_dependencies:
   flutter_test:

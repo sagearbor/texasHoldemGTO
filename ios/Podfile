@@ -41,5 +41,17 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    # wakelock_plus 1.3.0 imports "messages.g.h" from include/wakelock_plus,
+    # which Xcode 26 does not find (or finds another pod's) via the header map.
+    if target.name == 'wakelock_plus'
+      target.build_configurations.each do |config|
+        # Its own header first: other pods ship a messages.g.h too.
+        config.build_settings['USE_HEADERMAP'] = 'NO'
+        config.build_settings['HEADER_SEARCH_PATHS'] = [
+          '${PODS_TARGET_SRCROOT}/wakelock_plus/Sources/wakelock_plus/include/wakelock_plus',
+          '$(inherited)',
+        ]
+      end
+    end
   end
 end
