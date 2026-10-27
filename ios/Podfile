@@ -2,6 +2,13 @@
 # google_mlkit_text_recognition 0.15 (ML Kit 7) needs iOS 15.5.
 platform :ios, '15.5'
 
+# file_picker is only used to pick a backup file (document picker). Leave out
+# its photo/media and audio pickers: no DKImagePickerController/SDWebImage
+# pods, no Photos or Apple Music API references (which would need purpose
+# strings in Info.plist for App Store review).
+Pod::PICKER_MEDIA = false
+Pod::PICKER_AUDIO = false
+
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
