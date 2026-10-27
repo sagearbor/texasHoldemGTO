@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../gto/coach.dart';
 import '../../gto/spots.dart';
 import '../widgets/range_grid.dart';
+import 'flop_screen.dart';
 import 'help_screen.dart';
 import 'review_sheet.dart';
 import 'river_screen.dart';
@@ -56,8 +57,10 @@ class _ChartsScreenState extends State<ChartsScreen> {
         children: [
           SegmentedButton<SpotFormat>(
             segments: const [
-              ButtonSegment(value: SpotFormat.cash100, label: Text('6-max 100bb')),
-              ButtonSegment(value: SpotFormat.pushFold, label: Text('Push/fold')),
+              ButtonSegment(
+                  value: SpotFormat.cash100, label: Text('6-max 100bb')),
+              ButtonSegment(
+                  value: SpotFormat.pushFold, label: Text('Push/fold')),
             ],
             selected: {format},
             onSelectionChanged: (v) => setState(() => format = v.first),
@@ -189,8 +192,19 @@ class _ChartsScreenState extends State<ChartsScreen> {
               title: const Text('River spots (solved)'),
               subtitle: const Text('BB vs BTN river strategies + drill'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const RiverScreen())),
+              onTap: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const RiverScreen())),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.layers),
+              title: const Text('Flop c-bets (simplified)'),
+              subtitle:
+                  const Text('BTN vs BB flop c-betting by texture + drill'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const FlopScreen())),
             ),
           ),
         ],
