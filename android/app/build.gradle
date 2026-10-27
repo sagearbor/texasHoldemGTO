@@ -68,6 +68,7 @@ android {
             // Upload key from android/key.properties (gitignored); falls back
             // to debug signing on machines without it.
             signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
 }
