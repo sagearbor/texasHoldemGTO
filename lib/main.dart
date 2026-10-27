@@ -5,6 +5,7 @@ import 'homegame/home_game.dart';
 import 'trainer/trainer_model.dart';
 import 'ui/screens/charts_screen.dart';
 import 'ui/screens/equity_screen.dart';
+import 'ui/screens/help_screen.dart';
 import 'ui/screens/home_game_screen.dart';
 import 'ui/screens/stats_screen.dart';
 import 'ui/screens/train_screen.dart';
@@ -76,6 +77,13 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> {
   int tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => maybeShowWelcome(context));
+  }
 
   void _drill(String spotId) {
     widget.model.focus(spotId);

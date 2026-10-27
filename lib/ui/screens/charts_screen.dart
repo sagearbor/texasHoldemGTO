@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../gto/coach.dart';
 import '../../gto/spots.dart';
 import '../widgets/range_grid.dart';
+import 'help_screen.dart';
 import 'review_sheet.dart';
 
 class ChartsScreen extends StatefulWidget {
@@ -33,7 +34,9 @@ class _ChartsScreenState extends State<ChartsScreen> {
       (groups[c.group] ??= []).add(c);
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('Charts')),
+      appBar: AppBar(
+          title: const Text('Charts'),
+          actions: const [HelpButton(HelpTopic.charts)]),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [

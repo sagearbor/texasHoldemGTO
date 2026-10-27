@@ -1,0 +1,184 @@
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../theme.dart';
+
+enum HelpTopic { train, charts, equity, stats, homeGame, terms }
+
+const _topics = {
+  HelpTopic.train: (
+    Icons.fitness_center,
+    'Train',
+    [
+      'You get a spot (your seat and what happened before you) plus two cards.',
+      'Tap what you would do. Felt Notes grades it against GTO straight away: '
+          'green = GTO play, gold = a mixed hand where either choice is fine, red = mistake.',
+      'Read the bullet points for the why, check the chart (your hand is outlined in gold), then tap Next hand.',
+      'The chip at the top right picks what you drill: all spots, 6-max 100bb, push/fold, '
+          'or "Drill my leaks", which keeps serving the spots and hands you miss.',
+      'Most hands dealt are borderline ones, because that is where mistakes happen.',
+    ]
+  ),
+  HelpTopic.charts: (
+    Icons.grid_on,
+    'Charts',
+    [
+      'Each grid shows all 169 starting hands. Pairs run down the diagonal, suited hands '
+          'are above it, offsuit hands below.',
+      'Colours: red = raise / 3-bet / all-in, green = call, dark = fold. A cell split '
+          'between colours is a mixed hand: GTO plays it both ways at those rates.',
+      'Tap any hand for its frequencies and an explanation. "Drill" sends that spot to the trainer.',
+      '6-max 100bb charts are approximate GTO baselines. Push/fold charts are an exact '
+          'solution computed by Felt Notes.',
+    ]
+  ),
+  HelpTopic.equity: (
+    Icons.percent,
+    'Equity',
+    [
+      'Equity = your share of the pot if all the cards were run out.',
+      'Hand vs hand: tap the empty card slots to pick cards, add up to 6 players, '
+          'optionally add a board (3, 4 or 5 cards), then Calculate.',
+      'Hand vs range: compare your hand against everything a player would hold in a spot, '
+          'for example the hands the button opens.',
+    ]
+  ),
+  HelpTopic.stats: (
+    Icons.insights,
+    'Stats',
+    [
+      'Fills in as you train. The grid colours each hand by how GTO you play it: green good, red leak.',
+      '"Most teachable hands" lists your repeat mistakes, worst first. Tap one to review it.',
+      'Spots are listed weakest first, each with a Drill button.',
+      'Everything stays on this phone.',
+    ]
+  ),
+  HelpTopic.homeGame: (
+    Icons.groups,
+    'Home game',
+    [
+      'Before the game: type the players in seat order going clockwise, pick your seat '
+          'and who has the dealer button for hand 1, then Start.',
+      'Every hand: tap the two card slots and pick your cards (two taps). Then, if you can, '
+          'say whether it was folded to you or someone raised, and tap what you did: '
+          'Fold, Call / limp or Raise. No time? Use "Save cards only".',
+      'The button moves one seat each hand, so Felt Notes always knows your position. '
+          'If a hand gets re-dealt or the button skips, fix it from the ⋮ menu.',
+      'Raise or fold mistakes in unopened pots pop up with a "Why?" link.',
+      'The TV icon opens the dashboard. Mirror (cast) your phone screen to the TV to show it.',
+      'Undo last fixes a mis-tap. End the game night from the ⋮ menu. Past nights stay listed.',
+    ]
+  ),
+  HelpTopic.terms: (
+    Icons.menu_book,
+    'Poker terms',
+    [
+      'GTO (game-theory optimal): a strategy that can\'t be exploited. The baseline a solver finds.',
+      'bb: big blinds. Stacks and bets are measured in them.',
+      'RFI (raise first in): opening the pot with a raise when everyone before you folded.',
+      '3-bet: re-raising a raise (the blind is bet 1, the raise is bet 2).',
+      'Push/fold: with short stacks the choice is simply all-in or fold.',
+      'VPIP: % of hands you voluntarily put money in before the flop.',
+      'PFR: % of hands you raised before the flop. Compared with VPIP it shows how aggressive you are.',
+      'Positions: UTG (first to act) → HJ → CO → BTN (dealer, acts last) → SB → BB.',
+    ]
+  ),
+};
+
+class HelpScreen extends StatelessWidget {
+  final HelpTopic? focus;
+  const HelpScreen({super.key, this.focus});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('How to use Felt Notes')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
+        children: [
+          for (final e in _topics.entries)
+            Card(
+              child: ExpansionTile(
+                initiallyExpanded: e.key == focus,
+                leading: Icon(e.value.$1, color: Felt.gold),
+                title: Text(e.value.$2, style: t.titleMedium),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final line in e.value.$3)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Padding(
+                          padding: EdgeInsets.only(top: 7, right: 8),
+                          child: Icon(Icons.circle, size: 6, color: Felt.gold),
+                        ),
+                        Expanded(child: Text(line, style: t.bodyMedium)),
+                      ]),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "?" button for an AppBar that opens the guide at [topic].
+class HelpButton extends StatelessWidget {
+  final HelpTopic topic;
+  const HelpButton(this.topic, {super.key});
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        tooltip: 'How to use',
+        icon: const Icon(Icons.help_outline),
+        onPressed: () => Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => HelpScreen(focus: topic))),
+      );
+}
+
+/// Shows a one-time welcome the first time the app opens.
+Future<void> maybeShowWelcome(BuildContext context) async {
+  const key = 'seen_welcome_v1';
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(key) == true) return;
+    await prefs.setBool(key, true);
+  } catch (_) {
+    return;
+  }
+  if (!context.mounted) return;
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Welcome to Felt Notes'),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('• Train: tap what you\'d do with the hand shown and get graded against GTO.'),
+          SizedBox(height: 6),
+          Text('• Charts: the GTO strategy for every spot. Tap a hand to learn why.'),
+          SizedBox(height: 6),
+          Text('• Home game: at your poker night, log your two cards each hand and get live stats.'),
+          SizedBox(height: 6),
+          Text('Tap ? at the top of any screen for help.'),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const HelpScreen()));
+          },
+          child: const Text('Full guide'),
+        ),
+        FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Start training')),
+      ],
+    ),
+  );
+}

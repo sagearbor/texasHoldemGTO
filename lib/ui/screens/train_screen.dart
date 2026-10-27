@@ -6,6 +6,7 @@ import '../../trainer/trainer_model.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/table_diagram.dart';
+import 'help_screen.dart';
 import 'review_sheet.dart';
 
 class TrainScreen extends StatelessWidget {
@@ -22,10 +23,8 @@ class TrainScreen extends StatelessWidget {
           appBar: AppBar(
             title: const Text('Train'),
             actions: [
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: _ModeMenu(model: model),
-              ),
+              _ModeMenu(model: model),
+              const HelpButton(HelpTopic.train),
             ],
           ),
           body: d == null

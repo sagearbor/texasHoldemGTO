@@ -4,6 +4,7 @@ import '../../gto/coach.dart';
 import '../../gto/hand_class.dart';
 import '../../trainer/trainer_model.dart';
 import '../widgets/range_grid.dart';
+import 'help_screen.dart';
 import 'review_sheet.dart';
 
 class StatsScreen extends StatelessWidget {
@@ -20,7 +21,9 @@ class StatsScreen extends StatelessWidget {
         final h = model.history;
         if (h.isEmpty) {
           return Scaffold(
-            appBar: AppBar(title: const Text('My stats')),
+            appBar: AppBar(
+                title: const Text('My stats'),
+                actions: const [HelpButton(HelpTopic.stats)]),
             body: const Center(
               child: Padding(
                 padding: EdgeInsets.all(32),
@@ -45,6 +48,7 @@ class StatsScreen extends StatelessWidget {
 
         return Scaffold(
           appBar: AppBar(title: const Text('My stats'), actions: [
+            const HelpButton(HelpTopic.stats),
             IconButton(
               tooltip: 'Reset history',
               icon: const Icon(Icons.delete_outline),

@@ -6,6 +6,7 @@ import '../../poker/cards.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
 import 'dashboard_screen.dart';
+import 'help_screen.dart';
 import 'review_sheet.dart';
 
 class HomeGameScreen extends StatelessWidget {
@@ -22,6 +23,7 @@ class HomeGameScreen extends StatelessWidget {
           appBar: AppBar(
             title: Text(s == null ? 'Home game' : s.name),
             actions: [
+              const HelpButton(HelpTopic.homeGame),
               if (s != null)
                 IconButton(
                   tooltip: 'TV dashboard',

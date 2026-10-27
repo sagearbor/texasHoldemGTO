@@ -7,6 +7,7 @@ import '../../poker/equity.dart';
 import '../../poker/evaluator.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
+import 'help_screen.dart';
 
 class EquityScreen extends StatefulWidget {
   final SpotLibrary library;
@@ -94,6 +95,7 @@ class _EquityScreenState extends State<EquityScreen> {
     final boardCards = board.whereType<int>().toList();
     return Scaffold(
       appBar: AppBar(title: const Text('Equity'), actions: [
+        const HelpButton(HelpTopic.equity),
         IconButton(
           tooltip: 'Clear',
           icon: const Icon(Icons.refresh),
