@@ -42,3 +42,15 @@ Future<void> resetAllData({TrainerModel? trainer, HomeGameModel? home}) async {
     // Storage unavailable (private window etc.): nothing was stored anyway.
   }
 }
+
+/// Lets a pushed route (e.g. the leak test's "Drill my leaks") ask the
+/// bottom-nav shell to switch tabs after it pops.
+class TabRequests extends ChangeNotifier {
+  int tab = 0;
+  void go(int t) {
+    tab = t;
+    notifyListeners();
+  }
+}
+
+final shellTabs = TabRequests();

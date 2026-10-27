@@ -87,8 +87,19 @@ class _ShellState extends State<Shell> {
   @override
   void initState() {
     super.initState();
+    shellTabs.addListener(_onTabRequest);
     WidgetsBinding.instance
-        .addPostFrameCallback((_) => maybeShowWelcome(context));
+        .addPostFrameCallback((_) => maybeShowWelcome(context, widget.model));
+  }
+
+  void _onTabRequest() {
+    if (mounted) setState(() => tab = shellTabs.tab);
+  }
+
+  @override
+  void dispose() {
+    shellTabs.removeListener(_onTabRequest);
+    super.dispose();
   }
 
   void _drill(String spotId) {
