@@ -288,7 +288,11 @@ class _StylePainter extends CustomPainter {
     )..layout();
     axis.paint(canvas, Offset(size.width - axis.width, size.height - axis.height));
     if (show) {
-      final p = pt(vpip.clamp(0, maxV), pfr.clamp(0, maxP));
+      // Keep the whole marker inside the card: a 63% / 50% maniac sat on
+      // the top-right corner, half outside it.
+      final raw = pt(vpip.clamp(0, maxV), pfr.clamp(0, maxP));
+      final p = Offset(raw.dx.clamp(13.0, size.width - 13),
+          raw.dy.clamp(13.0, size.height - 13));
       canvas.drawCircle(p, 13, Paint()..color = Felt.gold.withOpacity(0.3));
       canvas.drawCircle(p, 8, Paint()..color = Felt.gold);
     }
