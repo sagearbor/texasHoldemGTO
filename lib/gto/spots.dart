@@ -8,6 +8,10 @@
 ///    limp-heavy home games (iso / overlimp / fold; BB raise / check).
 ///    Limped pots are not in standard solver trees, so these are labelled
 ///    "approximate" more loudly than the rest.
+///  * 6-max 100bb facing a 3-bet: hand-authored approximations of the
+///    opener's 4-bet / call / fold strategy (4-bet 22bb in position, 25bb
+///    out of position). Rows are conditional on hero having opened the hand;
+///    [Spot.reach] holds the opening frequency.
 ///  * Heads-up push/fold: true Nash equilibrium computed by
 ///    tool/solve_pushfold.dart (assets/data/pushfold.json).
 ///  * 3-handed push/fold (BTN, SB, BB): equilibrium computed by
@@ -42,6 +46,15 @@ class Spot {
   final List<double>? edge;
   final bool solved;
 
+  /// How often hero holds each hand class on reaching this spot (e.g. the
+  /// opening frequency when facing a 3-bet), or null when every hand can.
+  /// The trainer only deals hands with reach > 0.
+  final List<double>? reach;
+
+  /// Further seats that can be the aggressor in a grouped spot (e.g. "HJ,
+  /// CO or BTN 3-bets"), shown alongside [villain] on the table diagram.
+  final List<String> otherVillains;
+
   Spot({
     required this.id,
     required this.format,
@@ -54,6 +67,8 @@ class Spot {
     required this.strategy,
     this.edge,
     this.solved = false,
+    this.reach,
+    this.otherVillains = const [],
   });
 
   List<double> freqs(HandClass h) => strategy[h.index];
@@ -74,7 +89,25 @@ class Spot {
     }
     return c / 1326;
   }
+
+  /// Share of the hands hero can hold here ([reach]-weighted combos) that
+  /// take a non-fold action. Equals [playPercent] when [reach] is null.
+  double get continueShare {
+    final r = reach;
+    if (r == null) return playPercent;
+    final foldIdx = passiveIndex;
+    var c = 0.0, n = 0.0;
+    for (final h in allHandClasses) {
+      final w = h.comboCount * r[h.index];
+      n += w;
+      c += w * (1 - strategy[h.index][foldIdx]);
+    }
+    return n == 0 ? 0 : c / n;
+  }
 }
+
+/// Group name of the hand-authored facing-a-3-bet spots.
+const threeBetGroup = 'Facing a 3-bet';
 
 /// Group name of the hand-authored facing-limpers spots.
 const limperGroup = 'Facing limpers';
@@ -276,6 +309,141 @@ String isoLabel(String hero, int limpers) {
 
 const positions6max = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
 
+/// Rows of [4-bet, call, fold]; the call range is capped so a row never
+/// exceeds 1 (4-bet takes priority).
+List<List<double>> _vs3bet(String fourBet, String call) => _vsLimp(fourBet, call);
+
+/// Opening frequency of each hand class from [pos] (RFI chart).
+List<double> rfiReach(String pos) {
+  final r = parseRange(_rfiRanges[pos]!);
+  return [for (var i = 0; i < 169; i++) r[i] ?? 0];
+}
+
+/// Facing a 3-bet after opening, 6-max 100bb. Hand-authored from standard
+/// theory, not solved. Every hand here is in the opener's RFI range.
+///  * 4-bets are polarised: QQ+/AK for value plus a few A5s-A3s bluffs
+///    (the ace blocks AA/AK);
+///  * calls are mostly pairs, suited broadways and suited connectors, more
+///    of them in position;
+///  * continuing ranges are tighter vs early 3-bettors and vs the bigger,
+///    more linear blind 3-bets; offsuit broadways mostly fold.
+const _vs3betSpots = <({
+  String id,
+  String hero,
+  String villain,
+  List<String> others,
+  String title,
+  String raiser,
+  String size,
+  bool heroIp,
+  String fourBet,
+  String call,
+})>[
+  (
+    id: 'UTG-ip',
+    hero: 'UTG',
+    villain: 'BTN',
+    others: ['HJ', 'CO'],
+    title: 'UTG vs IP 3-bet',
+    raiser: 'The HJ, CO or BTN',
+    size: '7.5bb',
+    heroIp: false,
+    fourBet: 'KK+, QQ:0.4, AKs:0.7, AKo:0.6, A5s:0.4, A4s:0.3',
+    call: 'QQ:0.6, JJ-99, 88:0.6, 77:0.4, AKs:0.3, AKo:0.3, AQs, AJs:0.7, '
+        'ATs:0.4, KQs, KJs:0.5, QJs:0.4, JTs:0.4, T9s:0.2, AQo:0.4',
+  ),
+  (
+    id: 'UTG-blinds',
+    hero: 'UTG',
+    villain: 'BB',
+    others: ['SB'],
+    title: 'UTG vs blind 3-bet',
+    raiser: 'The SB or BB',
+    size: '10bb',
+    heroIp: true,
+    fourBet: 'KK+, QQ:0.5, AKs:0.7, AKo:0.7, A5s:0.3, A4s:0.2',
+    call: 'QQ:0.5, JJ-TT, 99:0.7, 88:0.4, AKs:0.3, AKo:0.3, AQs, AJs:0.5, '
+        'KQs:0.8, KJs:0.3, QJs:0.3, JTs:0.3, AQo:0.25',
+  ),
+  (
+    id: 'CO-BTN',
+    hero: 'CO',
+    villain: 'BTN',
+    others: [],
+    title: 'CO vs BTN 3-bet',
+    raiser: 'The BTN',
+    size: '7.5bb',
+    heroIp: false,
+    fourBet: 'KK+, QQ:0.6, AKs, AKo:0.8, A5s:0.5, A4s:0.4, A3s:0.2',
+    call: 'QQ:0.4, JJ-66, 55:0.5, 44:0.3, AKo:0.2, AQs-ATs, A9s:0.5, '
+        'A8s:0.3, A5s:0.3, A4s:0.3, KQs-KTs, QJs, QTs:0.7, JTs, J9s:0.4, T9s, '
+        '98s:0.6, 87s:0.4, 76s:0.3, AQo:0.7, AJo:0.3, KQo:0.4',
+  ),
+  (
+    id: 'CO-blinds',
+    hero: 'CO',
+    villain: 'BB',
+    others: ['SB'],
+    title: 'CO vs blind 3-bet',
+    raiser: 'The SB or BB',
+    size: '10bb',
+    heroIp: true,
+    fourBet: 'KK+, QQ:0.6, AKs, AKo:0.8, A5s:0.4, A4s:0.3',
+    call: 'QQ:0.4, JJ-77, 66:0.5, 55:0.3, AKo:0.2, AQs-AJs, ATs:0.7, A9s:0.3, '
+        'A5s:0.3, KQs, KJs:0.8, KTs:0.5, QJs:0.8, QTs:0.4, JTs:0.8, T9s:0.6, '
+        '98s:0.4, 87s:0.3, AQo:0.6, KQo:0.3',
+  ),
+  (
+    id: 'BTN-SB',
+    hero: 'BTN',
+    villain: 'SB',
+    others: [],
+    title: 'BTN vs SB 3-bet',
+    raiser: 'The SB',
+    size: '10bb',
+    heroIp: true,
+    fourBet: 'QQ+, JJ:0.3, AKs, AKo, AQs:0.2, A5s:0.5, A4s:0.4, A3s:0.3',
+    call: 'JJ:0.7, TT-44, 33:0.6, 22:0.5, AQs:0.8, AJs-A6s, A5s-A2s:0.5, '
+        'KQs-K9s, K8s:0.4, QJs-Q9s, JTs-J9s, T9s, T8s:0.6, 98s, 97s:0.4, '
+        '87s, 76s, 65s, 54s:0.6, AQo, AJo:0.8, ATo:0.4, KQo:0.8, KJo:0.4, '
+        'QJo:0.3',
+  ),
+  (
+    id: 'BTN-BB',
+    hero: 'BTN',
+    villain: 'BB',
+    others: [],
+    title: 'BTN vs BB 3-bet',
+    raiser: 'The BB',
+    size: '10bb',
+    heroIp: true,
+    fourBet: 'KK+, QQ:0.7, AKs, AKo:0.8, A5s:0.5, A4s:0.4, A3s:0.2',
+    call: 'QQ:0.3, JJ-55, 44:0.6, 33:0.4, 22:0.3, AKo:0.2, AQs-A7s, A6s:0.6, '
+        'A5s-A2s:0.4, KQs-K9s, QJs-Q9s, JTs-J9s, T9s, T8s:0.5, 98s, 97s:0.3, '
+        '87s, 76s, 65s:0.8, 54s:0.5, AQo, AJo:0.6, ATo:0.3, KQo:0.6, '
+        'KJo:0.25',
+  ),
+  (
+    id: 'SB-BB',
+    hero: 'SB',
+    villain: 'BB',
+    others: [],
+    title: 'SB vs BB 3-bet',
+    raiser: 'The BB',
+    size: '9bb',
+    heroIp: false,
+    fourBet: 'QQ+, JJ:0.4, AKs, AKo, AQs:0.3, A5s:0.6, A4s:0.5, A3s:0.4, '
+        'A2s:0.2',
+    call: 'JJ:0.6, TT-44, 33:0.5, 22:0.4, AQs:0.7, AJs-A6s, A5s-A2s:0.4, '
+        'KQs-K9s, K8s:0.5, QJs-Q9s, JTs-J9s, T9s, T8s:0.6, 98s, 97s:0.4, 87s, '
+        '76s, 65s, 54s:0.6, AQo, AJo, ATo:0.5, KQo, KJo:0.5, QJo:0.3',
+  ),
+];
+
+/// 4-bet size label: 22bb in position, 25bb out of position.
+String fourBetLabel({required bool inPosition}) =>
+    '4-bet ${inPosition ? 22 : 25}bb';
+
 List<Spot> buildCashSpots() {
   final spots = <Spot>[];
   _rfiRanges.forEach((pos, range) {
@@ -343,6 +511,25 @@ List<Spot> buildCashSpots() {
       strategy: _vsLimp(ranges.$1, ranges.$2, check: hero == 'BB'),
     ));
   });
+  for (final t in _vs3betSpots) {
+    final open = t.hero == 'SB' ? '3bb' : '2.5bb';
+    final rest = t.hero == 'SB' ? '' : ', the rest fold';
+    spots.add(Spot(
+      id: 'cash-3b-${t.id}',
+      format: SpotFormat.cash100,
+      group: threeBetGroup,
+      title: t.title,
+      situation: 'You open $open from the ${t.hero}. ${t.raiser} 3-bets to '
+          '${t.size}$rest. You are ${t.heroIp ? 'in' : 'out of'} position. '
+          '(Approximate chart.)',
+      hero: t.hero,
+      villain: t.villain,
+      otherVillains: t.others,
+      actions: [fourBetLabel(inPosition: t.heroIp), 'Call', 'Fold'],
+      strategy: _vs3bet(t.fourBet, t.call),
+      reach: rfiReach(t.hero),
+    ));
+  }
   return spots;
 }
 

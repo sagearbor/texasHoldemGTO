@@ -147,7 +147,7 @@ class RangeGrid extends StatelessWidget {
           semantics: (h) => cellSemantics(spot, h),
           cell: (h) {
             final f = spot.freqs(h);
-            return Row(
+            final row = Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   for (var i = 0; i < f.length; i++)
@@ -157,6 +157,10 @@ class RangeGrid extends StatelessWidget {
                           child: ActionBand(
                               action: spot.actions[i], patterned: cb)),
                 ]);
+            // Hands hero never holds here (not in the opening range) fade.
+            return spot.reach?[h.index] == 0
+                ? Opacity(opacity: 0.35, child: row)
+                : row;
           },
           textColor: (h) {
             final fold = spot.passiveIndex;

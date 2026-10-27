@@ -54,6 +54,9 @@ const _topics = {
           'Ranges are simplified (no flop/turn narrowing), so treat exact numbers as illustrative.',
       'Facing limpers: iso-raise, overlimp or fold charts for limp-heavy home games '
           '(hand-authored approximations).',
+      'Facing a 3-bet: you opened and got 3-bet. 4-bet (22bb in position, 25bb out of '
+          'position), call or fold, for the most common seat pairs (hand-authored '
+          'approximations). Hands you would not have opened are faded.',
       'Push/fold "Players 3" shows 3-handed charts (BTN, SB, BB; 5–20bb, no ante): '
           'pick the decision with the chips, e.g. "BB overcall" when BTN jams and SB calls.',
     ]

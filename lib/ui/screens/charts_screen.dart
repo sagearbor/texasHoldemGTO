@@ -70,7 +70,10 @@ class _ChartsScreenState extends State<ChartsScreen> {
               Wrap(spacing: 6, runSpacing: 6, children: [
                 for (final c in g.value)
                   ChoiceChip(
-                    label: Text(c.title.replaceAll(' open', '').replaceAll('vs ', 'v ')),
+                    label: Text(c.title
+                        .replaceAll(' open', '')
+                        .replaceAll(' 3-bet', '')
+                        .replaceAll('vs ', 'v ')),
                     selected: c.id == cashId,
                     onSelected: (_) => setState(() => cashId = c.id),
                   ),
@@ -143,15 +146,24 @@ class _ChartsScreenState extends State<ChartsScreen> {
                         onDrill: () => widget.onDrill(s.id)),
                   ),
                   const SizedBox(height: 8),
-                  Row(children: [
-                    Expanded(child: ActionLegend(spot: s)),
-                    Text('Plays ${pct(s.playPercent)}', style: t.labelLarge),
-                  ]),
+                  if (s.reach != null) ...[
+                    // Three long action labels: legend gets the full width.
+                    ActionLegend(spot: s),
+                    const SizedBox(height: 4),
+                    Text('Continues ${pct(s.continueShare)} of opens',
+                        style: t.labelLarge),
+                  ] else
+                    Row(children: [
+                      Expanded(child: ActionLegend(spot: s)),
+                      Text('Plays ${pct(s.playPercent)}', style: t.labelLarge),
+                    ]),
                   const SizedBox(height: 6),
                   Text(
                     switch (s.format) {
-                      SpotFormat.cash100 =>
-                        'Approximate GTO baseline. Tap any hand for coaching.',
+                      SpotFormat.cash100 => s.reach != null
+                          ? 'Hand-authored approximation. Faded hands are not '
+                              'in the opening range. Tap any hand for coaching.'
+                          : 'Approximate GTO baseline. Tap any hand for coaching.',
                       SpotFormat.pushFold =>
                         'Nash equilibrium, solved by Felt Notes (Monte Carlo equities, exact card removal).',
                       SpotFormat.pushFold3 =>

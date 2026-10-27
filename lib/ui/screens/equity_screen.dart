@@ -48,9 +48,11 @@ class _EquityScreenState extends State<EquityScreen> {
 
   RangeMap _rangeOf(Spot s) {
     final fold = s.passiveIndex;
+    final reach = s.reach;
     return {
       for (var i = 0; i < 169; i++)
-        if (s.strategy[i][fold] < 1) i: 1 - s.strategy[i][fold]
+        if (s.strategy[i][fold] < 1 && (reach == null || reach[i] > 0))
+          i: (1 - s.strategy[i][fold]) * (reach?[i] ?? 1)
     };
   }
 
