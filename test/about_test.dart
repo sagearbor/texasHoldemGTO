@@ -6,6 +6,7 @@ import 'package:felt_notes/ui/screens/about_screen.dart';
 import 'package:felt_notes/ui/screens/help_screen.dart';
 import 'package:felt_notes/ui/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -71,7 +72,7 @@ void main() {
         buildNumber: '5',
         buildSignature: '');
     final (t, h) = await tester.runAsync(seeded) as (TrainerModel, HomeGameModel);
-    await tester.binding.setSurfaceSize(const Size(400, 1000));
+    await tester.binding.setSurfaceSize(const Size(400, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(MaterialApp(
       theme: Felt.dark(),
@@ -100,5 +101,95 @@ void main() {
     expect(t.history, isEmpty);
     expect(h.sessions, isEmpty);
     expect(find.text('All data deleted'), findsOneWidget);
+  });
+
+  testWidgets('About backup buttons: copy, paste-restore, reject bad text',
+      (tester) async {
+    PackageInfo.setMockInitialValues(
+        appName: 'Felt Notes',
+        packageName: 'com.sagearbor.feltnotes.app',
+        version: '0.1.2',
+        buildNumber: '5',
+        buildSignature: '');
+    final (t, h) = await tester.runAsync(() async {
+      final r = await seeded();
+      // Let the models' fire-and-forget saves land.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      return r;
+    }) as (TrainerModel, HomeGameModel);
+    String? clip;
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        clip = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    await tester.binding.setSurfaceSize(const Size(400, 2000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      theme: Felt.dark(),
+      builder: (_, child) => AppScope(trainer: t, home: h, child: child!),
+      home: const AboutScreen(),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Back up my data'), findsOneWidget);
+    expect(find.text('Restore from backup'), findsOneWidget);
+    expect(find.text('Export hands (CSV)'), findsOneWidget);
+    expect(find.text(backupStatement), findsOneWidget);
+
+    // Copy the backup as text.
+    await tester.tap(find.text('Copy backup as text'));
+    await tester.pumpAndSettle();
+    expect(clip, isNotNull);
+    expect(clip, contains('"app": "felt_notes"'));
+    expect(find.textContaining('Backup copied (1 game night, 5 drills)'),
+        findsOneWidget);
+    final backup = clip!;
+
+    // Wipe, then restore by pasting the text back.
+    await tester.runAsync(() => resetAllData(trainer: t, home: h));
+    expect(h.sessions, isEmpty);
+    expect(t.history, isEmpty);
+
+    Future<void> pasteRestore(String text) async {
+      await tester.tap(find.text('Restore from backup'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Paste backup text'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('backup-paste-field')), text);
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+    }
+
+    await pasteRestore('definitely not a backup');
+    expect(find.text("Can't restore this"), findsOneWidget);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(h.sessions, isEmpty);
+
+    await pasteRestore(backup);
+    expect(find.text('Restore backup?'), findsOneWidget);
+    expect(
+        tester.widget<Text>(find.byKey(const Key('restore-summary'))).data,
+        allOf(contains('1 game night, 5 drills'),
+            contains('On this device now: 0 game nights, 0 drills')));
+    // Cancel changes nothing.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(h.sessions, isEmpty);
+
+    await pasteRestore(backup);
+    await tester.tap(find.text('Replace'));
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pumpAndSettle();
+    expect(h.sessions.length, 1);
+    expect(h.sessions.single.hands.length, 1);
+    expect(t.history.length, 5);
+    expect(find.textContaining('Restored.'), findsOneWidget);
   });
 }

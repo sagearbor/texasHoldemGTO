@@ -207,6 +207,12 @@ class DailyModel extends ChangeNotifier {
     return best;
   }
 
+  /// Forgets the in-memory results (before re-loading after a restore).
+  void clearMemory() {
+    results.clear();
+    _best = 0;
+  }
+
   Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();

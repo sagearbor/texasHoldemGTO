@@ -4,8 +4,11 @@ library;
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'data/backup.dart';
+import 'homegame/blind_clock_controller.dart';
 import 'homegame/home_game.dart';
 import 'trainer/trainer_model.dart';
+import 'ui/chart_prefs.dart';
 
 /// Makes the loaded models reachable from any route (it sits above the
 /// Navigator via MaterialApp.builder), e.g. for the About screen's reset.
@@ -41,6 +44,27 @@ Future<void> resetAllData({TrainerModel? trainer, HomeGameModel? home}) async {
   } catch (_) {
     // Storage unavailable (private window etc.): nothing was stored anyway.
   }
+}
+
+/// Writes a backup into storage (see [importAll]) and reloads every
+/// in-memory model from it. Throws [BackupFormatException] on a bad backup,
+/// before anything is changed.
+Future<BackupSummary> restoreBackup(
+  Map<String, dynamic> backup, {
+  bool merge = false,
+  TrainerModel? trainer,
+  HomeGameModel? home,
+  BlindClockController? clock,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final summary = await importAll(backup, prefs, merge: merge);
+  await Future.wait([
+    if (trainer != null) trainer.reload(),
+    if (home != null) home.reload(),
+    (clock ?? BlindClockController.shared).reload(),
+    ChartPrefs.load(),
+  ]);
+  return summary;
 }
 
 /// Lets a pushed route (e.g. the leak test's "Drill my leaks") ask the
