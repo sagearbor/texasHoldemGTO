@@ -33,7 +33,7 @@ class CoachPanel extends StatelessWidget {
         const SizedBox(height: 10),
         Text('${hand.name}: ${spot.title}', style: t.titleMedium),
         const SizedBox(height: 6),
-        _FreqBar(spot: spot, hand: hand),
+        ActionFreqBar(spot: spot, hand: hand),
         const SizedBox(height: 4),
         Text(strategyLine(spot, hand), style: t.bodyMedium),
         const SizedBox(height: 10),
@@ -99,30 +99,6 @@ class GradeBadge extends StatelessWidget {
   }
 }
 
-class _FreqBar extends StatelessWidget {
-  final Spot spot;
-  final HandClass hand;
-  const _FreqBar({required this.spot, required this.hand});
-
-  @override
-  Widget build(BuildContext context) {
-    final f = spot.freqs(hand);
-    final b = Theme.of(context).brightness;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: SizedBox(
-        height: 14,
-        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          for (var i = 0; i < f.length; i++)
-            if (f[i] > 0.001)
-              Expanded(
-                  flex: (f[i] * 1000).round(),
-                  child: ColoredBox(color: Felt.actionColor(spot.actions[i], b))),
-        ]),
-      ),
-    );
-  }
-}
 
 void showCoachSheet(BuildContext context, Spot spot, HandClass hand,
     {int? chosen, VoidCallback? onDrill}) {

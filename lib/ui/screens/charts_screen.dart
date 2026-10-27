@@ -36,7 +36,7 @@ class _ChartsScreenState extends State<ChartsScreen> {
     return Scaffold(
       appBar: AppBar(
           title: const Text('Charts'),
-          actions: const [HelpButton(HelpTopic.charts)]),
+          actions: const [HelpButton(HelpTopic.charts), ChartOptionsMenu()]),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [

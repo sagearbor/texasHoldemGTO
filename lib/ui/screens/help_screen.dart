@@ -27,6 +27,8 @@ const _topics = {
           'are above it, offsuit hands below.',
       'Colours: red = raise / 3-bet / all-in, green = call, dark = fold. A cell split '
           'between colours is a mixed hand: GTO plays it both ways at those rates.',
+      'Colour blind? The ⋮ menu on Charts turns on colour-blind friendly charts: blue / orange '
+          'plus stripes = raise, dots = call, plain = fold, on every grid and bar.',
       'Tap any hand for its frequencies and an explanation. "Drill" sends that spot to the trainer.',
       '6-max 100bb charts are approximate GTO baselines. Push/fold charts are an exact '
           'solution computed by Felt Notes.',
