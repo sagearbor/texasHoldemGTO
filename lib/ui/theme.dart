@@ -82,6 +82,12 @@ class Felt {
   /// Forces the dark felt theme under [child] whatever the app theme. For
   /// the screens that are dark-only by design (TV dashboard, night recap,
   /// blind clock): they are read across a room or screenshotted and shared.
+  /// Pushed screens keep the 640-px reading column of the tab screens on a
+  /// wide window instead of stretching text edge to edge.
+  static Widget narrow(Widget child) => Center(
+      child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640), child: child));
+
   static Widget darkOnly(Widget child) => Theme(data: _darkOnly, child: child);
 
   static ThemeData dark() {

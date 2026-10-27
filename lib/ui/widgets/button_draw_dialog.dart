@@ -106,7 +106,7 @@ class _ButtonDrawDialogState extends State<_ButtonDrawDialog> {
             const SizedBox(height: 12),
             Text(
                 done
-                    ? '${p[w]} deals first (${cardToString(draw.cards[w])})'
+                    ? '${p[w]} deals first (${prettyCard(draw.cards[w])})'
                     : 'Dealing…',
                 style: t.titleSmall),
           ]),

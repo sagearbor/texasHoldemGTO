@@ -2,6 +2,8 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
+
 import '../../gto/coach.dart' show Grade, pct;
 import '../../gto/river.dart';
 import '../widgets/playing_card.dart';
@@ -45,7 +47,7 @@ class _RiverDrillScreenState extends State<RiverDrillScreen> {
     final br = Theme.of(context).brightness;
     return Scaffold(
       appBar: AppBar(title: const Text('River drill')),
-      body: ListView(
+      body: Felt.narrow(ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
           Text(
@@ -140,7 +142,7 @@ class _RiverDrillScreenState extends State<RiverDrillScreen> {
             ),
           ],
         ],
-      ),
+      )),
     );
   }
 

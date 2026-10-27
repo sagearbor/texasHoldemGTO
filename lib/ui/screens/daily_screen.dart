@@ -175,7 +175,7 @@ class _DailyScreenState extends State<DailyScreen> {
         final drill = r?.$1 ?? d.currentDrill;
         return Scaffold(
           appBar: AppBar(title: Text('Daily 10 · #${d.number}')),
-          body: ListView(
+          body: Felt.narrow(ListView(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
             children: [
               _Progress(marks: d.marks),
@@ -192,7 +192,7 @@ class _DailyScreenState extends State<DailyScreen> {
                   last: d.done,
                 ),
             ],
-          ),
+          )),
         );
       },
     );

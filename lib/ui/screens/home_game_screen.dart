@@ -42,9 +42,14 @@ class HomeGameScreen extends StatelessWidget {
                 IconButton(
                   tooltip: 'TV dashboard',
                   icon: const Icon(Icons.tv),
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                      fullscreenDialog: true,
-                      builder: (_) => DashboardScreen(model: model))),
+                  onPressed: () {
+                    // A light-theme coach snackbar would otherwise float over
+                    // the dark-only TV screen.
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    Navigator.of(context).push(MaterialPageRoute(
+                        fullscreenDialog: true,
+                        builder: (_) => DashboardScreen(model: model)));
+                  },
                 ),
               if (s != null)
                 PopupMenuButton<String>(
@@ -517,7 +522,8 @@ class _LoggerState extends State<_Logger> {
           ],
         ),
         const SizedBox(height: 12),
-        if (s.hands.isNotEmpty)
+        // No story tags for a skipped hand: there is no story to tell.
+        if (s.hands.isNotEmpty && !s.hands.last.skipped)
           StoryTagRow(model: widget.model, hand: s.hands.last),
         if (s.hands.isNotEmpty) ...[
           Row(children: [
@@ -539,7 +545,7 @@ class _LoggerState extends State<_Logger> {
               ),
               title: Text(h.skipped
                   ? 'Skipped · ${h.position}'
-                  : '${h.cards == null ? 'No cards' : '${cardToString(h.cards![0])} ${cardToString(h.cards![1])}'}  ·  ${h.position}'),
+                  : '${h.cards == null ? 'No cards' : prettyCards(h.cards!)}  ·  ${h.position}'),
               subtitle: h.board == null
                   ? null
                   : Text('Board ${boardLabel(h.board!)}'),

@@ -107,7 +107,8 @@ class GradeBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final (color, icon) = switch (grade) {
       Grade.correct => (Felt.good, Icons.check_circle),
-      Grade.mixed => (Felt.mixed, Icons.balance),
+      // Plain gold text is ~1.9:1 on the light theme's cream card.
+      Grade.mixed => (Felt.mixedText(context), Icons.balance),
       Grade.rare => (Felt.bad, Icons.error_outline),
       Grade.mistake => (Felt.bad, Icons.cancel),
     };

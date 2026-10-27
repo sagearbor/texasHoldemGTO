@@ -99,7 +99,7 @@ EquityCalc equityVsRange(
   return EquityCalc(wsum == 0 ? 0.5 : sum / wsum, true, combos, 0);
 }
 
-String _cards(List<int> cs) => cs.map(cardToString).join(' ');
+String _cards(List<int> cs) => prettyCards(cs);
 
 int _pctInt(double f) => (f * 100).round();
 

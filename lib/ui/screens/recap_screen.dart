@@ -177,7 +177,7 @@ List<Widget> recapCards(NightRecap r) {
       icon: Icons.emoji_events_outlined,
       label: 'Best hand',
       value: h.hand!.name,
-      caption: '${cardToString(h.cards![0])} ${cardToString(h.cards![1])}',
+      caption: prettyCards(h.cards!),
       lines: [
         'Hand #${h.number} from ${h.position}',
         '${pct(r.bestEquity)} vs a random hand',

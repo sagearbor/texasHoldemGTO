@@ -101,23 +101,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final wide = c.maxWidth > 800;
             // Phone: two tiles fill the row (fixed 160 px left a ragged
             // 50 px gap on the right at 390 px).
-            final tileW = wide ? null : ((c.maxWidth - 32 - 12) / 2).floorToDouble();
+            // TV / desktop: three tiles per row filling the left 3/5 column,
+            // with text scaled to the screen so it reads across the room.
+            final scale = wide ? (c.maxWidth / 1100).clamp(1.0, 1.7) : 1.0;
+            final tileW = wide
+                ? (((c.maxWidth - 32 - 16) * 3 / 5 - 2 * 12) / 3).floorToDouble()
+                : ((c.maxWidth - 32 - 12) / 2).floorToDouble();
             final tiles = Wrap(
               spacing: 12,
               runSpacing: 12,
               children: [
                 _Tile('VPIP', st.recorded == 0 ? '–' : pct(st.vpipPct),
-                    'put money in preflop', wide, width: tileW),
+                    'put money in preflop', wide, width: tileW, scale: scale),
                 _Tile('PFR', st.recorded == 0 ? '–' : pct(st.pfrPct),
-                    'raised preflop', wide, width: tileW),
-                _Tile('Style', st.style, '', wide, small: true, width: tileW),
+                    'raised preflop', wide, width: tileW, scale: scale),
+                _Tile('Style', st.style, '', wide, small: true, width: tileW, scale: scale),
                 _Tile('GTO preflop', st.graded == 0 ? '–' : pct(st.gtoScore),
-                    '${st.graded} unopened spots graded', wide, width: tileW),
+                    '${st.graded} unopened spots graded', wide, width: tileW, scale: scale),
                 _Tile('Card luck', st.dealt == 0 ? '–' : _luck(st.avgStrength),
-                    'avg equity vs a random hand', wide, width: tileW),
+                    'avg equity vs a random hand', wide, width: tileW, scale: scale),
                 _Tile('Premiums', '${st.premiums}',
                     'JJ+/AK · expected ${(st.dealt * SessionStats.premiumRate).toStringAsFixed(1)}',
-                    wide, width: tileW),
+                    wide, width: tileW, scale: scale),
               ],
             );
             final map = _StyleMap(vpip: st.vpipPct, pfr: st.pfrPct, show: st.recorded > 0);
@@ -152,23 +157,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   map,
                 ],
                 const SizedBox(height: 16),
-                const Text('Your cards tonight (taller = stronger)',
-                    style: TextStyle(color: Colors.white70)),
+                Text('Your cards tonight (taller = stronger)',
+                    style: TextStyle(color: Colors.white70, fontSize: 14 * scale)),
                 const SizedBox(height: 6),
                 strip,
                 const SizedBox(height: 16),
                 DealerLuckTile(hands: shown, library: model.library),
                 if (st.misses.isNotEmpty) ...[
                   const SizedBox(height: 16),
-                  const Text('Most teachable so far',
-                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                  Text('Most teachable so far',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18 * scale,
+                          fontWeight: FontWeight.w700)),
                   for (final (h, spot, _) in st.misses.reversed.take(3))
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
                       child: Text(
                           'Hand ${h.number}: ${h.hand!.name} from ${h.position}: you '
                           '${_past[h.action]}, GTO ${strategyLine(spot, h.hand!)}',
-                          style: const TextStyle(color: Colors.white70, fontSize: 15)),
+                          style: TextStyle(color: Colors.white70, fontSize: 15 * scale)),
                     ),
                 ],
               ],
@@ -197,27 +205,30 @@ class _Tile extends StatelessWidget {
   final bool wide;
   final bool small;
   final double? width;
+  final double scale;
   const _Tile(this.label, this.value, this.sub, this.wide,
-      {this.small = false, this.width});
+      {this.small = false, this.width, this.scale = 1});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: width ?? (wide ? 220 : 160),
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.all(14 * scale),
       decoration: BoxDecoration(
           color: Felt.feltCard, borderRadius: BorderRadius.circular(14)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label.toUpperCase(),
-            style: const TextStyle(color: Felt.gold, fontSize: 12, letterSpacing: 1.2)),
-        const SizedBox(height: 4),
+            style: TextStyle(color: Felt.gold, fontSize: 12 * scale, letterSpacing: 1.2)),
+        SizedBox(height: 4 * scale),
         Text(value,
             style: TextStyle(
                 color: Colors.white,
-                fontSize: small ? (wide ? 22 : 18) : (wide ? 40 : 32),
+                fontSize: (small ? (wide ? 22 : 18) : (wide ? 40 : 32)) * scale,
                 fontWeight: FontWeight.w800)),
         if (sub.isNotEmpty)
-          Text(sub, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+          Text(sub,
+              style: TextStyle(
+                  color: Colors.white60, fontSize: (wide ? 14 : 12) * scale)),
       ]),
     );
   }
@@ -260,46 +271,54 @@ class _StylePainter extends CustomPainter {
     final grid = Paint()
       ..color = Colors.white24
       ..strokeWidth = 1;
-    Offset pt(double v, double p) =>
-        Offset(size.width * (v / maxV), size.height * (1 - p / maxP));
-    // Region dividers: VPIP 15% / 28% / 45%; aggressive above PFR = 0.6·VPIP.
-    for (final v in [0.15, 0.28, 0.45]) {
-      canvas.drawLine(pt(v, 0), pt(v, maxP), grid);
-    }
-    canvas.drawLine(pt(0, 0), pt(maxV, maxV * 0.6), grid..color = Colors.white38);
     // Region labels grow with the map: a fixed 11 px was unreadable on a
     // TV across the table.
     final fs = (size.width / 36).clamp(11.0, 22.0);
-    void label(String s, double v, double p) {
-      final tp = TextPainter(
-        text: TextSpan(
-            text: s,
-            style: base.copyWith(color: Colors.white54, fontSize: fs)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, pt(v, p) - Offset(tp.width / 2, tp.height / 2));
-    }
-
-    label('Rock', 0.075, 0.03);
-    label('TAG', 0.215, 0.2);
-    label('Tight-passive', 0.215, 0.03);
-    label('LAG', 0.365, 0.3);
-    label('Loose-passive', 0.365, 0.05);
-    label('Station', 0.525, 0.05);
-    label('Maniac', 0.525, 0.36);
+    // The axis caption sits in its own strip under the plot so it never
+    // crosses a grid line or a region label.
     final axis = TextPainter(
       text: TextSpan(
           text: 'VPIP →   ·   PFR ↑',
           style: base.copyWith(color: Colors.white38, fontSize: fs - 1)),
       textDirection: TextDirection.ltr,
     )..layout();
+    final plotH = size.height - axis.height - 4;
+    Offset pt(double v, double p) =>
+        Offset(size.width * (v / maxV), plotH * (1 - p / maxP));
+    // Region dividers: VPIP 15% / 28% / 45%; aggressive above PFR = 0.6·VPIP.
+    for (final v in [0.15, 0.28, 0.45]) {
+      canvas.drawLine(pt(v, 0), pt(v, maxP), grid);
+    }
+    canvas.drawLine(pt(0, 0), pt(maxV, maxV * 0.6), grid..color = Colors.white38);
+    void label(String s, double v, double p) {
+      final tp = TextPainter(
+        text: TextSpan(
+            text: s,
+            style: base.copyWith(color: Colors.white54, fontSize: fs)),
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, pt(v, p) - Offset(tp.width / 2, tp.height / 2));
+    }
+
+    // Rock: mid-column, well clear of the aggression diagonal near the floor.
+    label('Rock', 0.075, 0.2);
+    label('TAG', 0.215, 0.2);
+    // Two lines: one line was wider than its 13%-VPIP column on a phone
+    // and ran over the grid lines.
+    label('Tight-\npassive', 0.215, 0.05);
+    label('LAG', 0.365, 0.3);
+    label('Loose-\npassive', 0.365, 0.05);
+    label('Station', 0.525, 0.05);
+    label('Maniac', 0.525, 0.36);
+    canvas.drawLine(Offset(0, plotH), Offset(size.width, plotH), grid..color = Colors.white24);
     axis.paint(canvas, Offset(size.width - axis.width, size.height - axis.height));
     if (show) {
       // Keep the whole marker inside the card: a 63% / 50% maniac sat on
       // the top-right corner, half outside it.
       final raw = pt(vpip.clamp(0, maxV), pfr.clamp(0, maxP));
       final p = Offset(raw.dx.clamp(13.0, size.width - 13),
-          raw.dy.clamp(13.0, size.height - 13));
+          raw.dy.clamp(13.0, plotH - 13));
       canvas.drawCircle(p, 13, Paint()..color = Felt.gold.withOpacity(0.3));
       canvas.drawCircle(p, 8, Paint()..color = Felt.gold);
     }
