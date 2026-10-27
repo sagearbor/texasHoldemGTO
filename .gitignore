@@ -42,3 +42,6 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 tmp/
+
+# Real table photos: personal, keep out of the (soon public) repo
+camera_data/
