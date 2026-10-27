@@ -277,14 +277,17 @@ class SessionStats {
   /// Expected share of JJ+/AK: (4 pairs × 6 + 16) / 1326.
   static const premiumRate = 40 / 1326;
 
-  String get style {
-    if (recorded < 10) return 'Too early to tell';
-    final v = vpipPct, p = pfrPct;
-    if (v >= 0.45) return p >= 0.25 ? 'Maniac' : 'Calling Station';
-    if (v >= 0.28) return p >= v * 0.6 ? 'Loose-Aggressive' : 'Loose-Passive';
-    if (v >= 0.15) return p >= v * 0.6 ? 'Tight-Aggressive' : 'Tight-Passive';
-    return 'Rock';
-  }
+  String get style => playStyle(recorded, vpipPct, pfrPct);
+}
+
+/// Style label from VPIP / PFR over [recorded] hands with an action. Shared
+/// by your own stats and the multi-phone table dashboard.
+String playStyle(int recorded, double v, double p) {
+  if (recorded < 10) return 'Too early to tell';
+  if (v >= 0.45) return p >= 0.25 ? 'Maniac' : 'Calling Station';
+  if (v >= 0.28) return p >= v * 0.6 ? 'Loose-Aggressive' : 'Loose-Passive';
+  if (v >= 0.15) return p >= v * 0.6 ? 'Tight-Aggressive' : 'Tight-Passive';
+  return 'Rock';
 }
 
 SessionStats computeStats(Iterable<LoggedHand> hands, SpotLibrary lib) {
