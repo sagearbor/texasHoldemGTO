@@ -22,6 +22,39 @@ Grade gradeFor(double freq) {
   return Grade.mistake;
 }
 
+/// Beginner grading: the action the solver takes at least half the time is
+/// simply right; anything else is a mistake.
+Grade beginnerGradeFor(double freq) =>
+    freq >= 0.5 ? Grade.correct : Grade.mistake;
+
+/// True when no single action is taken at least 90% of the time.
+bool isMixedHand(Spot spot, HandClass h) =>
+    spot.freqs(h).every((f) => f < 0.9);
+
+/// Beginner coaching: the recommended action and one reason, nothing more.
+List<String> simpleCoachNotes(Spot spot, HandClass h, int chosen) {
+  final f = spot.freqs(h);
+  final best = _argmax(f);
+  final a = spot.actions[best];
+  return [
+    if (f[chosen] < 0.5)
+      'The right play is $a (${pct(f[best])}), not ${spot.actions[chosen]}.'
+    else
+      '${spot.actions[chosen]} is right with ${h.name} here.',
+    if (best == spot.passiveIndex)
+      '${h.name} is not strong enough to '
+          '${spot.actions.contains('Fold') ? 'play' : 'raise'} from '
+          '${spot.hero} in this spot.'
+    else
+      '${h.name} is one of the stronger hands ${spot.hero} plays here.',
+    _rangeSizeNote(spot),
+  ];
+}
+
+String _rangeSizeNote(Spot spot) => spot.actions.contains('Fold')
+    ? '${spot.hero} plays about ${pct(spot.playPercent)} of hands here.'
+    : '${spot.hero} raises about ${pct(spot.playPercent)} of hands here.';
+
 String pct(double f) => '${(f * 100).round()}%';
 
 /// "Raise 60%, Fold 40%" (zero-frequency actions omitted).
@@ -34,11 +67,10 @@ String strategyLine(Spot spot, HandClass h) {
   return parts.join(' · ');
 }
 
-/// Frequency of every non-fold action combined.
-double playFreq(Spot spot, HandClass h) {
-  final fold = spot.actions.indexOf('Fold');
-  return 1 - spot.freqs(h)[fold];
-}
+/// Frequency of every non-fold action combined (for the BB facing limpers,
+/// which cannot fold: every non-check action).
+double playFreq(Spot spot, HandClass h) =>
+    1 - spot.freqs(h)[spot.passiveIndex];
 
 List<String> coachNotes(Spot spot, HandClass h, int chosen) {
   final notes = <String>[];
@@ -101,6 +133,29 @@ List<String> coachNotes(Spot spot, HandClass h, int chosen) {
     notes.add('The big blind already has 1bb invested and closes the action, '
         'so it gets a discount to call and defends wide.');
   }
+  if (spot.group == limperGroup) {
+    final passive = spot.actions[1];
+    if (f[0] >= 0.5) {
+      notes.add(spot.hero == 'BB'
+          ? 'Raise for value: a limper\'s range is capped (strong hands '
+              'usually raise first), and ${h.name} is ahead of it.'
+          : 'Iso-raise for value: ${h.name} is ahead of a limping range, '
+              'and the raise thins the field so you play heads-up with the '
+              'initiative.');
+    } else if (spot.hero == 'BB' && f[1] >= 0.5) {
+      notes.add('The big blind sees the flop for free: with no fold option, '
+          'check everything that is not a clear value raise.');
+    } else if (spot.hero == 'SB' && f[1] >= 0.5) {
+      notes.add('Completing costs only half a big blind with limpers already '
+          'in, so the small blind can see a cheap flop with many hands.');
+    } else if (passive == 'Overlimp' && f[1] >= 0.5) {
+      notes.add('Overlimp small pairs and suited connectors: they want a '
+          'cheap multiway flop to hit a set or a big draw, and they gain '
+          'little from an iso-raise.');
+    }
+    notes.add('Facing-limper charts are hand-authored approximations: '
+        'limped pots are not in standard solver trees.');
+  }
   if (spot.hero == 'BTN' && spot.villain == null) {
     notes.add('The button is the best seat: you act last after the flop on '
         'every street, so you can open almost half your hands.');
@@ -127,7 +182,7 @@ List<String> coachNotes(Spot spot, HandClass h, int chosen) {
   }
 
   // 5. Range size context.
-  notes.add('${spot.hero} plays about ${pct(spot.playPercent)} of hands here.');
+  notes.add(_rangeSizeNote(spot));
 
   if (chosen != best && f[chosen] < 0.25) {
     notes.insert(0, 'GTO prefers ${spot.actions[best]} (${pct(f[best])}).');

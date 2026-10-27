@@ -19,7 +19,12 @@ class Felt {
   static Color actionColor(String action, Brightness b) {
     final a = action.toLowerCase();
     if (a.startsWith('fold')) return b == Brightness.dark ? foldDark : foldLight;
-    if (a.startsWith('call')) return call;
+    if (a.startsWith('call') ||
+        a.startsWith('check') ||
+        a.startsWith('overlimp') ||
+        a.startsWith('complete')) {
+      return call;
+    }
     return aggressive;
   }
 

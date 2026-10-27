@@ -11,10 +11,14 @@ import 'quiz_models.dart';
 List<Spot> rfiSpots(List<Spot> spots) =>
     [for (final s in spots) if (s.id.startsWith('cash-rfi-')) s];
 
-/// Facing-an-open spots (have a villain and a 3-bet action).
+/// Facing-an-open spots (have a villain and a 3-bet action). Facing-limper
+/// spots are hand-authored and phrased differently, so they stay out.
 List<Spot> vsOpenSpots(List<Spot> spots) => [
       for (final s in spots)
-        if (s.format == SpotFormat.cash100 && s.villain != null) s
+        if (s.format == SpotFormat.cash100 &&
+            s.villain != null &&
+            s.group != limperGroup)
+          s
     ];
 
 /// True when a grid neighbour (up/down/left/right) of [h] is played at

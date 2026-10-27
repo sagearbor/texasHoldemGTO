@@ -30,7 +30,7 @@ class RangeGrid extends StatelessWidget {
         ]);
       },
       textColor: (h) {
-        final fold = spot.actions.indexOf('Fold');
+        final fold = spot.passiveIndex;
         final folded = spot.freqs(h)[fold] > 0.5;
         if (!folded) return Colors.white;
         return b == Brightness.dark ? Colors.white60 : Colors.black54;

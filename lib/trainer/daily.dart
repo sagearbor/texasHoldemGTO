@@ -89,9 +89,12 @@ List<DailyDrill> dailySet(SpotLibrary lib, DateTime date) {
     return out;
   }
 
+  // Facing-limper spots are left out so the set for a date stays identical
+  // across app versions (web updates before the phone apps do).
+  final cash = [for (final s in lib.cash) if (s.group != limperGroup) s];
   final spots = lib.pushFold.isEmpty
-      ? take(lib.all, dailyLength)
-      : [...take(lib.cash, 6), ...take(lib.pushFold, dailyLength - 6)];
+      ? take([...cash, ...lib.pushFold], dailyLength)
+      : [...take(cash, 6), ...take(lib.pushFold, dailyLength - 6)];
   // Shuffle so formats are interleaved.
   for (var i = spots.length - 1; i > 0; i--) {
     final j = rng.nextInt(i + 1);
