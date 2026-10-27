@@ -15,6 +15,9 @@ dependencies:
   # Keeps the screen on while the blind clock is open. 1.3.x is the last line
   # that supports Flutter 3.22 / Dart 3.4 (1.5+ needs Flutter 3.38).
   wakelock_plus: ">=1.3.0 <1.4.0"
+  # On-device card reading (Snap my cards). 0.15.1+ / 1.2.0+ need newer Flutter.
+  google_mlkit_text_recognition: 0.15.0
+  image_picker: ">=1.1.2 <1.2.0"
 
 dev_dependencies:
   flutter_test:
