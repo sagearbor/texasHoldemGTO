@@ -182,6 +182,8 @@ class _StartView extends StatelessWidget {
                       ButtonSegment(value: f, label: Text(quizFocusLabels[f]!)),
                   ],
                   selected: {focus},
+                  // The tick squeezed "Pot odds" onto two lines at 390 px.
+                  showSelectedIcon: false,
                   onSelectionChanged: (v) => onFocus(v.first),
                 ),
                 const SizedBox(height: 14),

@@ -11,10 +11,53 @@ import '../widgets/range_grid.dart';
 import '../widgets/table_diagram.dart';
 import 'review_sheet.dart';
 
-const _markEmoji = {'G': '🟩', 'Y': '🟨', 'R': '🟥'};
+const _markColor = {'G': Felt.good, 'Y': Felt.mixed, 'R': Felt.bad};
 
-String _squares(String marks) =>
-    marks.split('').map((c) => _markEmoji[c] ?? '').join();
+/// In-app result squares drawn as coloured tiles. The emoji version stays
+/// for the clipboard share text only: on web the emoji fallback font is
+/// monochrome, so 🟩/🟨/🟥 rendered as near-identical hatched boxes.
+class MarkSquares extends StatelessWidget {
+  final String marks;
+  final double size;
+  const MarkSquares(this.marks, {super.key, this.size = 22});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      for (final c in marks.split(''))
+        Container(
+          width: size,
+          height: size,
+          margin: EdgeInsets.all(size / 10),
+          decoration: BoxDecoration(
+            color: _markColor[c] ?? Colors.grey,
+            borderRadius: BorderRadius.circular(size / 5),
+          ),
+        ),
+    ]);
+  }
+}
+
+class _Legend extends StatelessWidget {
+  const _Legend();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme.bodySmall;
+    Widget item(String c, String label) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [MarkSquares(c, size: 12), Text(label, style: t)]);
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 12,
+      children: [
+        item('G', 'GTO play'),
+        item('Y', 'mixed / fine'),
+        item('R', 'miss'),
+      ],
+    );
+  }
+}
 
 Future<void> copyDailyResult(BuildContext context, DailyModel d) async {
   await Clipboard.setData(ClipboardData(text: d.share));
@@ -38,7 +81,7 @@ class DailyCard extends StatelessWidget {
         final t = Theme.of(context).textTheme;
         final streak = d.streak;
         final sub = d.done
-            ? '${scoreLabel(d.score)}/$dailyLength  ${_squares(d.marks)}'
+            ? '${scoreLabel(d.score)}/$dailyLength'
             : d.started
                 ? '${d.answered}/$dailyLength answered: tap to continue'
                 : 'Same 10 hands for everyone today. One shot.';
@@ -64,7 +107,18 @@ class DailyCard extends StatelessWidget {
                           style: t.titleMedium
                               ?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 2),
-                      Text(sub, style: t.bodySmall),
+                      if (d.done)
+                        Row(children: [
+                          Text(sub, style: t.bodySmall),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: MarkSquares(d.marks, size: 12)),
+                          ),
+                        ])
+                      else
+                        Text(sub, style: t.bodySmall),
                       if (streak > 0)
                         Text('Day streak $streak${streak >= 3 ? ' 🔥' : ''}',
                             style: t.bodySmall?.copyWith(color: Felt.gold)),
@@ -235,11 +289,18 @@ class _DailyDrillCard extends StatelessWidget {
                             ? Colors.black87
                             : Colors.white,
                         minimumSize: const Size.fromHeight(52),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
                       ),
                       onPressed: () => onAnswer(i),
-                      child: Text(spot.actions[i],
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      // One line always: "Overlimp" / "Iso 5bb" used to
+                      // wrap mid-word in three-button rows at phone width.
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(spot.actions[i],
+                            maxLines: 1,
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w700)),
+                      ),
                     ),
                   ),
                 ],
@@ -285,9 +346,9 @@ class _Summary extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                   color: HeatGrid.heat(d.score / dailyLength))),
           const SizedBox(height: 6),
-          Text(_squares(d.marks), style: const TextStyle(fontSize: 22)),
+          FittedBox(fit: BoxFit.scaleDown, child: MarkSquares(d.marks)),
           const SizedBox(height: 10),
-          Text('🟩 GTO play  🟨 mixed / fine  🟥 miss', style: t.bodySmall),
+          const _Legend(),
           const SizedBox(height: 16),
           Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
             _Stat('Day streak', '${d.streak}'),

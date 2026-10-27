@@ -88,7 +88,7 @@ class ActionPatternPainter extends CustomPainter {
     canvas.save();
     canvas.clipRect(Offset.zero & size);
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.55)
+      ..color = Colors.white.withOpacity(0.4)
       ..isAntiAlias = true;
     switch (kind) {
       case ActionKind.aggressive:
@@ -313,7 +313,7 @@ class _Grid extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                     color: textColor(h),
                     shadows: const [
-                      Shadow(blurRadius: 2, color: Colors.black26)
+                      Shadow(blurRadius: 2, color: Colors.black54)
                     ],
                   ),
                 ),

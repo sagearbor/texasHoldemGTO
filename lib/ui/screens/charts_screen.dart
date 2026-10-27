@@ -69,6 +69,8 @@ class _ChartsScreenState extends State<ChartsScreen> {
               Wrap(spacing: 6, runSpacing: 6, children: [
                 for (final c in g.value)
                   ChoiceChip(
+                    visualDensity: VisualDensity.compact,
+                    showCheckmark: false,
                     label: Text(c.title.replaceAll(' open', '').replaceAll('vs ', 'v ')),
                     selected: c.id == cashId,
                     onSelected: (_) => setState(() => cashId = c.id),
@@ -99,6 +101,8 @@ class _ChartsScreenState extends State<ChartsScreen> {
               Wrap(spacing: 6, runSpacing: 6, children: [
                 for (final n in pushFold3Nodes)
                   ChoiceChip(
+                    visualDensity: VisualDensity.compact,
+                    showCheckmark: false,
                     label: Text(n.label),
                     selected: n.key == node3,
                     onSelected: (_) => setState(() => node3 = n.key),

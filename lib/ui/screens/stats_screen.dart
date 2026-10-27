@@ -148,7 +148,7 @@ class StatsScreen extends StatelessWidget {
                 Card(
                   child: ListTile(
                     title: Text(model.library.byId(e.key).title),
-                    subtitle: Text('${e.value.length} hands'),
+                    subtitle: Text(e.value.length == 1 ? '1 hand' : '${e.value.length} hands'),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                       Text(pct(model.accuracy(e.value)),
                           style: t.titleMedium?.copyWith(

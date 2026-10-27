@@ -59,7 +59,14 @@ class PlayingCard extends StatelessWidget {
               ],
             ),
           );
-    return onTap == null ? child : GestureDetector(onTap: onTap, child: child);
+    if (onTap == null) return child;
+    // Tappable slot: expose it as a button so screen readers can use it.
+    return Semantics(
+      container: true,
+      button: true,
+      label: c == null ? 'Choose a card' : null,
+      child: GestureDetector(onTap: onTap, child: child),
+    );
   }
 }
 

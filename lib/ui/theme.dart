@@ -28,6 +28,11 @@ class Felt {
     return aggressive;
   }
 
+  // No divider lines above/below an expanded tile: they cut across the
+  // rounded Card the tiles sit in (Help, quiz review).
+  static const _expansion = ExpansionTileThemeData(
+      shape: Border(), collapsedShape: Border());
+
   static ThemeData dark() {
     final scheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFF2F7D55),
@@ -40,9 +45,14 @@ class Felt {
       colorScheme: scheme,
       scaffoldBackgroundColor: feltDark,
       cardTheme: const CardTheme(color: feltCard, elevation: 0),
-      appBarTheme: const AppBarTheme(backgroundColor: feltDark, elevation: 0),
+      expansionTileTheme: _expansion,
+      appBarTheme: const AppBarTheme(
+          backgroundColor: feltDark, elevation: 0, centerTitle: false),
       navigationBarTheme: const NavigationBarThemeData(
           backgroundColor: feltSurface, indicatorColor: Color(0x33E2B857)),
+      // Selected choice chips get the same gold tint as the nav indicator;
+      // the default grey-green fill was hard to tell from unselected.
+      chipTheme: const ChipThemeData(selectedColor: Color(0x4DE2B857)),
     );
   }
 
@@ -57,6 +67,8 @@ class Felt {
       colorScheme: scheme,
       scaffoldBackgroundColor: const Color(0xFFFBF8F0),
       cardTheme: const CardTheme(color: Colors.white, elevation: 0),
+      appBarTheme: const AppBarTheme(centerTitle: false),
+      expansionTileTheme: _expansion,
     );
   }
 }
