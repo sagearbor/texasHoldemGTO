@@ -46,7 +46,11 @@ class _Legend extends StatelessWidget {
     final t = Theme.of(context).textTheme.bodySmall;
     Widget item(String c, String label) => Row(
             mainAxisSize: MainAxisSize.min,
-            children: [MarkSquares(c, size: 12), Text(label, style: t)]);
+            children: [
+              MarkSquares(c, size: 12),
+              const SizedBox(width: 3),
+              Text(label, style: t),
+            ]);
     return Wrap(
       alignment: WrapAlignment.center,
       spacing: 12,

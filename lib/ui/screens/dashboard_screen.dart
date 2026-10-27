@@ -263,11 +263,14 @@ class _StylePainter extends CustomPainter {
       canvas.drawLine(pt(v, 0), pt(v, maxP), grid);
     }
     canvas.drawLine(pt(0, 0), pt(maxV, maxV * 0.6), grid..color = Colors.white38);
+    // Region labels grow with the map: a fixed 11 px was unreadable on a
+    // TV across the table.
+    final fs = (size.width / 36).clamp(11.0, 22.0);
     void label(String s, double v, double p) {
       final tp = TextPainter(
         text: TextSpan(
             text: s,
-            style: base.copyWith(color: Colors.white54, fontSize: 11)),
+            style: base.copyWith(color: Colors.white54, fontSize: fs)),
         textDirection: TextDirection.ltr,
       )..layout();
       tp.paint(canvas, pt(v, p) - Offset(tp.width / 2, tp.height / 2));
@@ -283,7 +286,7 @@ class _StylePainter extends CustomPainter {
     final axis = TextPainter(
       text: TextSpan(
           text: 'VPIP →   ·   PFR ↑',
-          style: base.copyWith(color: Colors.white38, fontSize: 10)),
+          style: base.copyWith(color: Colors.white38, fontSize: fs - 1)),
       textDirection: TextDirection.ltr,
     )..layout();
     axis.paint(canvas, Offset(size.width - axis.width, size.height - axis.height));
