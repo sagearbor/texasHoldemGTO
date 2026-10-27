@@ -64,6 +64,11 @@ PODS:
   - shared_preferences_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
+  - speech_to_text (0.0.1):
+    - Flutter
+    - FlutterMacOS
+    - Try
+  - Try (2.1.1)
   - wakelock_plus (0.0.1):
     - Flutter
 
@@ -74,6 +79,7 @@ DEPENDENCIES:
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - speech_to_text (from `.symlinks/plugins/speech_to_text/darwin`)
   - wakelock_plus (from `.symlinks/plugins/wakelock_plus/ios`)
 
 SPEC REPOS:
@@ -90,6 +96,7 @@ SPEC REPOS:
     - MLKitVision
     - nanopb
     - PromisesObjC
+    - Try
 
 EXTERNAL SOURCES:
   Flutter:
@@ -104,6 +111,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/package_info_plus/ios"
   shared_preferences_foundation:
     :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
+  speech_to_text:
+    :path: ".symlinks/plugins/speech_to_text/darwin"
   wakelock_plus:
     :path: ".symlinks/plugins/wakelock_plus/ios"
 
@@ -126,8 +135,10 @@ SPEC CHECKSUMS:
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   shared_preferences_foundation: 9e1978ff2562383bd5676f64ec4e9aa8fa06a6f7
+  speech_to_text: 9dc43a5df3cbc2813f8c7cc9bd0fbf94268ed7ac
+  Try: 5ef669ae832617b3cee58cb2c6f99fb767a4ff96
   wakelock_plus: f5bfc646ce50515c6950e984f70c816560b7233a
 
-PODFILE CHECKSUM: 16a02ca4cf2033065ad40f9cb9160825cf8f3c0c
+PODFILE CHECKSUM: b8e04838a8acb532fb70c072799143212b8a83bd
 
 COCOAPODS: 1.17.0
