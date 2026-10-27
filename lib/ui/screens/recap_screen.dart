@@ -6,6 +6,7 @@ import '../../homegame/home_game.dart';
 import '../../homegame/recap.dart';
 import '../../poker/cards.dart';
 import '../theme.dart';
+import '../widgets/share_card.dart';
 
 /// End-of-night "Wrapped": one big felt card per stat, swipe through them.
 /// Cards whose sample is too small are left out rather than shown empty.
@@ -65,7 +66,7 @@ class _RecapScreenState extends State<RecapScreen> {
               ),
           ]),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: Row(children: [
               Expanded(
                 child: OutlinedButton.icon(
@@ -84,6 +85,27 @@ class _RecapScreenState extends State<RecapScreen> {
                 ),
               ),
               const SizedBox(width: 10),
+              Expanded(
+                child: Builder(
+                  builder: (bc) => OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: Felt.gold,
+                        side: const BorderSide(color: Felt.gold),
+                        minimumSize: const Size.fromHeight(48)),
+                    onPressed: () => shareCardImage(bc,
+                        card: NightShareCard(r),
+                        fileName: 'felt-notes-recap.png',
+                        fallbackText: recapText(r)),
+                    icon: const Icon(Icons.ios_share),
+                    label: const Text('Share image'),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(children: [
               Expanded(
                 child: FilledButton(
                   style: FilledButton.styleFrom(

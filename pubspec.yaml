@@ -12,6 +12,8 @@ dependencies:
   cupertino_icons: ^1.0.6
   # Local trainer history / leak tracking. 2.2.x supports Flutter 3.22.
   shared_preferences: ^2.2.3
+  # Share the report-card PNG. 10.1.x is the last line built for Flutter 3.22 / Dart 3.4.
+  share_plus: ^10.1.4
 
 dev_dependencies:
   flutter_test:
