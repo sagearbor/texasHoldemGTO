@@ -249,7 +249,7 @@ void main() {
       expect(find.text('Board'), findsOneWidget);
       // Widget tests run as Android: the mic is shown, never started here.
       expect(find.text('Hold to talk'), findsOneWidget);
-      expect(find.textContaining('Recognised on this phone'), findsOneWidget);
+      expect(find.textContaining('Felt Notes records nothing'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Type the board'));
       await tester.pumpAndSettle();

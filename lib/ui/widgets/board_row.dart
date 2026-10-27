@@ -318,7 +318,7 @@ class _BoardRowState extends State<BoardRow> {
           if (boardMicSupported && _mic != _MicState.unavailable)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text('Recognised on this phone · nothing is recorded or sent',
+              child: Text('Uses your phone\'s speech recognition · Felt Notes records nothing',
                   style: t.labelSmall?.copyWith(color: scheme.outline)),
             ),
         ]),
