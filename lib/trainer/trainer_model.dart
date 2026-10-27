@@ -207,6 +207,20 @@ class TrainerModel extends ChangeNotifier {
     next();
   }
 
+  /// Re-reads everything from storage (after a restore), dropping what is
+  /// in memory first.
+  Future<void> reload() async {
+    history.clear();
+    _seeds.clear();
+    _lastKey = null;
+    lastAnswer = null;
+    focusSpotId = null;
+    difficulty = Difficulty.intermediate;
+    streak = sessionCount = sessionGood = 0;
+    daily.clearMemory();
+    await load();
+  }
+
   /// Replays history and home-game seeds, in time order, into the deck.
   void _rebuildDeck() {
     deck.clear();

@@ -27,6 +27,9 @@ dependencies:
   # 7.2+ uses compileSdk = flutter.compileSdkVersion (fails on Flutter 3.22),
   # 7.5+ needs Flutter 3.44 / Dart 3.12. 7.1.0 builds.
   speech_to_text: ">=7.1.0 <7.2.0"
+  # Restore from a backup file. 8.3.2 declares Flutter >=3.22 / Dart >=3.4
+  # (compileSdk 34, AGP 7.4) and builds; 8.3.3+ was not verified on 3.22.
+  file_picker: ">=8.3.2 <8.3.3"
 
 dev_dependencies:
   flutter_test:

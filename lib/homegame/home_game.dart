@@ -414,6 +414,14 @@ class HomeGameModel extends ChangeNotifier {
     return null;
   }
 
+  /// Re-reads every night and setting from storage (after a restore).
+  Future<void> reload() async {
+    sessions.clear();
+    _seenBadges.clear();
+    dashboardDelayMinutes = 15;
+    await load();
+  }
+
   Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
