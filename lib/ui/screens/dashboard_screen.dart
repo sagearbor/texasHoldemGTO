@@ -220,7 +220,9 @@ class _StyleMap extends StatelessWidget {
         decoration: BoxDecoration(
             color: Felt.feltCard, borderRadius: BorderRadius.circular(14)),
         padding: const EdgeInsets.all(12),
-        child: CustomPaint(painter: _StylePainter(vpip, pfr, show)),
+        child: CustomPaint(
+            painter: _StylePainter(
+                vpip, pfr, show, DefaultTextStyle.of(context).style)),
       ),
     );
   }
@@ -229,7 +231,10 @@ class _StyleMap extends StatelessWidget {
 class _StylePainter extends CustomPainter {
   final double vpip, pfr;
   final bool show;
-  _StylePainter(this.vpip, this.pfr, this.show);
+
+  /// The surrounding text style, so the labels use the app's font.
+  final TextStyle base;
+  _StylePainter(this.vpip, this.pfr, this.show, this.base);
 
   static const maxV = 0.6, maxP = 0.4;
 
@@ -247,7 +252,9 @@ class _StylePainter extends CustomPainter {
     canvas.drawLine(pt(0, 0), pt(maxV, maxV * 0.6), grid..color = Colors.white38);
     void label(String s, double v, double p) {
       final tp = TextPainter(
-        text: TextSpan(text: s, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+        text: TextSpan(
+            text: s,
+            style: base.copyWith(color: Colors.white54, fontSize: 11)),
         textDirection: TextDirection.ltr,
       )..layout();
       tp.paint(canvas, pt(v, p) - Offset(tp.width / 2, tp.height / 2));
@@ -261,8 +268,9 @@ class _StylePainter extends CustomPainter {
     label('Station', 0.525, 0.05);
     label('Maniac', 0.525, 0.36);
     final axis = TextPainter(
-      text: const TextSpan(
-          text: 'VPIP →   ·   PFR ↑', style: TextStyle(color: Colors.white38, fontSize: 10)),
+      text: TextSpan(
+          text: 'VPIP →   ·   PFR ↑',
+          style: base.copyWith(color: Colors.white38, fontSize: 10)),
       textDirection: TextDirection.ltr,
     )..layout();
     axis.paint(canvas, Offset(size.width - axis.width, size.height - axis.height));
@@ -275,7 +283,10 @@ class _StylePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_StylePainter old) =>
-      old.vpip != vpip || old.pfr != pfr || old.show != show;
+      old.vpip != vpip ||
+      old.pfr != pfr ||
+      old.show != show ||
+      old.base != base;
 }
 
 class _StrengthStrip extends StatelessWidget {
