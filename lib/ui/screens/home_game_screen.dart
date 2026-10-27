@@ -5,6 +5,7 @@ import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
+import 'blind_clock_screen.dart';
 import 'crew_screen.dart';
 import 'dashboard_screen.dart';
 import 'help_screen.dart';
@@ -45,8 +46,10 @@ class HomeGameScreen extends StatelessWidget {
                           builder: (_) => RecapScreen(model: model, session: s)));
                     }
                     if (v == 'seats') showSeatsEditor(context, model);
+                    if (v == 'clock') openBlindClock(context);
                   },
                   itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'clock', child: Text('Blind clock')),
                     PopupMenuItem(value: 'seats', child: Text('Players & seats')),
                     PopupMenuItem(value: 'end', child: Text('End game night')),
                   ],
@@ -136,6 +139,12 @@ class _SetupState extends State<_Setup> {
                   ),
           icon: const Icon(Icons.play_arrow),
           label: const Text('Start'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () => openBlindClock(context),
+          icon: const Icon(Icons.timer_outlined),
+          label: const Text('Blind clock'),
         ),
         if (past.isNotEmpty) ...[
           const SizedBox(height: 10),

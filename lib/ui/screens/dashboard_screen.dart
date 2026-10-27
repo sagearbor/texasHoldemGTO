@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
 import '../theme.dart';
+import '../widgets/blind_clock_strip.dart';
 import '../widgets/dealer_luck_tile.dart';
 import '../widgets/range_grid.dart';
 
@@ -120,6 +121,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if (live) const BlindClockStrip(),
                 if (live && hidden > 0)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
