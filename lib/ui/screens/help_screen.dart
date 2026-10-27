@@ -18,6 +18,9 @@ const _topics = {
       'The chip at the top right picks what you drill: all spots, 6-max 100bb, push/fold, '
           'or "Drill my leaks", which keeps serving the spots and hands you miss.',
       'Most hands dealt are borderline ones, because that is where mistakes happen.',
+      'Difficulty (in the drill menu): Beginner deals only clear-cut hands, Expert only '
+          'borderline ones. When the solver mixes a hand, the "solver dice" show how it '
+          'randomises between actions.',
       'Daily 10 (gold card at the top): the same 10 hands for everyone today. One try per day; '
           'keep your streak going and tap Copy result to brag in the group chat.',
       'Drill my leaks uses spaced repetition: a hand you miss comes back in 10 minutes, then '
@@ -40,6 +43,11 @@ const _topics = {
       'Tap any hand for its frequencies and an explanation. "Drill" sends that spot to the trainer.',
       '6-max 100bb charts are approximate GTO baselines. Push/fold charts are an exact '
           'solution computed by Felt Notes.',
+      'River spots (solved), at the bottom of Charts: 40 river boards solved with CFR+ for '
+          'BB vs BTN. Browse each decision as a grid, read the value/bluff summary, or drill it. '
+          'Ranges are simplified (no flop/turn narrowing), so treat exact numbers as illustrative.',
+      'Facing limpers: iso-raise, overlimp or fold charts for limp-heavy home games '
+          '(hand-authored approximations).',
       'Push/fold "Players 3" shows 3-handed charts (BTN, SB, BB; 5–20bb, no ante): '
           'pick the decision with the chips, e.g. "BB overcall" when BTN jams and SB calls.',
     ]
