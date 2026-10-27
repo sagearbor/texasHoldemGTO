@@ -128,9 +128,11 @@ class _DrillCard extends StatelessWidget {
             Row(children: [
               Expanded(child: Text(spot.title, style: t.titleLarge)),
               Chip(
-                label: Text(spot.format == SpotFormat.cash100
-                    ? '6-max · 100bb'
-                    : 'HU · Nash'),
+                label: Text(switch (spot.format) {
+                  SpotFormat.cash100 => '6-max · 100bb',
+                  SpotFormat.pushFold => 'HU · Nash',
+                  SpotFormat.pushFold3 => '3-handed · Nash',
+                }),
                 visualDensity: VisualDensity.compact,
               ),
             ]),
@@ -140,7 +142,8 @@ class _DrillCard extends StatelessWidget {
             TableDiagram(
                 hero: spot.hero,
                 villain: spot.villain,
-                headsUp: spot.format == SpotFormat.pushFold),
+                headsUp: spot.format == SpotFormat.pushFold,
+                threeHanded: spot.format == SpotFormat.pushFold3),
             const SizedBox(height: 16),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               PlayingCard(card: drill.cards[0], width: 72),

@@ -30,6 +30,8 @@ const _topics = {
       'Tap any hand for its frequencies and an explanation. "Drill" sends that spot to the trainer.',
       '6-max 100bb charts are approximate GTO baselines. Push/fold charts are an exact '
           'solution computed by Felt Notes.',
+      'Push/fold "Players 3" shows 3-handed charts (BTN, SB, BB; 5–20bb, no ante): '
+          'pick the decision with the chips, e.g. "BB overcall" when BTN jams and SB calls.',
     ]
   ),
   HelpTopic.equity: (
