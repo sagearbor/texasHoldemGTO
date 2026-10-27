@@ -47,5 +47,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Felt Notes (beta) can photograph your own two hole cards to fill them in. The photo is read on your phone and never uploaded.</string>
 </dict>
 </plist>

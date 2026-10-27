@@ -12,6 +12,8 @@ dependencies:
   cupertino_icons: ^1.0.6
   # Local trainer history / leak tracking. 2.2.x supports Flutter 3.22.
   shared_preferences: ^2.2.3
+  google_mlkit_text_recognition: ^0.15.0
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:

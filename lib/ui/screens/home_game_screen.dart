@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../camera/snap_cards_screen.dart';
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
@@ -207,6 +208,17 @@ class _LoggerState extends State<_Logger> {
     if (picked != null) setState(() => cards = picked);
   }
 
+  /// Beta camera flow; always optional, the picker stays one tap away.
+  Future<void> _snapCards() async {
+    final snapped = await snapCards(context);
+    if (snapped == null || !mounted) return;
+    if (snapped.every((c) => c == null)) {
+      await _pickCards();
+    } else {
+      setState(() => cards = snapped);
+    }
+  }
+
   Future<void> _pickDealer() async {
     final s = widget.session;
     final seat = await showModalBottomSheet<int>(
@@ -282,14 +294,29 @@ class _LoggerState extends State<_Logger> {
                   ),
               ]),
               const SizedBox(height: 14),
-              GestureDetector(
-                onTap: _pickCards,
-                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  PlayingCard(card: cards[0], width: 66),
-                  const SizedBox(width: 10),
-                  PlayingCard(card: cards[1], width: 66),
-                ]),
-              ),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                if (snapCardsSupported) const SizedBox(width: 56),
+                GestureDetector(
+                  onTap: _pickCards,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    PlayingCard(card: cards[0], width: 66),
+                    const SizedBox(width: 10),
+                    PlayingCard(card: cards[1], width: 66),
+                  ]),
+                ),
+                if (snapCardsSupported)
+                  SizedBox(
+                    width: 56,
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      IconButton(
+                        tooltip: 'Snap my cards (beta)',
+                        icon: const Icon(Icons.photo_camera_outlined),
+                        onPressed: _snapCards,
+                      ),
+                      const BetaBadge(),
+                    ]),
+                  ),
+              ]),
               const SizedBox(height: 6),
               Center(
                 child: Text(
