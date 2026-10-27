@@ -1,0 +1,173 @@
+rules_version = '2';
+
+// Felt Notes multi-phone "table night" (PROTOTYPE, not deployed anywhere).
+// Design and rationale: docs/MULTIPHONE.md. Tests: tool/firestore_rules/
+// (run ./run.sh, which uses the local emulator with a demo- project id).
+//
+// tables/{code}                 host-owned: seat rotation, current hand, board caller
+//   players/{uid}               one per phone, written by that phone only
+//   entries/{uid}_{handNo}      your public action for a hand (actions are seen at the table)
+//   boards/{handNo}             flop/turn/river, written by the board caller (or host)
+//   cards/{uid}_{handNo}        your hole cards: private unless revealed (give-to-get)
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function isInt(v) { return v is int; }
+
+    match /tables/{code} {
+      function tablePath() { return /databases/$(database)/documents/tables/$(code); }
+      function t() { return get(tablePath()).data; }
+      function playerPath(uid) {
+        return /databases/$(database)/documents/tables/$(code)/players/$(uid);
+      }
+      function isMember() { return signedIn() && exists(playerPath(me())); }
+      function isHost() { return signedIn() && t().hostUid == me(); }
+      function isOpen() { return t().closed == false; }
+      function sharing() { return get(playerPath(me())).data.sharing == true; }
+      function validHandNo(n) { return isInt(n) && n >= 1 && n <= t().currentHand; }
+      function validCard(c) { return c is int && c >= 0 && c <= 51; }
+
+      // Anyone signed in may fetch a table by its join code; nobody may list
+      // tables (codes cannot be enumerated).
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create: if signedIn()
+        && code.matches('^[A-HJ-NP-Z2-9]{6}$')
+        && request.resource.data.keys().hasOnly(
+             ['hostUid', 'name', 'createdAt', 'closed', 'currentHand',
+              'boardCaller', 'delayMin', 'rotation', 'names'])
+        && request.resource.data.hostUid == me()
+        && request.resource.data.boardCaller == me()
+        && request.resource.data.currentHand == 1
+        && request.resource.data.closed == false
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 40
+        && request.resource.data.delayMin is int
+        && request.resource.data.rotation is list
+        && request.resource.data.rotation.size() <= 1
+        && request.resource.data.names is map;
+
+      // The host owns everything except who the host is; the hand counter
+      // never goes backwards and rotation segments are only ever appended.
+      // Any seated member may advance the hand by exactly one (a second
+      // phone tapping "Next hand" for the same deal is rejected, which is
+      // the dedupe).
+      allow update: if signedIn() && resource.data.closed == false && (
+        (resource.data.hostUid == me()
+          && request.resource.data.hostUid == resource.data.hostUid
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.currentHand is int
+          && request.resource.data.currentHand >= resource.data.currentHand
+          && request.resource.data.rotation is list
+          && request.resource.data.rotation.size() >= resource.data.rotation.size()
+          && request.resource.data.rotation.size() <= 200)
+        ||
+        (isMember()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentHand'])
+          && request.resource.data.currentHand == resource.data.currentHand + 1)
+      );
+
+      allow delete: if signedIn() && resource.data.hostUid == me();
+
+      match /players/{uid} {
+        allow read: if isMember() || (signedIn() && me() == uid);
+        allow create: if signedIn() && me() == uid && isOpen()
+          && request.resource.data.keys().hasOnly(['name', 'sharing', 'joinedAt'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 1
+          && request.resource.data.name.size() <= 24
+          && request.resource.data.sharing == false
+          && request.resource.data.joinedAt == request.time;
+        // Sharing is one-way for the night: you cannot see everyone's cards
+        // and then switch it off.
+        allow update: if signedIn() && me() == uid && isOpen()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'sharing'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 1
+          && request.resource.data.name.size() <= 24
+          && request.resource.data.sharing is bool
+          && (resource.data.sharing == false || request.resource.data.sharing == true);
+        // Only the host removes people (a sharer deleting and re-joining
+        // to reset "sharing" would need the host's help).
+        allow delete: if isHost();
+      }
+
+      match /entries/{entryId} {
+        allow read: if isMember();
+        allow create, update: if isMember() && isOpen()
+          && request.resource.data.keys().hasOnly(
+               ['uid', 'handNo', 'action', 'facing', 'position', 'hasCards', 'ts'])
+          && request.resource.data.uid == me()
+          && validHandNo(request.resource.data.handNo)
+          && entryId == me() + '_' + string(request.resource.data.handNo)
+          && (!('action' in request.resource.data)
+              || request.resource.data.action in ['fold', 'call', 'raise'])
+          && (!('facing' in request.resource.data)
+              || request.resource.data.facing in ['unopened', 'raised'])
+          && request.resource.data.position is string
+          && request.resource.data.position.size() <= 8
+          && request.resource.data.hasCards is bool
+          && request.resource.data.ts == request.time
+          && (resource == null || resource.data.uid == me());
+        allow delete: if signedIn() && resource.data.uid == me();
+      }
+
+      match /boards/{handNo} {
+        allow read: if isMember();
+        allow create, update: if signedIn() && isOpen()
+          && (t().boardCaller == me() || t().hostUid == me())
+          && request.resource.data.keys().hasOnly(['handNo', 'cards', 'by', 'ts'])
+          && validHandNo(request.resource.data.handNo)
+          && handNo == string(request.resource.data.handNo)
+          && request.resource.data.by == me()
+          && request.resource.data.ts == request.time
+          && request.resource.data.cards is list
+          && request.resource.data.cards.size() >= 3
+          && request.resource.data.cards.size() <= 5;
+        allow delete: if signedIn() && (t().boardCaller == me() || t().hostUid == me());
+      }
+
+      match /cards/{cardId} {
+        // Give-to-get: you see someone else's cards only if (a) they revealed
+        // that hand, (b) the hand is over, and (c) you are sharing too.
+        // Queries must say so: where(revealed == true), where(handNo < N)
+        // with N no greater than the table's currentHand.
+        allow read: if signedIn() && (
+          resource.data.uid == me()
+          || (resource.data.revealed == true
+              && resource.data.handNo < t().currentHand
+              && isMember()
+              && sharing())
+        );
+
+        // A sharing player's cards are always revealed (that is the "give").
+        // A non-sharer may still reveal single hands; nothing un-reveals.
+        allow create: if isMember() && isOpen()
+          && request.resource.data.keys().hasOnly(['uid', 'handNo', 'cards', 'revealed'])
+          && request.resource.data.uid == me()
+          && validHandNo(request.resource.data.handNo)
+          && cardId == me() + '_' + string(request.resource.data.handNo)
+          && request.resource.data.cards is list
+          && request.resource.data.cards.size() == 2
+          && validCard(request.resource.data.cards[0])
+          && validCard(request.resource.data.cards[1])
+          && request.resource.data.revealed is bool
+          && (!sharing() || request.resource.data.revealed == true);
+        allow update: if isMember() && isOpen()
+          && resource.data.uid == me()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cards', 'revealed'])
+          && request.resource.data.cards is list
+          && request.resource.data.cards.size() == 2
+          && validCard(request.resource.data.cards[0])
+          && validCard(request.resource.data.cards[1])
+          && request.resource.data.revealed is bool
+          && (resource.data.revealed == false || request.resource.data.revealed == true)
+          && (!sharing() || request.resource.data.revealed == true);
+        allow delete: if signedIn() && resource.data.uid == me() && resource.data.revealed == false;
+      }
+    }
+  }
+}

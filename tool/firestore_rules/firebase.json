@@ -1,0 +1,9 @@
+{
+  "firestore": { "rules": ".firestore.rules.copy" },
+  "emulators": {
+    "firestore": { "port": 8012 },
+    "hub": { "port": 4412 },
+    "logging": { "port": 4512 },
+    "ui": { "enabled": false }
+  }
+}
