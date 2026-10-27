@@ -1,4 +1,4 @@
-"""Generate assets/data/glyph_templates.bin for lib/camera/glyph_reader.dart.
+"""Generate tool/camera_lab/glyph_templates.bin for lib/camera/glyph_reader.dart.
 
 Renders rank and suit glyphs from macOS system fonts with the same
 augmentations as the classical OpenCV reader (tool/camera_lab/real/classical/
@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'real', 'classical'))
 import glyphs as G  # noqa: E402
 
-OUT = os.path.join(HERE, '..', '..', 'assets', 'data', 'glyph_templates.bin')
+OUT = os.path.join(HERE, 'glyph_templates.bin')
 RANKS = '23456789TJQKA'
 SUITS = 'cdhs'
 

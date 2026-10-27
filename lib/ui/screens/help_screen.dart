@@ -85,9 +85,10 @@ const _topics = {
           'By default it only shows hands from 15+ minutes ago, so nobody reads the last hand '
           'off the screen. Tap the clock at the top to choose Instant up to 60 minutes.',
       'Undo last fixes a mis-tap. End the game night from the ⋮ menu. Past nights stay listed.',
-      'Snap my cards (Beta, phone only): tap the camera next to the card slots and photograph '
-          'your two cards so the corners show. It reads them on the phone (nothing is uploaded); '
-          'always check the suits before saving.',
+      'Snap my cards (Beta): tap the camera next to the card slots, then take or pick a photo '
+          'of your two cards so the corners show. It reads them on your device (nothing is '
+          'uploaded) and also hints the street from the board cards it sees; always check the '
+          'cards before saving.',
       'Blind clock: from the setup screen or the ⋮ menu. Big countdown for the TV, levels and '
           'breaks you can edit, or Cash game mode. It keeps time even if the phone sleeps.',
       'End game night shows the Night Recap: best hand, cold streaks, card luck, awards and '

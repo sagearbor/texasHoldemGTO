@@ -20,7 +20,7 @@
 ///   6. classify    = normalised cross-correlation against glyph templates
 ///                    rendered offline from system fonts
 ///                    (tool/camera_lab/make_glyph_templates.py ->
-///                    assets/data/glyph_templates.bin); the ink colour gates
+///                    tool/camera_lab/glyph_templates.bin); the ink colour gates
 ///                    the suit to {d,h} or {c,s}.
 ///   7. aggregate   = group reads by card, keep the best two.
 ///
@@ -38,6 +38,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../poker/cards.dart';
+import 'glyph_cnn.dart';
 
 // ---------------------------------------------------------------- constants
 
@@ -50,8 +51,17 @@ const List<int> _suitRotSearch = [-30, -20, -10, 0, 10, 20, 30];
 const double _rotPenalty = 0.002; // per degree
 const double _scoreMin = 0.45;
 
-/// Hero reads at or above this score count as "confident".
+/// Template-matching hero reads at or above this score count as "confident".
 const double glyphConfidentScore = 0.65;
+
+/// CNN hero reads (P(rank) * P(suit)) at or above this count as "confident".
+const double glyphCnnConfidentScore = 0.5;
+
+/// CNN reads below this are dropped.
+const double _cnnScoreMin = 0.25;
+
+/// Test-time rotations (degrees) for the CNN crops.
+const List<double> _cnnTta = [0, -25, 25];
 
 // ---------------------------------------------------------------- templates
 
@@ -68,7 +78,7 @@ class GlyphTemplates {
       rank.fold<int>(0, (a, s) => a + s.length ~/ (rankW * rankH)) +
       suit.fold<int>(0, (a, s) => a + s.length ~/ (suitW * suitH));
 
-  /// Parses assets/data/glyph_templates.bin (format: see the generator).
+  /// Parses tool/camera_lab/glyph_templates.bin (format: see the generator).
   factory GlyphTemplates.parse(Uint8List bytes) {
     final bd = ByteData.sublistView(bytes);
     if (bytes.length < 13 || String.fromCharCodes(bytes.sublist(0, 4)) != 'FNGT' || bytes[4] != 1) {
@@ -155,9 +165,10 @@ class GlyphCard {
 
   /// How many corner indices voted for this card.
   final int votes;
-  const GlyphCard(this.card, this.score, this.votes);
 
-  bool get confident => score >= glyphConfidentScore;
+  /// Score above the confidence bar of the classifier that produced it.
+  final bool confident;
+  const GlyphCard(this.card, this.score, this.votes, {required this.confident});
 
   @override
   String toString() => '${cardToString(card)} ${score.toStringAsFixed(2)}';
@@ -213,19 +224,29 @@ class GlyphReadResult {
 class GlyphReadRequest {
   final Uint8List rgba;
   final int width, height;
-  final Uint8List templates;
+  /// tool/camera_lab/glyph_templates.bin (used when [cnn] is null).
+  final Uint8List? templates;
+
+  /// assets/data/glyph_cnn.bin (preferred classifier).
+  final Uint8List? cnn;
   final int targetShortSide;
-  const GlyphReadRequest(this.rgba, this.width, this.height, this.templates, {this.targetShortSide = 1500});
+  const GlyphReadRequest(this.rgba, this.width, this.height,
+      {this.templates, this.cnn, this.targetShortSide = 1500});
 }
 
 /// Top-level function for `compute(readGlyphsMessage, request)`.
-GlyphReadResult readGlyphsMessage(GlyphReadRequest r) => readGlyphs(
-    r.rgba, r.width, r.height, GlyphTemplates.parse(r.templates),
+GlyphReadResult readGlyphsMessage(GlyphReadRequest r) => readGlyphs(r.rgba, r.width, r.height,
+    templates: r.templates == null ? null : GlyphTemplates.parse(r.templates!),
+    cnn: r.cnn == null ? null : GlyphCnn.parse(r.cnn!),
     targetShortSide: r.targetShortSide);
 
 /// Reads hero cards and the board count from an RGBA photo.
-GlyphReadResult readGlyphs(Uint8List rgba, int width, int height, GlyphTemplates templates,
-    {int targetShortSide = 1500}) {
+///
+/// The corner indices are classified by [cnn] when given (the better reader
+/// on real photos), else by template matching against [templates].
+GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
+    {GlyphTemplates? templates, GlyphCnn? cnn, int targetShortSide = 1500}) {
+  if (templates == null && cnn == null) throw ArgumentError('templates or cnn required');
   final sw = Stopwatch()..start();
   final timing = <String, int>{};
   final img = _Planes.fromRgba(rgba, width, height, targetShortSide);
@@ -236,13 +257,24 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height, GlyphTemplates
   final board = _findBoard(img, hsv);
   timing['board'] = sw.elapsedMilliseconds - t0;
   t0 = sw.elapsedMilliseconds;
-  final reads = _readIndices(img, hsv, templates, board);
-  final hero = _heroFromReads(reads);
+  final List<_Read> reads;
+  final List<GlyphCard> hero;
+  if (cnn != null) {
+    reads = _readIndicesCnn(img, hsv, cnn, board);
+    hero = _heroFromCnnReads(reads);
+  } else {
+    reads = _readIndices(img, hsv, templates!, board);
+    hero = _heroFromReads(reads);
+  }
   timing['hero'] = sw.elapsedMilliseconds - t0;
   timing['total'] = sw.elapsedMilliseconds;
   return GlyphReadResult(
     hero: hero,
-    reads: [for (final r in reads) GlyphCard(r.card, r.score, 1)],
+    reads: [
+      for (final r in reads)
+        GlyphCard(r.card, r.score, 1,
+            confident: r.score >= (cnn != null ? glyphCnnConfidentScore : glyphConfidentScore))
+    ],
     boardCount: board.length,
     workWidth: img.w,
     workHeight: img.h,
@@ -1046,8 +1078,141 @@ List<GlyphCard> _heroFromReads(List<_Read> reads) {
   }
   final agg = <GlyphCard>[
     for (final e in by.entries)
-      GlyphCard(e.key, e.value.reduce(math.max) + 0.05 * (e.value.length - 1), e.value.length)
+      () {
+        final sc = e.value.reduce(math.max) + 0.05 * (e.value.length - 1);
+        return GlyphCard(e.key, sc, e.value.length, confident: sc >= glyphConfidentScore);
+      }()
   ];
   agg.sort((a, b) => b.score.compareTo(a.score));
   return agg.take(2).toList();
+}
+
+// ---------------------------------------------------------------- CNN path
+
+List<_Blob> _heroBlobs(_Planes img, _Hsv hsv, List<_Rect> board) => [
+      for (final b in _findGlyphBlobs(img, hsv))
+        if (!board.any((r) => r.contains(b.cx, b.cy, 2.2))) b
+    ];
+
+/// 32x32 crop of the green channel around [b], rotated so that the unit
+/// vector ([ux], [uy]) points down, plus [extraDeg] (port of the lab's
+/// upright_crop + crop_from_mask: square side = 1.3 x the rotated glyph
+/// bbox, bilinear, replicate border, 2..98 percentile contrast stretch).
+Uint8List _cnnCrop(_Planes img, _Blob b, double ux, double uy, double extraDeg) {
+  final ang = math.atan2(ux, uy) * 180 / math.pi + extraDeg;
+  final t = -ang * math.pi / 180; // getRotationMatrix2D(centre, -ang)
+  final al = math.cos(t), be = math.sin(t);
+  final cx = b.cx, cy = b.cy;
+  // Rotated bbox of the glyph pixels.
+  var rx0 = double.infinity, ry0 = double.infinity, rx1 = -double.infinity, ry1 = -double.infinity;
+  for (var y = 0; y < b.h; y++) {
+    for (var x = 0; x < b.w; x++) {
+      if (b.mask[y * b.w + x] == 0) continue;
+      final dx = b.x + x - cx, dy = b.y + y - cy;
+      final rx = al * dx + be * dy, ry = -be * dx + al * dy;
+      if (rx < rx0) rx0 = rx;
+      if (rx > rx1) rx1 = rx;
+      if (ry < ry0) ry0 = ry;
+      if (ry > ry1) ry1 = ry;
+    }
+  }
+  rx1 += 1;
+  ry1 += 1;
+  final mx = (rx0 + rx1) / 2, my = (ry0 + ry1) / 2;
+  final side = math.max(math.max(rx1 - rx0, ry1 - ry0) * 1.3, 6.0);
+  const n = glyphCnnInput;
+  final w = img.w, h = img.h, g = img.g;
+  final raw = Float64List(n * n);
+  for (var oy = 0; oy < n; oy++) {
+    for (var ox = 0; ox < n; ox++) {
+      // output -> rotated frame (relative to the blob centre) -> image
+      final rx = (ox - n / 2) * side / n + mx, ry = (oy - n / 2) * side / n + my;
+      final sx = al * rx - be * ry + cx, sy = be * rx + al * ry + cy;
+      final fx = sx.floor(), fy = sy.floor();
+      final ax = sx - fx, ay = sy - fy;
+      int at(int xx, int yy) => g[yy.clamp(0, h - 1) * w + xx.clamp(0, w - 1)];
+      final v = (1 - ay) * ((1 - ax) * at(fx, fy) + ax * at(fx + 1, fy)) +
+          ay * ((1 - ax) * at(fx, fy + 1) + ax * at(fx + 1, fy + 1));
+      raw[oy * n + ox] = v.roundToDouble();
+    }
+  }
+  final sorted = Float64List.fromList(raw)..sort();
+  double pct(double p) {
+    final pos = p / 100 * (sorted.length - 1);
+    final i = pos.floor();
+    final f = pos - i;
+    return i + 1 < sorted.length ? sorted[i] + f * (sorted[i + 1] - sorted[i]) : sorted[i];
+  }
+
+  final lo = pct(2), hi = pct(98);
+  final k = 255 / math.max(hi - lo, 20);
+  final out = Uint8List(n * n);
+  for (var i = 0; i < n * n; i++) {
+    out[i] = ((raw[i] - lo) * k).clamp(0, 255).toInt();
+  }
+  return out;
+}
+
+/// Element-wise max of the class probabilities over the TTA rotations.
+Float32List _ttaProbs(GlyphCnn cnn, _Planes img, _Blob b, double ux, double uy) {
+  Float32List? best;
+  for (final e in _cnnTta) {
+    final p = cnn.probs(_cnnCrop(img, b, ux, uy, e));
+    if (best == null) {
+      best = p;
+    } else {
+      for (var i = 0; i < p.length; i++) {
+        if (p[i] > best[i]) best[i] = p[i];
+      }
+    }
+  }
+  return best!;
+}
+
+List<_Read> _readIndicesCnn(_Planes img, _Hsv hsv, GlyphCnn cnn, List<_Rect> board) {
+  final blobs = _heroBlobs(img, hsv, board);
+  final reads = <_Read>[];
+  for (var i = 0; i < blobs.length; i++) {
+    final a = blobs[i];
+    for (var j = 0; j < blobs.length; j++) {
+      if (i == j) continue;
+      final b = blobs[j];
+      if (a.red != b.red) continue;
+      final ratio = a.md / b.md;
+      if (!(ratio > 0.55 && ratio < 2.2)) continue;
+      final dx = b.cx - a.cx, dy = b.cy - a.cy;
+      final dist = math.sqrt(dx * dx + dy * dy);
+      final meanMd = (a.md + b.md) / 2;
+      if (!(dist > 0.55 * meanMd && dist < 1.9 * meanMd)) continue;
+      final ux = dx / dist, uy = dy / dist;
+      final pr = _ttaProbs(cnn, img, a, ux, uy);
+      final ps = _ttaProbs(cnn, img, b, ux, uy);
+      var r = 0;
+      for (var k = 1; k < 13; k++) {
+        if (pr[k] > pr[r]) r = k;
+      }
+      final allowed = a.red ? _redSuits : _blackSuits;
+      final su = ps[glyphCnnSuit0 + allowed[0]] >= ps[glyphCnnSuit0 + allowed[1]] ? allowed[0] : allowed[1];
+      final score = pr[r] * ps[glyphCnnSuit0 + su];
+      if (score < _cnnScoreMin) continue;
+      reads.add(_Read(makeCard(r, su), score, i, j, meanMd));
+    }
+  }
+  reads.sort((x, y) => y.score.compareTo(x.score));
+  return reads;
+}
+
+/// Top two distinct cards (each card's best read).
+List<GlyphCard> _heroFromCnnReads(List<_Read> reads) {
+  final votes = <int, int>{};
+  for (final r in reads) {
+    votes[r.card] = (votes[r.card] ?? 0) + 1;
+  }
+  final out = <GlyphCard>[];
+  for (final r in reads) {
+    if (out.any((c) => c.card == r.card)) continue;
+    out.add(GlyphCard(r.card, r.score, votes[r.card]!, confident: r.score >= glyphCnnConfidentScore));
+    if (out.length == 2) break;
+  }
+  return out;
 }

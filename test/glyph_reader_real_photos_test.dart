@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:felt_notes/camera/glyph_cnn.dart';
 import 'package:felt_notes/camera/glyph_reader.dart';
 import 'package:felt_notes/poker/cards.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,9 +18,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final present = File('$_dir/labels.json').existsSync();
 
-  test('glyph reader on real photos (>= 10/14 hero cards)', () async {
+  Future<void> run(String label, {GlyphTemplates? templates, GlyphCnn? cnn, required int minHero}) async {
     final labels = jsonDecode(File('$_dir/labels.json').readAsStringSync()) as Map<String, dynamic>;
-    final templates = GlyphTemplates.parse(File('assets/data/glyph_templates.bin').readAsBytesSync());
     final names = labels.keys.where((k) => k.endsWith('.jpg')).toList()..sort();
     var heroOk = 0, boardOk = 0, bothOk = 0;
     final rows = <String>[
@@ -35,7 +35,7 @@ void main() {
       final w = frame.image.width, h = frame.image.height;
       frame.image.dispose();
       final tDecode = sw.elapsedMilliseconds;
-      final r = readGlyphs(bd!.buffer.asUint8List(), w, h, templates);
+      final r = readGlyphs(bd!.buffer.asUint8List(), w, h, templates: templates, cnn: cnn);
       final truth = (lab['hero'] as List).cast<String>();
       final got = r.hero.map((c) => cardToString(c.card)).toList();
       final ok = truth.where(got.contains).length;
@@ -49,10 +49,23 @@ void main() {
           '${t['total']} (${t['resize']}/${t['board']}/${t['hero']}) |');
     }
     rows.add('');
+    rows.insert(0, '### $label');
     rows.add('hero cards right: $heroOk/14, photos with both right: $bothOk/7, '
         'board count exact: $boardOk/7');
     // ignore: avoid_print
     print(rows.join('\n'));
-    expect(heroOk, greaterThanOrEqualTo(10));
-  }, skip: present ? false : 'real photos not present ($_dir)', timeout: const Timeout(Duration(minutes: 5)));
+    expect(heroOk, greaterThanOrEqualTo(minHero));
+  }
+
+  final skip = present ? false : 'real photos not present ($_dir)';
+  const timeout = Timeout(Duration(minutes: 5));
+  test('glyph reader, CNN classifier, on real photos (>= 10/14 hero cards)', () async {
+    await run('CNN classifier (assets/data/glyph_cnn.bin)',
+        cnn: GlyphCnn.parse(File('assets/data/glyph_cnn.bin').readAsBytesSync()), minHero: 10);
+  }, skip: skip, timeout: timeout);
+  test('glyph reader, font templates, on real photos (>= 10/14 hero cards)', () async {
+    await run('template matching (tool/camera_lab/glyph_templates.bin)',
+        templates: GlyphTemplates.parse(File('tool/camera_lab/glyph_templates.bin').readAsBytesSync()),
+        minHero: 10);
+  }, skip: skip, timeout: timeout);
 }
