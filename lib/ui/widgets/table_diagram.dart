@@ -6,17 +6,26 @@ import '../../gto/spots.dart';
 import '../theme.dart';
 
 /// Small oval table showing the hero's seat (gold), the villain (red) and
-/// the dealer button. 6-max seats, or 2 seats for heads-up spots.
+/// the dealer button. 6-max seats, 3 for 3-handed or 2 for heads-up spots.
 class TableDiagram extends StatelessWidget {
   final String hero;
   final String? villain;
   final bool headsUp;
+  final bool threeHanded;
   const TableDiagram(
-      {super.key, required this.hero, this.villain, this.headsUp = false});
+      {super.key,
+      required this.hero,
+      this.villain,
+      this.headsUp = false,
+      this.threeHanded = false});
 
   @override
   Widget build(BuildContext context) {
-    final seats = headsUp ? const ['SB', 'BB'] : positions6max;
+    final seats = headsUp
+        ? const ['SB', 'BB']
+        : threeHanded
+            ? const ['BTN', 'SB', 'BB']
+            : positions6max;
     return AspectRatio(
       aspectRatio: 2.1,
       child: LayoutBuilder(builder: (context, c) {

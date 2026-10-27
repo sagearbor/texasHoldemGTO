@@ -46,3 +46,4 @@ tmp/
 # Real table photos: personal, keep out of the (soon public) repo
 camera_data/
 .claude/worktrees/
+tool/.cache/

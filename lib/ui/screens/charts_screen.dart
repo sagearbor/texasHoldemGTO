@@ -21,9 +21,22 @@ class _ChartsScreenState extends State<ChartsScreen> {
   int stack = 10;
   bool bbSide = false;
 
-  Spot get spot => format == SpotFormat.cash100
-      ? widget.library.byId(cashId)
-      : widget.library.byId('pf-${bbSide ? 'bb' : 'sb'}-$stack');
+  /// Push/fold players: 2 = heads-up, 3 = BTN/SB/BB (if data is loaded).
+  int players = 2;
+  String node3 = pushFold3Nodes.first.key;
+
+  bool get has3 => widget.library.pushFold3.isNotEmpty;
+  bool get threeHanded => players == 3 && has3;
+  int get minStack => threeHanded ? 5 : 3;
+  int get maxStack => threeHanded ? 20 : 25;
+
+  Spot get spot {
+    if (format == SpotFormat.cash100) return widget.library.byId(cashId);
+    if (threeHanded) {
+      return widget.library.byId(pushFold3Id(node3, stack.clamp(5, 20)));
+    }
+    return widget.library.byId('pf-${bbSide ? 'bb' : 'sb'}-$stack');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +56,7 @@ class _ChartsScreenState extends State<ChartsScreen> {
           SegmentedButton<SpotFormat>(
             segments: const [
               ButtonSegment(value: SpotFormat.cash100, label: Text('6-max 100bb')),
-              ButtonSegment(value: SpotFormat.pushFold, label: Text('Push/fold HU')),
+              ButtonSegment(value: SpotFormat.pushFold, label: Text('Push/fold')),
             ],
             selected: {format},
             onSelectionChanged: (v) => setState(() => format = v.first),
@@ -64,22 +77,50 @@ class _ChartsScreenState extends State<ChartsScreen> {
               const SizedBox(height: 10),
             ]
           else ...[
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('SB: jam?')),
-                ButtonSegment(value: true, label: Text('BB: call jam?')),
-              ],
-              selected: {bbSide},
-              onSelectionChanged: (v) => setState(() => bbSide = v.first),
-            ),
+            if (has3) ...[
+              Row(children: [
+                Text('Players', style: t.labelLarge),
+                const SizedBox(width: 12),
+                SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(value: 2, label: Text('2')),
+                    ButtonSegment(value: 3, label: Text('3')),
+                  ],
+                  selected: {players},
+                  onSelectionChanged: (v) => setState(() {
+                    players = v.first;
+                    stack = stack.clamp(minStack, maxStack);
+                  }),
+                ),
+              ]),
+              const SizedBox(height: 8),
+            ],
+            if (threeHanded)
+              Wrap(spacing: 6, runSpacing: 6, children: [
+                for (final n in pushFold3Nodes)
+                  ChoiceChip(
+                    label: Text(n.label),
+                    selected: n.key == node3,
+                    onSelected: (_) => setState(() => node3 = n.key),
+                  ),
+              ])
+            else
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, label: Text('SB: jam?')),
+                  ButtonSegment(value: true, label: Text('BB: call jam?')),
+                ],
+                selected: {bbSide},
+                onSelectionChanged: (v) => setState(() => bbSide = v.first),
+              ),
             Row(children: [
               Text('${stack}bb', style: t.titleMedium),
               Expanded(
                 child: Slider(
                   value: stack.toDouble(),
-                  min: 3,
-                  max: 25,
-                  divisions: 22,
+                  min: minStack.toDouble(),
+                  max: maxStack.toDouble(),
+                  divisions: maxStack - minStack,
                   label: '${stack}bb',
                   onChanged: (v) => setState(() => stack = v.round()),
                 ),
@@ -107,9 +148,15 @@ class _ChartsScreenState extends State<ChartsScreen> {
                   ]),
                   const SizedBox(height: 6),
                   Text(
-                    s.solved
-                        ? 'Nash equilibrium, solved by Felt Notes (Monte Carlo equities, exact card removal).'
-                        : 'Approximate GTO baseline. Tap any hand for coaching.',
+                    switch (s.format) {
+                      SpotFormat.cash100 =>
+                        'Approximate GTO baseline. Tap any hand for coaching.',
+                      SpotFormat.pushFold =>
+                        'Nash equilibrium, solved by Felt Notes (Monte Carlo equities, exact card removal).',
+                      SpotFormat.pushFold3 =>
+                        '3-handed equilibrium (BTN/SB/BB, no ante), solved by Felt Notes '
+                            '(Monte Carlo 2- and 3-way equities, exact card removal).',
+                    },
                     style: t.bodySmall?.copyWith(fontStyle: FontStyle.italic),
                   ),
                 ],

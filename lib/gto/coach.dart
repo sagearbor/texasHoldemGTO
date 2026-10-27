@@ -101,9 +101,20 @@ List<String> coachNotes(Spot spot, HandClass h, int chosen) {
     notes.add('The big blind already has 1bb invested and closes the action, '
         'so it gets a discount to call and defends wide.');
   }
-  if (spot.hero == 'BTN' && spot.villain == null) {
+  if (spot.hero == 'BTN' &&
+      spot.villain == null &&
+      spot.format == SpotFormat.cash100) {
     notes.add('The button is the best seat: you act last after the flop on '
         'every street, so you can open almost half your hands.');
+  }
+  if (spot.id.startsWith('pf3-bbOvercall')) {
+    notes.add('Two players are already all-in. An overcall has to beat both '
+        'ranges, and the SB called a jam, so this is one of the tightest '
+        'ranges in 3-handed push/fold.');
+  }
+  if (spot.id.startsWith('pf3-btnJam')) {
+    notes.add('From the button two players are still behind you, so the '
+        'jamming range is tighter than heads-up from the small blind.');
   }
   if (spot.hero == 'UTG' && spot.villain == null && playFreq(spot, h) < 0.5) {
     notes.add('Five players are still behind you from UTG, so the range must '

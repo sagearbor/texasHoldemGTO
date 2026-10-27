@@ -6,6 +6,8 @@
 ///    approximations of solver output, labelled as such in the UI.
 ///  * Heads-up push/fold: true Nash equilibrium computed by
 ///    tool/solve_pushfold.dart (assets/data/pushfold.json).
+///  * 3-handed push/fold (BTN, SB, BB): equilibrium computed by
+///    tool/solve_pushfold3.dart (assets/data/pushfold3.json).
 library;
 
 import 'dart:convert';
@@ -15,7 +17,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'hand_class.dart';
 import 'range_parser.dart';
 
-enum SpotFormat { cash100, pushFold }
+enum SpotFormat { cash100, pushFold, pushFold3 }
 
 class Spot {
   final String id;
@@ -261,6 +263,104 @@ Future<List<Spot>> loadPushFoldSpots() async {
   return spots;
 }
 
+/// Decision nodes of the 3-handed push/fold tree, in the order they are
+/// stored in assets/data/pushfold3.json, with display data.
+const pushFold3Nodes = <({
+  String key,
+  String label,
+  String title,
+  String hero,
+  String? villain,
+  String action,
+  String situation,
+})>[
+  (
+    key: 'btnJam',
+    label: 'BTN jam',
+    title: 'BTN jam',
+    hero: 'BTN',
+    villain: null,
+    action: 'All-in',
+    situation: 'You are first to act on the BTN.',
+  ),
+  (
+    key: 'sbCallVsBtn',
+    label: 'SB vs BTN jam',
+    title: 'SB vs BTN jam',
+    hero: 'SB',
+    villain: 'BTN',
+    action: 'Call',
+    situation: 'BTN moves all-in. You are in the SB, BB still to act.',
+  ),
+  (
+    key: 'sbJamVsBb',
+    label: 'SB jam',
+    title: 'SB jam vs BB',
+    hero: 'SB',
+    villain: 'BB',
+    action: 'All-in',
+    situation: 'BTN folds to you in the SB.',
+  ),
+  (
+    key: 'bbCallVsBtn',
+    label: 'BB vs BTN jam',
+    title: 'BB vs BTN jam',
+    hero: 'BB',
+    villain: 'BTN',
+    action: 'Call',
+    situation: 'BTN moves all-in, folds to you in the BB.',
+  ),
+  (
+    key: 'bbOvercall',
+    label: 'BB overcall',
+    title: 'BB overcall',
+    hero: 'BB',
+    villain: 'BTN',
+    action: 'Call',
+    situation: 'BTN moves all-in and SB calls. You are in the BB.',
+  ),
+  (
+    key: 'bbCallVsSb',
+    label: 'BB vs SB jam',
+    title: 'BB vs SB jam',
+    hero: 'BB',
+    villain: 'SB',
+    action: 'Call',
+    situation: 'BTN folds, SB moves all-in. You are in the BB.',
+  ),
+];
+
+String pushFold3Id(String node, int stack) => 'pf3-$node-$stack';
+
+/// Spots from a decoded assets/data/pushfold3.json map.
+List<Spot> pushFold3SpotsFrom(Map<String, dynamic> data) {
+  final spots = <Spot>[];
+  for (final s in (data['stacks'] as List).cast<int>()) {
+    for (final n in pushFold3Nodes) {
+      List<double> l(String k) =>
+          [for (final v in (data[k]['$s'] as List)) (v as num).toDouble()];
+      spots.add(Spot(
+        id: pushFold3Id(n.key, s),
+        format: SpotFormat.pushFold3,
+        group: 'Push/fold 3-handed ${s}bb',
+        title: '${n.title} ${s}bb (3-handed)',
+        situation: '3-handed, ${s}bb. ${n.situation}',
+        hero: n.hero,
+        villain: n.villain,
+        actions: [n.action, 'Fold'],
+        strategy: [for (final f in l(n.key)) [f, 1 - f]],
+        edge: l('${n.key}Edge'),
+        solved: true,
+      ));
+    }
+  }
+  return spots;
+}
+
+Future<List<Spot>> loadPushFold3Spots() async => pushFold3SpotsFrom(
+    jsonDecode(await rootBundle.loadString('assets/data/pushfold3.json'))
+        as Map<String, dynamic>);
+
 /// Equity of each hand class vs one random hand (0..1), from the solver run.
 Future<List<double>> loadVsRandom() async {
   final data = jsonDecode(await rootBundle.loadString('assets/data/pushfold.json'))
@@ -272,11 +372,15 @@ class SpotLibrary {
   final List<Spot> cash;
   final List<Spot> pushFold;
   final List<double> vsRandom;
-  SpotLibrary(this.cash, this.pushFold, [this.vsRandom = const []]);
 
-  List<Spot> get all => [...cash, ...pushFold];
+  /// 3-handed (BTN/SB/BB) push/fold spots.
+  final List<Spot> pushFold3;
+  SpotLibrary(this.cash, this.pushFold,
+      [this.vsRandom = const [], this.pushFold3 = const []]);
+
+  List<Spot> get all => [...cash, ...pushFold, ...pushFold3];
   Spot byId(String id) => all.firstWhere((s) => s.id == id);
 
-  static Future<SpotLibrary> load() async => SpotLibrary(
-      buildCashSpots(), await loadPushFoldSpots(), await loadVsRandom());
+  static Future<SpotLibrary> load() async => SpotLibrary(buildCashSpots(),
+      await loadPushFoldSpots(), await loadVsRandom(), await loadPushFold3Spots());
 }

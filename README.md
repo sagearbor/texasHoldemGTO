@@ -10,7 +10,8 @@ GTO poker trainer and (soon) home-game stats tracker. Flutter app for web
   from solver data (no AI). Modes: all spots, 6-max 100bb, push/fold, and
   "drill my leaks".
 - **Charts**: 13×13 strategy grids for 19 6-max 100bb spots (approximate
-  GTO baselines) and heads-up push/fold Nash for 3–25bb (solved in-repo).
+  GTO baselines), heads-up push/fold Nash for 3–25bb and 3-handed
+  (BTN/SB/BB) push/fold for 5–20bb (both solved in-repo).
 - **Equity**: hand vs hand (up to 6 players) and hand vs range calculator.
 - **Stats**: "you vs GTO" heatmap by hand, weakest spots, most teachable
   mistakes.
@@ -24,6 +25,8 @@ GTO poker trainer and (soon) home-game stats tracker. Flutter app for web
 flutter test
 flutter run -d chrome
 dart run tool/solve_pushfold.dart 6000   # regenerate assets/data/pushfold.json
+# 3-handed: AOT-compile first (equity cache goes to tool/.cache, gitignored)
+dart compile exe tool/solve_pushfold3.dart -o tool/.cache/pf3 && tool/.cache/pf3
 ```
 
 Engine code (`lib/poker`, `lib/gto`) is pure Dart with no Flutter imports

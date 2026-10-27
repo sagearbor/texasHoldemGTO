@@ -255,7 +255,7 @@ class TrainerModel extends ChangeNotifier {
       case DrillMode.cashOnly:
         return library.cash;
       case DrillMode.pushFoldOnly:
-        return library.pushFold;
+        return [...library.pushFold, ...library.pushFold3];
       case DrillMode.mixed:
       case DrillMode.leaks:
         return library.all;
