@@ -5,8 +5,10 @@ import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
+import 'crew_screen.dart';
 import 'dashboard_screen.dart';
 import 'help_screen.dart';
+import 'recap_screen.dart';
 import 'review_sheet.dart';
 
 class HomeGameScreen extends StatelessWidget {
@@ -35,7 +37,13 @@ class HomeGameScreen extends StatelessWidget {
               if (s != null)
                 PopupMenuButton<String>(
                   onSelected: (v) {
-                    if (v == 'end') model.end();
+                    if (v == 'end') {
+                      model.end();
+                      // Wrapped: show tonight's recap straight away.
+                      Navigator.of(context).push(MaterialPageRoute(
+                          fullscreenDialog: true,
+                          builder: (_) => RecapScreen(model: model, session: s)));
+                    }
                     if (v == 'seats') showSeatsEditor(context, model);
                   },
                   itemBuilder: (_) => const [
@@ -130,6 +138,15 @@ class _SetupState extends State<_Setup> {
           label: const Text('Start'),
         ),
         if (past.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => CrewScreen(model: widget.model))),
+            icon: const Icon(Icons.groups_outlined),
+            label: const Text('Crew & season'),
+          ),
+        ],
+        if (past.isNotEmpty) ...[
           const SizedBox(height: 28),
           Text('Past game nights', style: t.titleMedium),
           for (final s in past)
@@ -137,12 +154,21 @@ class _SetupState extends State<_Setup> {
               child: ListTile(
                 title: Text(s.name),
                 subtitle: Text(_summary(widget.model, s)),
-                trailing: IconButton(
-                  icon: const Icon(Icons.bar_chart),
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                      fullscreenDialog: true,
-                      builder: (_) => DashboardScreen(model: widget.model, session: s))),
-                ),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  TextButton(
+                    child: const Text('Recap'),
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                        fullscreenDialog: true,
+                        builder: (_) => RecapScreen(model: widget.model, session: s))),
+                  ),
+                  IconButton(
+                    tooltip: 'Dashboard',
+                    icon: const Icon(Icons.bar_chart),
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                        fullscreenDialog: true,
+                        builder: (_) => DashboardScreen(model: widget.model, session: s))),
+                  ),
+                ]),
               ),
             ),
         ],
