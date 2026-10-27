@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../app_data.dart';
+import '../../trainer/trainer_model.dart';
 import '../theme.dart';
 import 'about_screen.dart';
+import 'leak_test_screen.dart';
 
 enum HelpTopic { train, charts, equity, stats, homeGame, terms }
 
@@ -26,6 +29,9 @@ const _topics = {
       'Drill my leaks uses spaced repetition: a hand you miss comes back in 10 minutes, then '
           'after 1, 3, 7 and 21 days as you keep getting it right. "N due" shows what is waiting. '
           'Mistakes from your home game are added automatically.',
+      'The 60-second leak test (offered on first launch, retake it at the bottom of this '
+          'page): 10 fast borderline hands, then plain-language leaks such as "you defend '
+          'too little from the big blind". "Drill my leaks" queues every hand you missed.',
       'Quizzes (quiz icon at the top): pot odds ("what equity do I need to call?") and '
           'range reading ("which hand is NOT in the button\'s opening range?"), 10 per session.',
     ]
@@ -132,6 +138,7 @@ class HelpScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    final trainer = AppScope.maybeOf(context)?.trainer;
     return Scaffold(
       appBar: AppBar(title: const Text('How to use Felt Notes')),
       body: ListView(
@@ -158,6 +165,16 @@ class HelpScreen extends StatelessWidget {
                       ]),
                     ),
                 ],
+              ),
+            ),
+          if (trainer != null)
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.timer_outlined, color: Felt.gold),
+                title: Text('Retake the leak test', style: t.titleMedium),
+                subtitle: const Text('10 fast hands, then your leaks in plain words'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => openLeakTest(context, trainer),
               ),
             ),
           Card(
@@ -190,8 +207,11 @@ class HelpButton extends StatelessWidget {
       );
 }
 
-/// Shows a one-time welcome the first time the app opens.
-Future<void> maybeShowWelcome(BuildContext context) async {
+/// First launch: the onboarding flow (welcome card + optional 60-second
+/// leak test). Existing users who already saw the old welcome dialog
+/// ('seen_welcome_v1' true) never get it automatically; they can take the
+/// test from Help.
+Future<void> maybeShowWelcome(BuildContext context, TrainerModel model) async {
   const key = 'seen_welcome_v1';
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -201,34 +221,7 @@ Future<void> maybeShowWelcome(BuildContext context) async {
     return;
   }
   if (!context.mounted) return;
-  await showDialog<void>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Welcome to Felt Notes'),
-      content: const Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('• Train: tap what you\'d do with the hand shown and get graded against GTO.'),
-          SizedBox(height: 6),
-          Text('• Charts: the GTO strategy for every spot. Tap a hand to learn why.'),
-          SizedBox(height: 6),
-          Text('• Home game: at your poker night, log your two cards each hand and get live stats.'),
-          SizedBox(height: 6),
-          Text('Tap ? at the top of any screen for help.'),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            Navigator.pop(ctx);
-            Navigator.of(context)
-                .push(MaterialPageRoute(builder: (_) => const HelpScreen()));
-          },
-          child: const Text('Full guide'),
-        ),
-        FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Start training')),
-      ],
-    ),
-  );
+  await Navigator.of(context).push(MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => OnboardingFlow(model: model)));
 }
