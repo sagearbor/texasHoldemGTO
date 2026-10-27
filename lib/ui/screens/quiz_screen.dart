@@ -158,7 +158,7 @@ class _StartView extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     Widget item(IconData icon, String title, String body) => ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: Icon(icon, color: Felt.gold),
+          leading: Icon(icon, color: Felt.accent(context)),
           title: Text(title),
           subtitle: Text(body),
         );
@@ -220,7 +220,8 @@ class _Progress extends StatelessWidget {
         Text('Question ${index + 1} of $total',
             style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 6),
-        LinearProgressIndicator(value: (index + 1) / total, color: Felt.gold),
+        LinearProgressIndicator(
+            value: (index + 1) / total, color: Felt.accent(context)),
       ],
     );
   }

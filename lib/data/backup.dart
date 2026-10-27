@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../homegame/blind_clock.dart';
 import '../homegame/home_game.dart';
 import '../trainer/trainer_model.dart';
+import '../ui/app_settings.dart';
 
 const backupApp = 'felt_notes';
 const backupSchema = 1;
@@ -40,6 +41,10 @@ const backupKeys = <String, PrefKind>{
   keyBlindClock: PrefKind.json,
   keyChartsColorBlind: PrefKind.boolean,
   keySeenWelcome: PrefKind.boolean,
+  keyTheme: PrefKind.string,
+  keyCardStyle: PrefKind.string,
+  keySolverDice: PrefKind.boolean,
+  keyCurrency: PrefKind.string,
 };
 
 const keyTrainerHistory = 'trainer_history_v1';
@@ -52,6 +57,10 @@ const keyHomeBadges = 'home_badges_seen';
 const keyBlindClock = 'blind_clock_v1';
 const keyChartsColorBlind = 'charts_color_blind_v1';
 const keySeenWelcome = 'seen_welcome_v1';
+const keyTheme = AppSettings.themeKey;
+const keyCardStyle = AppSettings.cardStyleKey;
+const keySolverDice = AppSettings.solverDiceKey;
+const keyCurrency = AppSettings.currencyKey;
 
 /// Thrown for anything that is not a valid Felt Notes backup. [message] is
 /// short and safe to show to the user.
@@ -190,6 +199,22 @@ Map<String, dynamic> validateBackup(Map<String, dynamic> json) {
 
 /// Normalised value for [k] (typed, deep-checked); throws on a bad shape.
 Object _validate(String k, PrefKind kind, Object? v) {
+  switch (k) {
+    case keyTrainerDifficulty:
+      return Difficulty.values.byName(v as String).name;
+    case keyTheme:
+      return AppSettings.parseTheme(v)?.name ?? (throw const FormatException('theme'));
+    case keyCardStyle:
+      return AppSettings.parseCardStyle(v)?.name ??
+          (throw const FormatException('card style'));
+    case keyCurrency:
+      return AppSettings.normalizeCurrency(v) ??
+          (throw const FormatException('currency'));
+    case keyDashboardDelay:
+      final m = v as int;
+      if (!dashboardDelays.contains(m)) throw const FormatException('delay');
+      return m;
+  }
   switch (kind) {
     case PrefKind.string:
       return v as String;

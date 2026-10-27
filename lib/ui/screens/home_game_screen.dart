@@ -359,7 +359,7 @@ class _LoggerState extends State<_Logger> {
             child: Text(
               'Only ${pct(st.coverage)} of hands have an action, so VPIP/PFR lean '
               'towards the hands you chose to log. Tap Fold on boring hands (no cards needed).',
-              style: t.bodySmall?.copyWith(color: Felt.mixed),
+              style: t.bodySmall?.copyWith(color: Felt.mixedText(context)),
             ),
           ),
         const SizedBox(height: 12),
@@ -703,13 +703,6 @@ class _TwoPickCell extends StatelessWidget {
   const _TwoPickCell(
       {required this.card, required this.selected, required this.onTap});
 
-  static const _colors = [
-    Color(0xFF1F7A3F),
-    Color(0xFF2563EB),
-    Color(0xFFD62839),
-    Color(0xFF1B1B1B),
-  ];
-
   @override
   Widget build(BuildContext context) {
     return InkWell(
@@ -724,11 +717,11 @@ class _TwoPickCell extends StatelessWidget {
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Text(rankChars[cardRank(card)],
               style: TextStyle(
-                  color: _colors[cardSuit(card)],
+                  color: suitColor(cardSuit(card)),
                   fontWeight: FontWeight.w800,
                   fontSize: 15)),
           Text(suitSymbols[cardSuit(card)],
-              style: TextStyle(color: _colors[cardSuit(card)], fontSize: 13)),
+              style: TextStyle(color: suitColor(cardSuit(card)), fontSize: 13)),
         ]),
       ),
     );

@@ -7,6 +7,8 @@ import '../../homegame/home_game.dart';
 import '../../homegame/moments.dart';
 import '../theme.dart';
 
+/// Dark-only by design: shown on the TV dashboard, which forces the dark
+/// felt theme (see Felt.darkOnly), so the white-on-felt colours are fixed.
 /// Big-type rotating callout for the TV dashboard. Pass only the hands the
 /// dashboard may show (past its delay cutoff). Renders nothing when there
 /// is nothing to say yet.

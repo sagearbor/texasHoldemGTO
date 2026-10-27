@@ -8,6 +8,7 @@ import 'data/backup.dart';
 import 'homegame/blind_clock_controller.dart';
 import 'homegame/home_game.dart';
 import 'trainer/trainer_model.dart';
+import 'ui/app_settings.dart';
 import 'ui/chart_prefs.dart';
 
 /// Makes the loaded models reachable from any route (it sits above the
@@ -38,6 +39,8 @@ class AppScope extends InheritedWidget {
 Future<void> resetAllData({TrainerModel? trainer, HomeGameModel? home}) async {
   home?.clearAll();
   await trainer?.resetAll();
+  AppSettings.resetMemory();
+  ChartPrefs.colorBlind.value = false;
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
@@ -63,6 +66,7 @@ Future<BackupSummary> restoreBackup(
     if (home != null) home.reload(),
     (clock ?? BlindClockController.shared).reload(),
     ChartPrefs.load(),
+    AppSettings.load(),
   ]);
   return summary;
 }

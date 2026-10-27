@@ -4,6 +4,7 @@ import 'app_data.dart';
 import 'gto/spots.dart';
 import 'homegame/home_game.dart';
 import 'trainer/trainer_model.dart';
+import 'ui/app_settings.dart';
 import 'ui/chart_prefs.dart';
 import 'ui/screens/charts_screen.dart';
 import 'ui/screens/equity_screen.dart';
@@ -32,7 +33,8 @@ class _FeltNotesAppState extends State<FeltNotesApp> {
     SpotLibrary.load().then((lib) async {
       final m = TrainerModel(lib);
       final h = HomeGameModel(lib);
-      await Future.wait([m.load(), h.load(), ChartPrefs.load()]);
+      await Future.wait(
+          [m.load(), h.load(), ChartPrefs.load(), AppSettings.load()]);
       if (mounted) {
         setState(() {
           model = m;
@@ -42,18 +44,24 @@ class _FeltNotesAppState extends State<FeltNotesApp> {
     });
   }
 
+  static final _light = Felt.light();
+  static final _dark = Felt.dark();
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Felt Notes',
-      debugShowCheckedModeBanner: false,
-      theme: Felt.light(),
-      darkTheme: Felt.dark(),
-      themeMode: ThemeMode.dark,
-      // Above the Navigator so every route (e.g. About's reset) can reach it.
-      builder: (context, child) =>
-          AppScope(trainer: model, home: home, child: child!),
-      home: const _Home(),
+    return ValueListenableBuilder<ThemeChoice>(
+      valueListenable: AppSettings.theme,
+      builder: (context, choice, _) => MaterialApp(
+        title: 'Felt Notes',
+        debugShowCheckedModeBanner: false,
+        theme: _light,
+        darkTheme: _dark,
+        themeMode: themeModeFor(choice),
+        // Above the Navigator so every route (e.g. About's reset) can reach it.
+        builder: (context, child) =>
+            AppScope(trainer: model, home: home, child: child!),
+        home: const _Home(),
+      ),
     );
   }
 }

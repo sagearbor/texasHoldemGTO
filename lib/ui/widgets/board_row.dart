@@ -313,7 +313,7 @@ class _BoardRowState extends State<BoardRow> {
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(_message!,
-                  style: t.bodySmall?.copyWith(color: _messageIsProblem ? Felt.mixed : null)),
+                  style: t.bodySmall?.copyWith(color: _messageIsProblem ? Felt.mixedText(context) : null)),
             ),
           if (boardMicSupported && _mic != _MicState.unavailable)
             Padding(
@@ -410,16 +410,9 @@ class _BoardPickCell extends StatelessWidget {
   const _BoardPickCell(
       {required this.card, required this.selected, required this.disabled, required this.onTap});
 
-  static const _colors = [
-    Color(0xFF1F7A3F),
-    Color(0xFF2563EB),
-    Color(0xFFD62839),
-    Color(0xFF1B1B1B),
-  ];
-
   @override
   Widget build(BuildContext context) {
-    final color = disabled ? Colors.black26 : _colors[cardSuit(card)];
+    final color = disabled ? Colors.black26 : suitColor(cardSuit(card));
     return InkWell(
       onTap: disabled ? null : onTap,
       child: Container(

@@ -1,21 +1,26 @@
 /// Your own money, and only yours: optional buy-in / cash-out per night.
 library;
 
+import '../ui/app_settings.dart';
 import 'home_game.dart';
 
 const myResultNote = 'Just you — nobody else\'s money is tracked';
 
-/// "$40", "$12.50", or with [signed] "+$40" / "-$12.50".
-String moneyLabel(double v, {bool signed = false}) {
+/// "$40", "$12.50", or with [signed] "+$40" / "-$12.50". [symbol] defaults
+/// to the currency chosen in Settings.
+String moneyLabel(double v, {bool signed = false, String? symbol}) {
+  final sym = symbol ?? AppSettings.currency.value;
   final cents = (v.abs() * 100).round();
   final body = cents % 100 == 0 ? '${cents ~/ 100}' : (cents / 100).toStringAsFixed(2);
   final sign = cents == 0 ? '' : (v < 0 ? '-' : (signed ? '+' : ''));
-  return '$sign\$$body';
+  return '$sign$sym$body';
 }
 
-/// Parses "40", "$40", "12.5", "1,200"; blank or invalid gives null.
+/// Parses "40", "$40", "€40", "12.5", "1,200"; blank or invalid gives null.
 double? parseMoney(String s) {
-  final t = s.replaceAll(RegExp(r'[\s,$]'), '');
+  final t = s
+      .replaceAll(AppSettings.currency.value, '')
+      .replaceAll(RegExp(r'[\s,$€£¥₹]'), '');
   if (t.isEmpty) return null;
   final v = double.tryParse(t);
   return v == null || v < 0 || v.isNaN || v.isInfinite ? null : v;

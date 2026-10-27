@@ -7,6 +7,7 @@ import 'package:felt_notes/homegame/blind_clock.dart';
 import 'package:felt_notes/homegame/blind_clock_controller.dart';
 import 'package:felt_notes/homegame/home_game.dart';
 import 'package:felt_notes/trainer/trainer_model.dart';
+import 'package:felt_notes/ui/app_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -61,6 +62,10 @@ Map<String, Object> fullStore() => {
       keyBlindClock: jsonEncode(BlindClock().toJson()),
       keyChartsColorBlind: true,
       keySeenWelcome: true,
+      keyTheme: 'light',
+      keyCardStyle: 'twoColor',
+      keySolverDice: false,
+      keyCurrency: '€',
       'flutter.some_other_plugin': 'secret',
       'not_ours': 42,
     };
@@ -159,6 +164,10 @@ void main() {
       expect(t.difficulty, Difficulty.expert);
       expect(t.daily.results[20380], 'GGYRGGGGGG');
       expect(clock.loaded, isTrue);
+      expect(AppSettings.theme.value, ThemeChoice.light);
+      expect(AppSettings.cardStyle.value, CardStyle.twoColor);
+      expect(AppSettings.solverDice.value, isFalse);
+      expect(AppSettings.currency.value, '€');
 
       // Reloading twice does not duplicate anything.
       await restoreBackup(backup, trainer: t, home: h, clock: clock);
@@ -347,6 +356,16 @@ void main() {
       (badAction['hands'] as List)[0]['a'] = 9;
       await rejects(backupWith({keyHomeSessions: [badAction]}), 'action 9');
       await rejects(backupWith({keyDashboardDelay: '5'}), 'delay as string');
+      await rejects(backupWith({keyDashboardDelay: 7}), 'delay not a choice');
+      await rejects(backupWith({keyTrainerDifficulty: 'godlike'}), 'difficulty');
+      await rejects(backupWith({keyTheme: 'neon'}), 'theme unknown');
+      await rejects(backupWith({keyTheme: true}), 'theme as bool');
+      await rejects(backupWith({keyCardStyle: 'sixColor'}), 'card style');
+      await rejects(backupWith({keySolverDice: 'yes'}), 'dice as string');
+      await rejects(backupWith({keyCurrency: ''}), 'currency empty');
+      await rejects(backupWith({keyCurrency: 'dollars'}), 'currency too long');
+      await rejects(backupWith({keyCurrency: '12'}), 'currency digits');
+      await rejects(backupWith({keyCurrency: 5}), 'currency as int');
       await rejects(backupWith({keyHomeBadges: [1, 2]}), 'badges ints');
       await rejects(
           backupWith({
@@ -356,6 +375,26 @@ void main() {
           }),
           'daily key not a day');
       await rejects(backupWith({keyBlindClock: 5}), 'clock not a map');
+    });
+
+    test('settings keys round-trip and are normalised', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      await importAll(
+          backupWith({
+            keyTheme: 'system',
+            keyCardStyle: 'fourColor',
+            keySolverDice: true,
+            keyCurrency: ' £ ',
+          }),
+          prefs);
+      expect(prefs.getString(keyTheme), 'system');
+      expect(prefs.getString(keyCardStyle), 'fourColor');
+      expect(prefs.getBool(keySolverDice), isTrue);
+      expect(prefs.getString(keyCurrency), '£');
+      final again = exportAll(prefs)['keys'] as Map;
+      expect(again[keyCurrency], '£');
+      expect(again[keyTheme], 'system');
     });
 
     test('unknown keys are ignored, not written', () async {

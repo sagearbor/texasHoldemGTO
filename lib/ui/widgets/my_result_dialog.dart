@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../../homegame/home_game.dart';
 import '../../homegame/my_result.dart';
+import '../app_settings.dart';
 import '../theme.dart';
 
 /// Optional buy-in / cash-out for one night, yours only. Returns true when
 /// saved, false on Skip / dismiss.
 Future<bool> editMyResult(BuildContext context, HomeGameModel model, HomeSession s,
     {String skipLabel = 'Cancel'}) async {
-  String fmt(double? v) => v == null ? '' : moneyLabel(v).replaceFirst('\$', '');
+  final sym = AppSettings.currency.value;
+  String fmt(double? v) => v == null ? '' : moneyLabel(v, symbol: '');
   final buy = TextEditingController(text: fmt(s.buyIn));
   final cash = TextEditingController(text: fmt(s.cashOut));
   const kb = TextInputType.numberWithOptions(decimal: true);
@@ -25,13 +27,13 @@ Future<bool> editMyResult(BuildContext context, HomeGameModel model, HomeSession
           TextField(
             controller: buy,
             keyboardType: kb,
-            decoration: const InputDecoration(labelText: 'Buy-in', prefixText: '\$ '),
+            decoration: InputDecoration(labelText: 'Buy-in', prefixText: '$sym '),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: cash,
             keyboardType: kb,
-            decoration: const InputDecoration(labelText: 'Cash-out', prefixText: '\$ '),
+            decoration: InputDecoration(labelText: 'Cash-out', prefixText: '$sym '),
           ),
         ]),
       ),
