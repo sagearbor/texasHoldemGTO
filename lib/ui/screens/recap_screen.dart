@@ -34,8 +34,12 @@ class _RecapScreenState extends State<RecapScreen> {
     super.dispose();
   }
 
+  // Dark-only by design (read across the room / shared as screenshots):
+  // the felt look stays even when the app is in light mode.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Felt.darkOnly(Builder(builder: _build));
+
+  Widget _build(BuildContext context) {
     final r = nightRecap(widget.session, widget.model.library);
     final cards = recapCards(r);
     return Scaffold(

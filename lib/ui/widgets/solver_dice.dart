@@ -78,7 +78,7 @@ class SolverDice extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(children: [
-            const Icon(Icons.casino_outlined, size: 18, color: Felt.gold),
+            Icon(Icons.casino_outlined, size: 18, color: Felt.accent(context)),
             const SizedBox(width: 6),
             Text('Solver dice', style: t.labelLarge),
             const Spacer(),

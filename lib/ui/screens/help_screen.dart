@@ -6,6 +6,7 @@ import '../../trainer/trainer_model.dart';
 import '../theme.dart';
 import 'about_screen.dart';
 import 'leak_test_screen.dart';
+import 'settings_screen.dart';
 
 enum HelpTopic { train, charts, equity, stats, homeGame, terms }
 
@@ -21,9 +22,9 @@ const _topics = {
       'The chip at the top right picks what you drill: all spots, 6-max 100bb, push/fold, '
           'or "Drill my leaks", which keeps serving the spots and hands you miss.',
       'Most hands dealt are borderline ones, because that is where mistakes happen.',
-      'Difficulty (in the drill menu): Beginner deals only clear-cut hands, Expert only '
+      'Difficulty (in the drill menu or Settings): Beginner deals only clear-cut hands, Expert only '
           'borderline ones. When the solver mixes a hand, the "solver dice" show how it '
-          'randomises between actions.',
+          'randomises between actions (Settings can hide the dice).',
       'Daily 10 (gold card at the top): the same 10 hands for everyone today. One try per day; '
           'keep your streak going and tap Copy result to brag in the group chat.',
       'Drill my leaks uses spaced repetition: a hand you miss comes back in 10 minutes, then '
@@ -44,7 +45,7 @@ const _topics = {
           'are above it, offsuit hands below.',
       'Colours: red = raise / 3-bet / all-in, green = call, dark = fold. A cell split '
           'between colours is a mixed hand: GTO plays it both ways at those rates.',
-      'Colour blind? The ⋮ menu on Charts turns on colour-blind friendly charts: blue / orange '
+      'Colour blind? The ⋮ menu on Charts (or Settings) turns on colour-blind friendly charts: blue / orange '
           'plus stripes = raise, dots = call, plain = fold, on every grid and bar.',
       'Tap any hand for its frequencies and an explanation. "Drill" sends that spot to the trainer.',
       '6-max 100bb charts are approximate GTO baselines. Push/fold charts are an exact '
@@ -156,11 +157,21 @@ class HelpScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
         children: [
+          Card(
+            child: ListTile(
+              key: const Key('help-settings'),
+              leading: Icon(Icons.settings_outlined, color: Felt.accent(context)),
+              title: Text('Settings', style: t.titleMedium),
+              subtitle: const Text('Theme, cards, difficulty, currency'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => openSettings(context),
+            ),
+          ),
           for (final e in _topics.entries)
             Card(
               child: ExpansionTile(
                 initiallyExpanded: e.key == focus,
-                leading: Icon(e.value.$1, color: Felt.gold),
+                leading: Icon(e.value.$1, color: Felt.accent(context)),
                 title: Text(e.value.$2, style: t.titleMedium),
                 childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 expandedCrossAxisAlignment: CrossAxisAlignment.start,
@@ -169,9 +180,9 @@ class HelpScreen extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Padding(
-                          padding: EdgeInsets.only(top: 7, right: 8),
-                          child: Icon(Icons.circle, size: 6, color: Felt.gold),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 7, right: 8),
+                          child: Icon(Icons.circle, size: 6, color: Felt.accent(context)),
                         ),
                         Expanded(child: Text(line, style: t.bodyMedium)),
                       ]),
@@ -182,7 +193,7 @@ class HelpScreen extends StatelessWidget {
           if (trainer != null)
             Card(
               child: ListTile(
-                leading: const Icon(Icons.timer_outlined, color: Felt.gold),
+                leading: Icon(Icons.timer_outlined, color: Felt.accent(context)),
                 title: Text('Retake the leak test', style: t.titleMedium),
                 subtitle: const Text('10 fast hands, then your leaks in plain words'),
                 trailing: const Icon(Icons.chevron_right),
@@ -191,7 +202,7 @@ class HelpScreen extends StatelessWidget {
             ),
           Card(
             child: ListTile(
-              leading: const Icon(Icons.info_outline, color: Felt.gold),
+              leading: Icon(Icons.info_outline, color: Felt.accent(context)),
               title: Text('About & privacy', style: t.titleMedium),
               subtitle: const Text('Version, privacy, credits, feedback, reset data'),
               trailing: const Icon(Icons.chevron_right),

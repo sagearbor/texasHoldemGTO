@@ -332,7 +332,7 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
                   ? 'Card ${i + 1}: not found (pick it by hand)'
                   : 'Card ${i + 1}: rank ${rankChars[_rank[i]!] == 'T' ? '10' : rankChars[_rank[i]!]}'
                       '${unsure ? ' - unsure, check it' : ''}',
-              style: t.labelMedium?.copyWith(color: unsure ? Felt.mixed : null),
+              style: t.labelMedium?.copyWith(color: unsure ? Felt.mixedText(context) : null),
             ),
             const SizedBox(height: 4),
             if (_rank[i] != null)
@@ -342,7 +342,9 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
                     label: Text(suitSymbols[s],
                         style: TextStyle(
                             fontSize: 18,
-                            color: s == 1 || s == 2 ? const Color(0xFFD62839) : null)),
+                            // Black suits keep the theme's text colour so they
+                            // stay readable on a dark chip.
+                            color: s == 1 || s == 2 ? suitColor(s) : null)),
                     selected: _suit[i] == s,
                     visualDensity: VisualDensity.compact,
                     onSelected: (_) => setState(() {

@@ -121,7 +121,7 @@ class _WelcomeCard extends StatelessWidget {
     Widget line(IconData i, String s) => Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(i, size: 20, color: Felt.gold),
+            Icon(i, size: 20, color: Felt.accent(context)),
             const SizedBox(width: 10),
             Expanded(child: Text(s, style: t.bodyMedium)),
           ]),
@@ -162,7 +162,7 @@ class _OfferCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const Icon(Icons.timer_outlined, size: 40, color: Felt.gold),
+          Icon(Icons.timer_outlined, size: 40, color: Felt.accent(context)),
           const SizedBox(height: 10),
           Text('Take the 60-second leak test',
               style: t.headlineSmall, textAlign: TextAlign.center),
@@ -213,7 +213,7 @@ class _TestHand extends StatelessWidget {
         }, style: t.labelMedium),
       ]),
       const SizedBox(height: 6),
-      LinearProgressIndicator(value: index / total, color: Felt.gold),
+      LinearProgressIndicator(value: index / total, color: Felt.accent(context)),
       const SizedBox(height: 12),
       Card(
         child: Padding(
@@ -283,7 +283,7 @@ class _VerdictView extends StatelessWidget {
           padding: const EdgeInsets.all(20),
           child: Column(children: [
             Text('${v.correct} / ${v.total}',
-                style: t.displaySmall?.copyWith(color: Felt.gold)),
+                style: t.displaySmall?.copyWith(color: Felt.accent(context))),
             const SizedBox(height: 4),
             Text(v.headline, style: t.titleMedium, textAlign: TextAlign.center),
           ]),

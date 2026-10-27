@@ -40,8 +40,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
+  // Dark-only by design (read across the room / shared as screenshots):
+  // the felt look stays even when the app is in light mode.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Felt.darkOnly(Builder(builder: _build));
+
+  Widget _build(BuildContext context) {
     final model = widget.model;
     return ListenableBuilder(
       listenable: model,

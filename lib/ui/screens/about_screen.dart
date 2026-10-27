@@ -12,6 +12,7 @@ import '../../data/backup.dart';
 import '../../data/hands_csv.dart';
 import '../../homegame/home_game.dart';
 import '../theme.dart';
+import 'settings_screen.dart';
 
 // TODO(owner): replace with the real support address before store release
 // (Play and App Store both require a contact email on the listing too).
@@ -263,7 +264,7 @@ class AboutScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
-                  Icon(icon, color: Felt.gold, size: 20),
+                  Icon(icon, color: Felt.accent(context), size: 20),
                   const SizedBox(width: 8),
                   Text(title, style: t.titleMedium),
                 ]),
@@ -275,7 +276,9 @@ class AboutScreen extends StatelessWidget {
         );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('About & privacy')),
+      appBar: AppBar(
+          title: const Text('About & privacy'),
+          actions: const [SettingsButton()]),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
         children: [

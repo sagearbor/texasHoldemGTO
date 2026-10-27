@@ -54,7 +54,7 @@ class DailyCard extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
               child: Row(children: [
-                const Icon(Icons.today, color: Felt.gold, size: 30),
+                Icon(Icons.today, color: Felt.accent(context), size: 30),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -67,7 +67,7 @@ class DailyCard extends StatelessWidget {
                       Text(sub, style: t.bodySmall),
                       if (streak > 0)
                         Text('Day streak $streak${streak >= 3 ? ' 🔥' : ''}',
-                            style: t.bodySmall?.copyWith(color: Felt.gold)),
+                            style: t.bodySmall?.copyWith(color: Felt.accent(context))),
                     ],
                   ),
                 ),

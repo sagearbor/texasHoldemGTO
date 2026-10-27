@@ -263,7 +263,7 @@ class _EquityBar extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: value,
                 minHeight: 14,
-                color: Felt.gold,
+                color: Felt.accent(context),
                 backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
               ),
             ),
