@@ -272,9 +272,13 @@ List<String> _limperNotes(Spot spot, HandClass h) {
         'cheap multiway flop to hit a set or a big draw, and they gain '
         'little from an iso-raise.');
   }
-  notes.add('Facing-limper charts are hand-authored approximations: '
-      'limped pots are not in standard solver trees, so borderline hands '
-      'are shown as a mix and either choice counts as fine.');
+  notes.add(spot.solved
+      ? 'Solved by Felt Notes against an assumed loose-passive UTG limping '
+          'range (the limp range is an input; everything after it is '
+          'equilibrium output).'
+      : 'Facing-limper charts are hand-authored approximations: '
+          'limped pots are not in standard solver trees, so borderline hands '
+          'are shown as a mix and either choice counts as fine.');
   return notes;
 }
 
@@ -288,14 +292,12 @@ List<String> _threeBetNotes(Spot spot, HandClass h) {
   if ((spot.reach?[h.index] ?? 1) == 0) {
     notes.add('${h.name} is not in the ${spot.hero} opening range, so it '
         'never reaches this spot: it folds before the flop.');
-  } else if (f[0] >= 0.25 && (h.isPair || (h.highRank == 12 && h.lowRank == 11))) {
+  } else if (f[0] >= 0.25 &&
+      (h.isPair || (h.highRank == 12 && h.lowRank == 11))) {
     notes.add('4-bet for value: ${h.name} is at the top of your range and '
         'ahead of most 3-betting hands. Building the pot now gets stacks in '
         'by the river.');
-  } else if (f[0] > 0.05 &&
-      h.isSuited &&
-      h.highRank == 12 &&
-      h.lowRank <= 3) {
+  } else if (f[0] > 0.05 && h.isSuited && h.highRank == 12 && h.lowRank <= 3) {
     notes.add('${h.name} is a 4-bet bluff: the ace blocks AA and AK, so the '
         '3-bettor is less likely to have a hand that continues, and the '
         'wheel straight and nut-flush draws give it equity when called. The '
@@ -310,15 +312,22 @@ List<String> _threeBetNotes(Spot spot, HandClass h) {
             'initiative and you act first on every street, so out-of-position '
             'calls stay tight (pairs and strong suited broadways).');
   }
-  if (!h.isPair && !h.isSuited && broadway && f[spot.passiveIndex] >= 0.5 &&
+  if (!h.isPair &&
+      !h.isSuited &&
+      broadway &&
+      f[spot.passiveIndex] >= 0.5 &&
       (spot.reach?[h.index] ?? 1) > 0) {
     notes.add('Fold offsuit broadways like ${h.name}: they are dominated by '
         'the 3-bettor\'s AK, AQ and KQ, make few strong hands and have no '
         'flush potential to make up for it.');
   }
-  notes.add('Facing-a-3-bet charts are hand-authored approximations (4-bet '
-      '22bb in position, 25bb out of position), not solver output, so '
-      'borderline hands are shown as a mix and either choice counts as fine.');
+  notes.add(spot.solved
+      ? 'Solved by Felt Notes (4-bet 22bb in position, 25bb out of position, '
+          '5-bet all-in): the 3-bettor\'s ranges are equilibrium output; your '
+          'opening range is the approximate chart.'
+      : 'Facing-a-3-bet charts are hand-authored approximations (4-bet '
+          '22bb in position, 25bb out of position), not solver output, so '
+          'borderline hands are shown as a mix and either choice counts as fine.');
   return notes;
 }
 

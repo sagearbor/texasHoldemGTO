@@ -1,0 +1,24 @@
+Felt Notes solved poker dataset (the files in data/solved/)
+Copyright (c) 2026 Sage Arbor / Felt Notes
+
+This dataset is licensed under the Creative Commons Attribution 4.0
+International License (CC BY 4.0).
+
+You are free to share (copy and redistribute the material in any medium or
+format) and adapt (remix, transform, and build upon the material) for any
+purpose, even commercially, under the following term:
+
+  Attribution: you must give appropriate credit ("Felt Notes,
+  https://github.com/sagearbor/texasHoldemGTO"), provide a link to the
+  license, and indicate if changes were made. You may do so in any reasonable
+  manner, but not in any way that suggests the licensor endorses you or your
+  use.
+
+No warranties are given. The data is the output of a simplified game model
+(see README.md in this folder for every simplification); it is not advice.
+
+Full legal code: https://creativecommons.org/licenses/by/4.0/legalcode
+
+This license covers the data files only. The solver source code in tool/ is
+part of the Felt Notes repository and is covered by the repository's own
+terms.

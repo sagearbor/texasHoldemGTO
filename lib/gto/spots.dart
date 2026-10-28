@@ -68,6 +68,10 @@ class Spot {
   /// (what is shown and graded) is the softened version. Null elsewhere.
   final List<List<double>>? authoredStrategy;
 
+  /// Model caveat of a solved 100bb spot (data/solved/preflop.json), shown
+  /// after the exploitability in [solverNote].
+  final String? modelNote;
+
   Spot({
     required this.id,
     required this.format,
@@ -84,21 +88,32 @@ class Spot {
     this.otherVillains = const [],
     this.exploitabilityBb,
     this.authoredStrategy,
+    this.modelNote,
   });
 
   /// True for the hand-authored (non-solver) spots: facing limpers and
   /// facing a 3-bet. They are softened ([softenAuthored]), labelled
   /// "Approximate · not solver-backed", and left out of every score (GTO
   /// score, progress chart, mistake heatmap). They can still be drilled.
-  bool get handAuthored => group == limperGroup || group == threeBetGroup;
+  bool get handAuthored =>
+      !solved && (group == limperGroup || group == threeBetGroup);
+
+  static String _bb(double e) =>
+      e < 1e-4 ? 'under 0.0001' : e.toStringAsFixed(4);
 
   /// Where the strategy comes from and how exact it is, for spot info.
   String? get solverNote {
     final e = exploitabilityBb;
-    if (format != SpotFormat.rejam || e == null) return null;
+    if (e == null) return null;
+    if (format == SpotFormat.cash100 && solved) {
+      return 'Solved by Felt Notes: preflop equilibrium whose flops are valued '
+          'by our own heads-up flop, turn and river solves. Exploitable for '
+          '${_bb(e)}bb per hand within the model.'
+          '${modelNote == null ? '' : ' $modelNote'}';
+    }
+    if (format != SpotFormat.rejam) return null;
     return 'Solved by Felt Notes (jam-or-fold equilibrium): exploitable for '
-        '${e < 1e-4 ? 'under 0.0001' : e.toStringAsFixed(4)}bb per hand. The '
-        'opening range is the approximate 100bb chart.';
+        '${_bb(e)}bb per hand. The opening range is the approximate 100bb chart.';
   }
 
   List<double> freqs(HandClass h) => strategy[h.index];
@@ -408,10 +423,7 @@ const _vsLimpRanges = {
         '86s+, 75s+, 64s+, 53s+, 43s:0.5, AQo:0.5, AJo-A8o, A7o-A2o:0.3, KTo+, '
         'K9o:0.4, QTo+, Q9o:0.4, JTo, J9o:0.4, T9o, 98o:0.5, 87o:0.3'
   ),
-  ('BB', 2): (
-    'TT+, 99:0.5, AQs+, AJs:0.6, KQs:0.5, AKo, AQo:0.6',
-    ''
-  ),
+  ('BB', 2): ('TT+, 99:0.5, AQs+, AJs:0.6, KQs:0.5, AKo, AQo:0.6', ''),
 };
 
 /// Iso-raise size label: 4bb in position vs one limper, +1bb per extra
@@ -426,7 +438,8 @@ const positions6max = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
 
 /// Rows of [4-bet, call, fold]; the call range is capped so a row never
 /// exceeds 1 (4-bet takes priority).
-List<List<double>> _vs3bet(String fourBet, String call) => _vsLimp(fourBet, call);
+List<List<double>> _vs3bet(String fourBet, String call) =>
+    _vsLimp(fourBet, call);
 
 /// Opening frequency of each hand class from [pos] (RFI chart).
 List<double> rfiReach(String pos) {
@@ -600,8 +613,8 @@ List<Spot> buildCashSpots() {
   _vsLimpRanges.forEach((key, ranges) {
     final (hero, n) = key;
     final limpers = n == 1 ? 'UTG limps' : 'UTG and HJ limp';
-    final between = positions6max
-        .sublist(n == 1 ? 1 : 2, positions6max.indexOf(hero));
+    final between =
+        positions6max.sublist(n == 1 ? 1 : 2, positions6max.indexOf(hero));
     final folds = between.isEmpty
         ? ''
         : ', ${between.join(', ')} fold${between.length == 1 ? 's' : ''}';
@@ -621,7 +634,12 @@ List<Spot> buildCashSpots() {
       villain: n == 1 ? 'UTG' : 'HJ',
       actions: [
         isoLabel(hero, n),
-        if (hero == 'BB') 'Check' else if (hero == 'SB') 'Complete' else 'Overlimp',
+        if (hero == 'BB')
+          'Check'
+        else if (hero == 'SB')
+          'Complete'
+        else
+          'Overlimp',
         if (hero != 'BB') 'Fold',
       ],
       authoredStrategy: authored,
@@ -654,8 +672,9 @@ List<Spot> buildCashSpots() {
 }
 
 Future<List<Spot>> loadPushFoldSpots() async {
-  final data = jsonDecode(await rootBundle.loadString('assets/data/pushfold.json'))
-      as Map<String, dynamic>;
+  final data =
+      jsonDecode(await rootBundle.loadString('assets/data/pushfold.json'))
+          as Map<String, dynamic>;
   final spots = <Spot>[];
   for (final s in (data['stacks'] as List).cast<int>()) {
     if (s % 1 != 0) continue;
@@ -671,7 +690,9 @@ Future<List<Spot>> loadPushFoldSpots() async {
       hero: 'SB',
       villain: 'BB',
       actions: ['All-in', 'Fold'],
-      strategy: [for (final f in jam) [f, 1 - f]],
+      strategy: [
+        for (final f in jam) [f, 1 - f]
+      ],
       edge: l('sbJamEdge'),
       solved: true,
     ));
@@ -684,7 +705,9 @@ Future<List<Spot>> loadPushFoldSpots() async {
       hero: 'BB',
       villain: 'SB',
       actions: ['Call', 'Fold'],
-      strategy: [for (final f in call) [f, 1 - f]],
+      strategy: [
+        for (final f in call) [f, 1 - f]
+      ],
       edge: l('bbCallEdge'),
       solved: true,
     ));
@@ -777,7 +800,9 @@ List<Spot> pushFold3SpotsFrom(Map<String, dynamic> data) {
         hero: n.hero,
         villain: n.villain,
         actions: [n.action, 'Fold'],
-        strategy: [for (final f in l(n.key)) [f, 1 - f]],
+        strategy: [
+          for (final f in l(n.key)) [f, 1 - f]
+        ],
         edge: l('${n.key}Edge'),
         solved: true,
       ));
@@ -792,8 +817,9 @@ Future<List<Spot>> loadPushFold3Spots() async => pushFold3SpotsFrom(
 
 /// Equity of each hand class vs one random hand (0..1), from the solver run.
 Future<List<double>> loadVsRandom() async {
-  final data = jsonDecode(await rootBundle.loadString('assets/data/pushfold.json'))
-      as Map<String, dynamic>;
+  final data =
+      jsonDecode(await rootBundle.loadString('assets/data/pushfold.json'))
+          as Map<String, dynamic>;
   return [for (final v in data['vsRandom'] as List) (v as num).toDouble()];
 }
 
@@ -831,7 +857,9 @@ List<Spot> rejamSpotsFrom(Map<String, dynamic> data) {
         hero: 'BB',
         villain: p,
         actions: ['All-in', 'Fold'],
-        strategy: [for (final f in l('bbJam')) [f, 1 - f]],
+        strategy: [
+          for (final f in l('bbJam')) [f, 1 - f]
+        ],
         edge: l('bbJamEdge'),
         solved: true,
         exploitabilityBb: (d['exploitabilityBb'] as num).toDouble(),
@@ -846,7 +874,9 @@ List<Spot> rejamSpotsFrom(Map<String, dynamic> data) {
         hero: p,
         villain: 'BB',
         actions: ['Call', 'Fold'],
-        strategy: [for (final f in l('openCall')) [f, 1 - f]],
+        strategy: [
+          for (final f in l('openCall')) [f, 1 - f]
+        ],
         edge: l('openCallEdge'),
         solved: true,
         reach: rfiReach(p),
@@ -860,6 +890,53 @@ List<Spot> rejamSpotsFrom(Map<String, dynamic> data) {
 Future<List<Spot>> loadRejamSpots() async => rejamSpotsFrom(
     jsonDecode(await rootBundle.loadString('assets/data/rejam.json'))
         as Map<String, dynamic>);
+
+/// Solved 100bb preflop spots (facing limpers, facing a 3-bet), computed by
+/// tool/solve_all.sh and published as an open dataset (CC BY 4.0, see
+/// data/solved/README.md).
+const solvedPreflopAsset = 'data/solved/preflop.json';
+
+/// [cash] with every spot that has a passing entry in a decoded
+/// data/solved/preflop.json replaced by its solved version (same id, group,
+/// title and actions; position in the list unchanged).
+List<Spot> applySolvedSpots(List<Spot> cash, Map<String, dynamic> data) {
+  final solved = data['spots'] as Map<String, dynamic>;
+  return [for (final s in cash) _solved(s, solved[s.id]) ?? s];
+}
+
+Spot? _solved(Spot base, Object? raw) {
+  if (raw is! Map<String, dynamic> || raw['passed'] != true) return null;
+  final actions = (raw['actions'] as List).cast<String>();
+  if (actions.join('|') != base.actions.join('|')) return null;
+  List<double> nums(List l) =>
+      [for (final v in l) (v as num?)?.toDouble() ?? 0];
+  final reach = raw['reach'] as List?;
+  return Spot(
+    id: base.id,
+    format: base.format,
+    group: base.group,
+    title: base.title,
+    situation: base.situation.replaceAll(' (Approximate chart.)', ''),
+    hero: base.hero,
+    villain: base.villain,
+    otherVillains: base.otherVillains,
+    actions: base.actions,
+    strategy: [for (final row in raw['strategy'] as List) nums(row as List)],
+    solved: true,
+    reach: reach == null ? base.reach : nums(reach),
+    exploitabilityBb: (raw['exploitabilityBb'] as num).toDouble(),
+    modelNote: raw['note'] as String?,
+  );
+}
+
+Future<Map<String, dynamic>?> loadSolvedPreflop() async {
+  try {
+    return jsonDecode(await rootBundle.loadString(solvedPreflopAsset))
+        as Map<String, dynamic>;
+  } catch (_) {
+    return null;
+  }
+}
 
 class SpotLibrary {
   final List<Spot> cash;
@@ -881,10 +958,14 @@ class SpotLibrary {
   List<Spot> get all => [...cash, ...pushFold, ...pushFold3, ...rejam];
   Spot byId(String id) => all.firstWhere((s) => s.id == id);
 
-  static Future<SpotLibrary> load() async => SpotLibrary(
-      buildCashSpots(),
-      await loadPushFoldSpots(),
-      await loadVsRandom(),
-      await loadPushFold3Spots(),
-      await loadRejamSpots());
+  static Future<SpotLibrary> load() async {
+    final solved = await loadSolvedPreflop();
+    final cash = buildCashSpots();
+    return SpotLibrary(
+        solved == null ? cash : applySolvedSpots(cash, solved),
+        await loadPushFoldSpots(),
+        await loadVsRandom(),
+        await loadPushFold3Spots(),
+        await loadRejamSpots());
+  }
 }
