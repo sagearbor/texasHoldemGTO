@@ -400,6 +400,8 @@ void main() {
 
       await tester.scrollUntilVisible(find.text('About & privacy'), 100,
           scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('About & privacy'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('About & privacy'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Settings'));

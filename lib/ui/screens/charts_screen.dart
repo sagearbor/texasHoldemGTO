@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../gto/coach.dart';
 import '../../gto/spots.dart';
+import '../../trainer/mistakes.dart';
+import '../../trainer/trainer_model.dart';
 import '../widgets/range_grid.dart';
 import 'help_screen.dart';
 import 'review_sheet.dart';
@@ -10,7 +12,19 @@ import 'river_screen.dart';
 class ChartsScreen extends StatefulWidget {
   final SpotLibrary library;
   final void Function(String spotId) onDrill;
-  const ChartsScreen({super.key, required this.library, required this.onDrill});
+
+  /// Trainer history for the "My mistakes" view; without it only the
+  /// strategy chart is shown.
+  final TrainerModel? model;
+
+  /// "Drill my weak hands": drill [spotId], biased to [targets].
+  final void Function(String spotId, List<(String, int)> targets)? onDrillWeak;
+  const ChartsScreen(
+      {super.key,
+      required this.library,
+      required this.onDrill,
+      this.model,
+      this.onDrillWeak});
 
   @override
   State<ChartsScreen> createState() => _ChartsScreenState();
@@ -25,6 +39,12 @@ class _ChartsScreenState extends State<ChartsScreen> {
   /// Push/fold players: 2 = heads-up, 3 = BTN/SB/BB (if data is loaded).
   int players = 2;
   String node3 = pushFold3Nodes.first.key;
+
+  /// "My mistakes" heatmap instead of the strategy chart.
+  bool mistakes = false;
+
+  /// Mistakes aggregated over every spot in the shown spot's group.
+  bool wholeGroup = false;
 
   bool get has3 => widget.library.pushFold3.isNotEmpty;
   bool get threeHanded => players == 3 && has3;
@@ -144,48 +164,73 @@ class _ChartsScreenState extends State<ChartsScreen> {
                   Text(s.title, style: t.titleMedium),
                   Text(s.situation, style: t.bodySmall),
                   const SizedBox(height: 10),
-                  RangeGrid(
-                    spot: s,
-                    onTap: (h) => showCoachSheet(context, s, h,
-                        onDrill: () => widget.onDrill(s.id)),
-                  ),
-                  const SizedBox(height: 8),
-                  if (s.reach != null) ...[
-                    // Three long action labels: legend gets the full width.
-                    ActionLegend(spot: s),
-                    const SizedBox(height: 4),
-                    Text('Continues ${pct(s.continueShare)} of opens',
-                        style: t.labelLarge),
-                  ] else
-                    Row(children: [
-                      Expanded(child: ActionLegend(spot: s)),
-                      Text('Plays ${pct(s.playPercent)}', style: t.labelLarge),
-                    ]),
-                  const SizedBox(height: 6),
-                  Text(
-                    switch (s.format) {
-                      SpotFormat.cash100 => s.reach != null
-                          ? 'Hand-authored approximation. Faded hands are not '
-                              'in the opening range. Tap any hand for coaching.'
-                          : 'Approximate GTO baseline. Tap any hand for coaching.',
-                      SpotFormat.pushFold =>
-                        'Nash equilibrium, solved by Felt Notes (Monte Carlo equities, exact card removal).',
-                      SpotFormat.pushFold3 =>
-                        '3-handed equilibrium (BTN/SB/BB, no ante), solved by Felt Notes '
-                            '(Monte Carlo 2- and 3-way equities, exact card removal).',
-                    },
-                    style: t.bodySmall?.copyWith(fontStyle: FontStyle.italic),
-                  ),
+                  if (widget.model != null) ...[
+                    SegmentedButton<bool>(
+                      key: const Key('chart-mistakes-toggle'),
+                      segments: const [
+                        ButtonSegment(value: false, label: Text('Chart')),
+                        ButtonSegment(value: true, label: Text('My mistakes')),
+                      ],
+                      selected: {mistakes},
+                      onSelectionChanged: (v) =>
+                          setState(() => mistakes = v.first),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (mistakes && widget.model != null)
+                    _MistakesView(
+                      model: widget.model!,
+                      spot: s,
+                      wholeGroup: wholeGroup,
+                      onScope: (v) => setState(() => wholeGroup = v),
+                      onDrill: () => widget.onDrill(s.id),
+                      onDrillWeak: widget.onDrillWeak,
+                    )
+                  else ...[
+                    RangeGrid(
+                      spot: s,
+                      onTap: (h) => showCoachSheet(context, s, h,
+                          onDrill: () => widget.onDrill(s.id)),
+                    ),
+                    const SizedBox(height: 8),
+                    if (s.reach != null) ...[
+                      // Three long action labels: legend gets the full width.
+                      ActionLegend(spot: s),
+                      const SizedBox(height: 4),
+                      Text('Continues ${pct(s.continueShare)} of opens',
+                          style: t.labelLarge),
+                    ] else
+                      Row(children: [
+                        Expanded(child: ActionLegend(spot: s)),
+                        Text('Plays ${pct(s.playPercent)}', style: t.labelLarge),
+                      ]),
+                    const SizedBox(height: 6),
+                    Text(
+                      switch (s.format) {
+                        SpotFormat.cash100 => s.reach != null
+                            ? 'Hand-authored approximation. Faded hands are not '
+                                'in the opening range. Tap any hand for coaching.'
+                            : 'Approximate GTO baseline. Tap any hand for coaching.',
+                        SpotFormat.pushFold =>
+                          'Nash equilibrium, solved by Felt Notes (Monte Carlo equities, exact card removal).',
+                        SpotFormat.pushFold3 =>
+                          '3-handed equilibrium (BTN/SB/BB, no ante), solved by Felt Notes '
+                              '(Monte Carlo 2- and 3-way equities, exact card removal).',
+                      },
+                      style: t.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
           const SizedBox(height: 12),
-          FilledButton.tonalIcon(
-            onPressed: () => widget.onDrill(s.id),
-            icon: const Icon(Icons.fitness_center),
-            label: Text('Drill ${s.title}'),
-          ),
+          if (!mistakes || widget.model == null)
+            FilledButton.tonalIcon(
+              onPressed: () => widget.onDrill(s.id),
+              icon: const Icon(Icons.fitness_center),
+              label: Text('Drill ${s.title}'),
+            ),
           const SizedBox(height: 12),
           Card(
             child: ListTile(
@@ -199,6 +244,95 @@ class _ChartsScreenState extends State<ChartsScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// "My mistakes": the 13x13 grid coloured by your recency-weighted accuracy
+/// in this spot (or its whole group), plus "Drill my weak hands".
+class _MistakesView extends StatelessWidget {
+  final TrainerModel model;
+  final Spot spot;
+  final bool wholeGroup;
+  final ValueChanged<bool> onScope;
+  final VoidCallback onDrill;
+  final void Function(String spotId, List<(String, int)> targets)? onDrillWeak;
+  const _MistakesView(
+      {required this.model,
+      required this.spot,
+      required this.wholeGroup,
+      required this.onScope,
+      required this.onDrill,
+      required this.onDrillWeak});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return ListenableBuilder(
+      listenable: model,
+      builder: (context, _) {
+        final ids = wholeGroup
+            ? {
+                for (final x in model.library.all)
+                  if (x.group == spot.group) x.id
+              }
+            : {spot.id};
+        final now = model.now.millisecondsSinceEpoch;
+        final scores = cellScores(model.history, ids, now);
+        final weak = weakTargets(model.history, ids, now);
+        final tries = scores.values.fold<int>(0, (a, b) => a + b.attempts);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Wrap(spacing: 6, runSpacing: 6, children: [
+              ChoiceChip(
+                visualDensity: VisualDensity.compact,
+                showCheckmark: false,
+                label: const Text('This spot'),
+                selected: !wholeGroup,
+                onSelected: (_) => onScope(false),
+              ),
+              ChoiceChip(
+                key: const Key('mistakes-group'),
+                visualDensity: VisualDensity.compact,
+                showCheckmark: false,
+                label: Text('All of ${spot.group}',
+                    overflow: TextOverflow.ellipsis),
+                selected: wholeGroup,
+                onSelected: (_) => onScope(true),
+              ),
+            ]),
+            const SizedBox(height: 10),
+            MistakeGrid(
+              scores: scores,
+              onTap: (h) => showCoachSheet(context, spot, h, onDrill: onDrill),
+            ),
+            const SizedBox(height: 8),
+            const MistakeLegend(),
+            const SizedBox(height: 6),
+            Text(
+              tries == 0
+                  ? 'No drills here yet. Play this spot in the trainer and your '
+                      'mistakes show up on the grid.'
+                  : '$tries ${tries == 1 ? 'answer' : 'answers'}. Recent answers '
+                      'count most: one from ${mistakeHalfLife.inDays} days ago '
+                      'counts half. Tap a hand for coaching.',
+              style: t.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+            ),
+            const SizedBox(height: 10),
+            FilledButton.tonalIcon(
+              key: const Key('drill-weak-hands'),
+              onPressed: weak.isEmpty || onDrillWeak == null
+                  ? null
+                  : () => onDrillWeak!(spot.id, weak),
+              icon: const Icon(Icons.healing),
+              label: Text(weak.isEmpty
+                  ? 'No weak hands yet'
+                  : 'Drill my weak hands (${weak.length})'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../gto/coach.dart';
 import '../../gto/hand_class.dart';
 import '../../gto/spots.dart';
+import '../../trainer/mistakes.dart';
 import '../chart_prefs.dart';
 import '../theme.dart';
 
@@ -252,6 +253,128 @@ class HeatGrid extends StatelessWidget {
       textColor: (h) => value(h) == null
           ? Theme.of(context).colorScheme.onSurfaceVariant
           : Colors.white,
+    );
+  }
+}
+
+/// Mistake-heatmap colour for a recency-weighted accuracy (0..1). The
+/// colour-blind version runs vermillion -> blue and relies on
+/// [MistakeBand] patterns for the rest.
+Color mistakeColor(double accuracy, {bool colorBlind = false}) => colorBlind
+    ? Color.lerp(cbAggressive, cbCall, accuracy.clamp(0, 1))!
+    : HeatGrid.heat(accuracy.clamp(0, 1));
+
+/// Pattern drawn over a mistake cell in colour-blind mode: stripes = leak,
+/// dots = shaky, plain = solid (the same marks as the action charts).
+ActionKind mistakePattern(MistakeBand b) => switch (b) {
+      MistakeBand.leak => ActionKind.aggressive,
+      MistakeBand.shaky => ActionKind.call,
+      MistakeBand.solid => ActionKind.fold,
+    };
+
+const mistakeBandLabels = {
+  MistakeBand.leak: 'Leak',
+  MistakeBand.shaky: 'Shaky',
+  MistakeBand.solid: 'Solid',
+};
+
+/// One mistake-heatmap swatch / cell fill.
+class MistakeCell extends StatelessWidget {
+  final double accuracy;
+  final bool patterned;
+  const MistakeCell(
+      {super.key, required this.accuracy, required this.patterned});
+
+  @override
+  Widget build(BuildContext context) {
+    final box =
+        ColoredBox(color: mistakeColor(accuracy, colorBlind: patterned));
+    final kind = mistakePattern(mistakeBand(accuracy));
+    if (!patterned || kind == ActionKind.fold) return box;
+    return CustomPaint(
+        foregroundPainter: ActionPatternPainter(kind), child: box);
+  }
+}
+
+/// 13x13 "My mistakes" heatmap: each cell coloured by your recency-weighted
+/// accuracy on that hand; hands you never answered stay neutral.
+class MistakeGrid extends StatelessWidget {
+  final Map<int, CellScore> scores;
+  final ValueChanged<HandClass>? onTap;
+
+  /// Forces pattern mode on or off; null follows [ChartPrefs.colorBlind].
+  final bool? patterns;
+  const MistakeGrid(
+      {super.key, required this.scores, this.onTap, this.patterns});
+
+  /// Screen-reader label, e.g. "AKs: 62% right over 5 tries, leak".
+  static String semanticsFor(HandClass h, CellScore? s) {
+    if (s == null) return '${h.name}: not drilled yet';
+    final band = mistakeBandLabels[mistakeBand(s.accuracy)]!.toLowerCase();
+    return '${h.name}: ${pct(s.accuracy)} right over ${s.attempts} '
+        '${s.attempts == 1 ? 'try' : 'tries'}, $band';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return _ChartMode(
+      forced: patterns,
+      builder: (context, cb) => _Grid(
+        onTap: onTap,
+        semantics: (h) => semanticsFor(h, scores[h.index]),
+        cell: (h) {
+          final s = scores[h.index];
+          if (s == null) return ColoredBox(color: cs.surfaceContainerHighest);
+          return MistakeCell(accuracy: s.accuracy, patterned: cb);
+        },
+        textColor: (h) =>
+            scores[h.index] == null ? cs.onSurfaceVariant : Colors.white,
+      ),
+    );
+  }
+}
+
+/// Key for [MistakeGrid]: leak / shaky / solid / not drilled.
+class MistakeLegend extends StatelessWidget {
+  /// Forces pattern mode on or off; null follows [ChartPrefs.colorBlind].
+  final bool? patterns;
+  const MistakeLegend({super.key, this.patterns});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    Widget item(Widget swatch, String text, bool cb) =>
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(
+              width: cb ? 16 : 12,
+              height: cb ? 16 : 12,
+              child: ClipRRect(
+                  borderRadius: BorderRadius.circular(3), child: swatch)),
+          const SizedBox(width: 5),
+          Text(text, style: t.bodySmall),
+        ]);
+    return _ChartMode(
+      forced: patterns,
+      builder: (context, cb) => Wrap(spacing: 14, runSpacing: 6, children: [
+        for (final (band, acc, range) in const [
+          (MistakeBand.leak, 0.2, '<50%'),
+          (MistakeBand.shaky, 0.65, '50–79%'),
+          (MistakeBand.solid, 0.95, '80%+'),
+        ])
+          item(
+              MistakeCell(accuracy: acc, patterned: cb),
+              cb
+                  ? '${mistakeBandLabels[band]} $range (${switch (band) {
+                      MistakeBand.leak => 'stripes',
+                      MistakeBand.shaky => 'dots',
+                      MistakeBand.solid => 'plain',
+                    }})'
+                  : '${mistakeBandLabels[band]} $range',
+              cb),
+        item(ColoredBox(color: cs.surfaceContainerHighest), 'Not drilled', cb),
+      ]),
     );
   }
 }

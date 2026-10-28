@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app_data.dart';
 import '../../gto/coach.dart';
 import '../../gto/hand_class.dart';
 import '../../trainer/trainer_model.dart';
@@ -7,6 +8,7 @@ import '../widgets/range_grid.dart';
 import 'daily_screen.dart';
 import '../widgets/share_card.dart';
 import 'help_screen.dart';
+import 'progress_screen.dart';
 import 'review_sheet.dart';
 
 class StatsScreen extends StatelessWidget {
@@ -23,9 +25,10 @@ class StatsScreen extends StatelessWidget {
         final h = model.history;
         if (h.isEmpty) {
           return Scaffold(
-            appBar: AppBar(
-                title: const Text('My stats'),
-                actions: const [HelpButton(HelpTopic.stats)]),
+            appBar: AppBar(title: const Text('My stats'), actions: [
+              _ProgressButton(model: model),
+              const HelpButton(HelpTopic.stats),
+            ]),
             body: const Center(
               child: Padding(
                 padding: EdgeInsets.all(32),
@@ -50,6 +53,7 @@ class StatsScreen extends StatelessWidget {
 
         return Scaffold(
           appBar: AppBar(title: const Text('My stats'), actions: [
+            _ProgressButton(model: model),
             const HelpButton(HelpTopic.stats),
             Builder(
               builder: (bc) => IconButton(
@@ -101,6 +105,16 @@ class StatsScreen extends StatelessWidget {
                 _Tile('Leak cards', '${model.deck.cards.length}'),
                 _Tile('Mastered', '${model.deck.cards.values.where((c) => c.box >= srMaxBox).length}'),
               ]),
+              Card(
+                child: ListTile(
+                  key: const Key('stats-progress'),
+                  leading: const Icon(Icons.show_chart),
+                  title: const Text('GTO score over time'),
+                  subtitle: const Text('Accuracy per week or day, and per game night'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => openProgress(context, model),
+                ),
+              ),
               const SizedBox(height: 8),
               DailyCalendar(daily: model.daily),
               const SizedBox(height: 16),
@@ -222,4 +236,23 @@ class _Tile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Opens the "GTO score over time" chart.
+void openProgress(BuildContext context, TrainerModel model) {
+  final home = AppScope.maybeOf(context)?.home;
+  Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ProgressScreen(trainer: model, home: home)));
+}
+
+class _ProgressButton extends StatelessWidget {
+  final TrainerModel model;
+  const _ProgressButton({required this.model});
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        tooltip: 'GTO score over time',
+        icon: const Icon(Icons.show_chart),
+        onPressed: () => openProgress(context, model),
+      );
 }

@@ -120,7 +120,14 @@ class _ShellState extends State<Shell> {
     final m = widget.model;
     final pages = [
       TrainScreen(model: m),
-      ChartsScreen(library: m.library, onDrill: _drill),
+      ChartsScreen(
+          library: m.library,
+          onDrill: _drill,
+          model: m,
+          onDrillWeak: (spotId, targets) {
+            m.drillWeakHands(spotId, targets);
+            setState(() => tab = 0);
+          }),
       EquityScreen(library: m.library),
       StatsScreen(model: m, onDrill: _drill),
       HomeGameScreen(model: widget.home, trainer: m),
