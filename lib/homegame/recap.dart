@@ -414,8 +414,9 @@ List<HomeSession> _nights(List<HomeSession> sessions) =>
       ..sort((a, b) => a.started.compareTo(b.started));
 
 /// Everyone who sat with you (current seats, the night's bench, plus anyone
-/// who dealt a logged hand, so people who left mid-game still count). You are identified by
-/// your seat in each night, not by name, and never appear in the list.
+/// who dealt a logged hand, so people who left mid-game still count). You
+/// are identified by your seat in each night, not by name, and never
+/// appear in the list.
 CrewStats crewStats(List<HomeSession> sessions) {
   final nights = _nights(sessions);
   final attended = <String, List<int>>{}; // key -> night indexes

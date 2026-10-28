@@ -346,6 +346,14 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Fold'));
       await tester.pump();
+      expect(m.active!.pendingAction, PreAction.fold);
+      await tester.scrollUntilVisible(find.text('Next hand'), -200, scrollable: list);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next hand'));
+      await tester.pump();
+      expect(m.active!.hands.last.assumed, isFalse);
+      await tester.scrollUntilVisible(find.text('Hand #100 a story? (optional)'), 200,
+          scrollable: list);
       expect(find.text('Hand #100 a story? (optional)'), findsOneWidget);
       expect(find.text('Badge unlocked: Century'), findsOneWidget);
       await tester.ensureVisible(find.text('Cooler'));

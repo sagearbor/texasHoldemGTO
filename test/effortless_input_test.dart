@@ -3,6 +3,10 @@ import 'dart:convert';
 import 'package:felt_notes/gto/spots.dart';
 import 'package:felt_notes/homegame/home_game.dart';
 import 'package:felt_notes/poker/cards.dart';
+import 'package:felt_notes/ui/screens/home_game_screen.dart';
+import 'package:felt_notes/ui/theme.dart';
+import 'package:felt_notes/ui/widgets/action_pad.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -288,6 +292,81 @@ void main() {
       m.dealerTap(seat(m, 'Cat'));
       expect(m.active!.learning, isFalse);
       expect(m.active!.players, ['Bob', 'Me', 'Cat']);
+    });
+  });
+
+  group('logger UI', () {
+    Future<void> pump(WidgetTester tester, HomeGameModel m) async {
+      tester.view.physicalSize = const Size(360 * 3, 720 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(theme: Felt.dark(), home: HomeGameScreen(model: m)));
+      await tester.pump();
+    }
+
+    testWidgets('pad: tap = call, swipe up = raise, down = undo, sideways = next', (tester) async {
+      final m = (await tester.runAsync(() => fresh(players: ['Me', 'Ann', 'Bob'])))!;
+      await pump(tester, m);
+      final pad = find.byType(ActionPad);
+      expect(find.text('FOLD'), findsOneWidget); // the default
+      await tester.tap(pad);
+      await tester.pump();
+      expect(m.active!.pendingAction, PreAction.call);
+      await tester.drag(pad, const Offset(0, -80));
+      await tester.pump();
+      expect(m.active!.pendingAction, PreAction.raise);
+      expect(find.text('RAISE'), findsOneWidget);
+      await tester.drag(pad, const Offset(0, 80));
+      await tester.pump();
+      expect(m.active!.pendingAction, isNull);
+      await tester.drag(pad, const Offset(0, -80));
+      await tester.drag(pad, const Offset(-120, 0)); // next hand
+      await tester.pump();
+      expect(m.active!.hands.single.action, PreAction.raise);
+      expect(m.active!.pendingAction, isNull);
+      await tester.drag(pad, const Offset(120, 0)); // nothing tapped
+      await tester.pump();
+      expect(m.active!.hands.last.assumed, isTrue);
+      await tester.scrollUntilVisible(find.text('Fold (auto)'), 200,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Fold (auto)'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('organizer taps each dealer, then gets Next hand', (tester) async {
+      final m = (await tester.runAsync(
+          () => fresh(players: ['Me', 'Ann', 'Bob'], learn: true, button: -1)))!;
+      await pump(tester, m);
+      expect(find.text('Who deals the first hand?'), findsOneWidget);
+      expect(find.text('Next hand'), findsNothing);
+      await tester.tap(find.text('Bob'));
+      await tester.pump();
+      expect(find.text('Who is dealing now?'), findsOneWidget);
+      await tester.tap(find.text('Me (you)'));
+      await tester.pump();
+      await tester.tap(find.text('Ann'));
+      await tester.pump();
+      expect(m.active!.players, ['Bob', 'Me', 'Ann']);
+      expect(find.text('Next hand'), findsOneWidget);
+      await tester.tap(find.text('Next hand'));
+      await tester.pump();
+      expect(m.active!.hands.length, 3);
+      expect(m.active!.players[m.active!.buttonSeat], 'Bob');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('setup learns seats by default', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final m = HomeGameModel(lib);
+      await pump(tester, m);
+      expect(find.text("Who's playing (any order)"), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Start'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.text('Start'));
+      await tester.pump();
+      expect(m.active!.learning, isTrue);
+      expect(m.active!.handInProgress, isFalse);
+      expect(tester.takeException(), isNull);
     });
   });
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../camera/snap_cards_screen.dart';
 import '../../gto/coach.dart';
@@ -6,6 +7,7 @@ import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
 import '../../trainer/trainer_model.dart';
 import '../theme.dart';
+import '../widgets/action_pad.dart';
 import '../widgets/badges.dart';
 import '../widgets/button_draw_dialog.dart';
 import '../widgets/my_result_dialog.dart';
@@ -100,19 +102,28 @@ class _SetupState extends State<_Setup> {
   final names =
       TextEditingController(text: 'Me, Alex, Sam, Jordan, Casey, Riley');
   int hero = 0;
-  int button = 0;
 
-  List<String> get players => [
-        for (final n in names.text.split(','))
-          if (n.trim().isNotEmpty) n.trim()
-      ];
+  /// First dealer; -1 = not known yet (tapped in the game when learning).
+  int button = -1;
+
+  /// Seat order from the first-orbit dealer taps instead of typed order.
+  bool learn = true;
+
+  /// Typed names, blanks and repeats dropped (seats are matched by name).
+  List<String> get players {
+    final seen = <String>{};
+    return [
+      for (final n in names.text.split(','))
+        if (n.trim().isNotEmpty && seen.add(n.trim().toLowerCase())) n.trim()
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final p = players;
     if (hero >= p.length) hero = 0;
-    if (button >= p.length) button = 0;
+    if (button >= p.length || (!learn && button < 0)) button = learn ? -1 : 0;
     final past = widget.model.sessions.reversed.toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
@@ -120,19 +131,29 @@ class _SetupState extends State<_Setup> {
         Text('Start a game night', style: t.headlineSmall),
         const SizedBox(height: 4),
         Text(
-            'Everything stays on this phone. Each hand you log your two cards '
-            '(and, if you like, what you did before the flop). Seats are fixed, so '
-            'Felt Notes works out your position as the button moves.',
+            'Everything stays on this phone. Do nothing on hands you fold: '
+            'tap the big pad only when you call or raise. The organizer taps '
+            'Next hand once per hand and Felt Notes moves the button.',
             style: t.bodyMedium),
         const SizedBox(height: 16),
         TextField(
           controller: names,
-          decoration: const InputDecoration(
-            labelText: 'Players in seat order, clockwise',
+          decoration: InputDecoration(
+            labelText: learn
+                ? "Who's playing (any order)"
+                : 'Players in seat order, clockwise',
             helperText: 'Comma separated, 2–10 players',
-            border: OutlineInputBorder(),
+            border: const OutlineInputBorder(),
           ),
           onChanged: (_) => setState(() {}),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: learn,
+          onChanged: (v) => setState(() => learn = v),
+          title: const Text('Learn the seats from the deal'),
+          subtitle: const Text(
+              'First orbit: tap whoever is dealing. That order becomes the seating.'),
         ),
         const SizedBox(height: 16),
         Text('Which seat is you?', style: t.labelLarge),
@@ -144,7 +165,10 @@ class _SetupState extends State<_Setup> {
                 onSelected: (_) => setState(() => hero = i)),
         ]),
         const SizedBox(height: 12),
-        Text('Who has the dealer button for the first hand?',
+        Text(
+            learn
+                ? 'Who deals first? (optional: or tap them once the game starts)'
+                : 'Who has the dealer button for the first hand?',
             style: t.labelLarge),
         Wrap(spacing: 6, children: [
           for (var i = 0; i < p.length; i++)
@@ -157,7 +181,8 @@ class _SetupState extends State<_Setup> {
                     : null,
                 label: Text(p[i]),
                 selected: button == i,
-                onSelected: (_) => setState(() => button = i)),
+                onSelected: (on) =>
+                    setState(() => button = on || !learn ? i : -1)),
         ]),
         Align(
           alignment: Alignment.centerLeft,
@@ -181,6 +206,7 @@ class _SetupState extends State<_Setup> {
                     players: p,
                     heroSeat: hero,
                     buttonSeat: button,
+                    learnSeats: learn,
                   ),
           icon: const Icon(Icons.play_arrow),
           label: const Text('Start'),
@@ -257,18 +283,17 @@ class _LoggerState extends State<_Logger> {
   Facing facing = Facing.unopened;
 
   bool get hasCards => !cards.contains(null);
+  List<int>? get _cards => hasCards ? cards.cast<int>() : null;
 
-  void _save(PreAction? a, {bool keepCards = true}) {
-    widget.model.logHand(
-      cards: hasCards && keepCards ? cards.cast<int>() : null,
-      action: a,
-      facing: facing,
-    );
-    final last = widget.session.hands.last;
+  /// After a hand boundary: clear the entry, coach a graded miss, badges.
+  void _afterClose(int before) {
+    final s = widget.session;
     setState(() {
       cards = [null, null];
       facing = Facing.unopened;
     });
+    if (s.hands.length <= before) return;
+    final last = s.hands.last;
     // Instant feedback for graded spots.
     if (last.hand != null &&
         last.action != null &&
@@ -291,11 +316,30 @@ class _LoggerState extends State<_Logger> {
     showBadgeSnack(context, widget.model.claimNewBadges());
   }
 
+  /// Organizer: the hand is over, the button moves on.
+  void _nextHand() {
+    final before = widget.session.hands.length;
+    widget.model.nextHand(cards: _cards);
+    _afterClose(before);
+  }
+
+  /// Organizer, first orbit: [seat] is dealing now.
+  void _dealerTap(int seat) {
+    final before = widget.session.hands.length;
+    HapticFeedback.mediumImpact();
+    if (widget.model.dealerTap(seat, cards: _cards)) _afterClose(before);
+  }
+
+  /// Your tap for this hand. The explicit buttons pass what it was facing;
+  /// the gesture pad leaves it unknown.
+  void _tap(PreAction? a, {bool fromButton = false}) =>
+      widget.model.setPending(a, facing: fromButton ? facing : null);
+
   /// "That was hand…": put the cards/action being entered on an earlier
   /// hand picked by its board, instead of the hand being played now.
   Future<void> _attachLate() async {
     final done = await showAttachSheet(context, widget.model,
-        cards: hasCards ? cards.cast<int>() : null, facing: facing);
+        cards: _cards, facing: facing);
     if (!done || !mounted) return;
     setState(() {
       cards = [null, null];
@@ -323,9 +367,10 @@ class _LoggerState extends State<_Logger> {
 
   Future<void> _pickDealer() async {
     final s = widget.session;
-    final seat = await showModalBottomSheet<int>(
+    final pick = await showModalBottomSheet<Object>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (ctx) => SafeArea(
         child: ListView(shrinkWrap: true, children: [
           const Padding(
@@ -341,10 +386,28 @@ class _LoggerState extends State<_Logger> {
                   i == s.heroSeat ? '${s.players[i]} (you)' : s.players[i]),
               onTap: () => Navigator.pop(ctx, i),
             ),
+          if (!s.learning) ...[
+            for (final n in s.bench)
+              ListTile(
+                leading: const Icon(Icons.person_add_alt),
+                title: Text(n),
+                subtitle: const Text('joins: seated where they deal'),
+                onTap: () => Navigator.pop(ctx, n),
+              ),
+            ListTile(
+              leading: const Icon(Icons.add),
+              title: const Text('Someone new'),
+              onTap: () async {
+                final name = await askName(ctx);
+                if (name != null && ctx.mounted) Navigator.pop(ctx, name);
+              },
+            ),
+          ],
         ]),
       ),
     );
-    if (seat != null) widget.model.setDealer(seat);
+    if (pick is int) widget.model.setDealer(pick);
+    if (pick is String) widget.model.dealerArrives(pick);
   }
 
   @override
@@ -354,8 +417,29 @@ class _LoggerState extends State<_Logger> {
     final n = s.hands.length + 1;
     final st = computeStats(s.hands, widget.model.library);
     final b = Theme.of(context).brightness;
+    // The pad sits under the list, never inside it: a scroll must not be
+    // read as a swipe.
+    return Column(children: [
+      Expanded(child: _list(context, s, n, st, t, b)),
+      SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+          child: ActionPad(
+            pending: s.pendingAction,
+            skipped: s.pendingSkip,
+            onAction: _tap,
+            onNext: s.learning ? null : _nextHand,
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _list(BuildContext context, HomeSession s, int n, SessionStats st,
+      TextTheme t, Brightness b) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
       children: [
         Row(children: [
           _Mini('Hands', '${st.logged}'),
@@ -368,10 +452,18 @@ class _LoggerState extends State<_Logger> {
             padding: const EdgeInsets.only(top: 6),
             child: Text(
               'Only ${pct(st.coverage)} of hands have an action, so VPIP/PFR lean '
-              'towards the hands you chose to log. Tap Fold on boring hands (no cards needed).',
+              'towards the hands you chose to log. Just tap Next hand: an untouched '
+              'hand counts as a fold.',
               style: t.bodySmall?.copyWith(color: Felt.mixedText(context)),
             ),
           ),
+        const SizedBox(height: 12),
+        _Organizer(
+          session: s,
+          onNext: _nextHand,
+          onDealer: _dealerTap,
+          onPickDealer: _pickDealer,
+        ),
         const SizedBox(height: 12),
         Card(
           child: Padding(
@@ -390,7 +482,10 @@ class _LoggerState extends State<_Logger> {
                         child: ActionChip(
                           avatar: Icon(Icons.circle,
                               size: 12, color: Felt.accent(context)),
-                          label: Text('Dealer: ${s.players[s.buttonSeat]}',
+                          label: Text(
+                              s.handInProgress
+                                  ? 'Dealer: ${s.players[s.buttonSeat]}'
+                                  : 'Dealer: ?',
                               overflow: TextOverflow.ellipsis),
                           onPressed: _pickDealer,
                         ),
@@ -448,8 +543,9 @@ class _LoggerState extends State<_Logger> {
                   Center(
                     child: Text(
                         hasCards
-                            ? 'Tap to change'
+                            ? 'Tap to change. Saved with the hand at Next hand'
                             : 'Cards are optional: tap to add them',
+                        textAlign: TextAlign.center,
                         style: t.bodySmall),
                   ),
                   const SizedBox(height: 14),
@@ -461,7 +557,13 @@ class _LoggerState extends State<_Logger> {
                           value: Facing.raised, label: Text('Someone raised')),
                     ],
                     selected: {facing},
-                    onSelectionChanged: (v) => setState(() => facing = v.first),
+                    onSelectionChanged: (v) {
+                      setState(() => facing = v.first);
+                      // Re-grade a button tap already made this hand.
+                      if (s.pendingFacing != null) {
+                        widget.model.setPending(s.pendingAction, facing: facing);
+                      }
+                    },
                   ),
                   const SizedBox(height: 10),
                   Row(children: [
@@ -478,8 +580,12 @@ class _LoggerState extends State<_Logger> {
                                     : Colors.white,
                             minimumSize: const Size.fromHeight(50),
                             padding: const EdgeInsets.symmetric(horizontal: 8),
+                            side: s.pendingAction == a
+                                ? BorderSide(
+                                    color: Felt.accent(context), width: 3)
+                                : null,
                           ),
-                          onPressed: () => _save(a),
+                          onPressed: () => _tap(a, fromButton: true),
                           // "Call / limp" wrapped onto two lines at 390 px.
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
@@ -492,24 +598,19 @@ class _LoggerState extends State<_Logger> {
                   const SizedBox(height: 8),
                   Wrap(alignment: WrapAlignment.spaceBetween, children: [
                     TextButton(
-                      onPressed: hasCards ? () => _save(null) : null,
-                      child: const Text('Save cards only'),
+                      onPressed: () => widget.model.setPendingSkip(!s.pendingSkip),
+                      child: Text(s.pendingSkip
+                          ? 'Count it as a fold after all'
+                          : "Didn't see this hand"),
                     ),
-                    TextButton(
-                      onPressed: () => _save(null, keepCards: false),
-                      child: const Text('Skip hand'),
-                    ),
-                  ]),
-                  // Late logging: match an earlier hand by its board.
-                  if (widget.model.handsWithBoards().isNotEmpty)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
+                    // Late logging: match an earlier hand by its board.
+                    if (widget.model.handsWithBoards().isNotEmpty)
+                      TextButton.icon(
                         onPressed: _attachLate,
                         icon: const Icon(Icons.history, size: 18),
                         label: const Text('That was hand…'),
                       ),
-                    ),
+                  ]),
                 ]),
           ),
         ),
@@ -544,19 +645,125 @@ class _LoggerState extends State<_Logger> {
                 child: Text('#${h.number}', style: t.labelMedium),
               ),
               title: Text(h.skipped
-                  ? 'Skipped · ${h.position}'
+                  ? 'Not seen · ${h.position}'
                   : '${h.cards == null ? 'No cards' : prettyCards(h.cards!)}  ·  ${h.position}'),
               subtitle: h.board == null
                   ? null
                   : Text('Board ${boardLabel(h.board!)}'),
-              trailing:
-                  Text(h.action == null ? '' : preActionLabels[h.action]!),
+              trailing: Text(h.action == null
+                  ? ''
+                  : h.assumed
+                      ? 'Fold (auto)'
+                      : preActionLabels[h.action]!),
             ),
         ],
       ],
     );
   }
 }
+
+/// The organizer's hand-boundary control. First orbit: a name button per
+/// unseated player (tap whoever deals; the tap order becomes the seating).
+/// After that: one big Next hand button, the button moves by itself.
+class _Organizer extends StatelessWidget {
+  final HomeSession session;
+  final VoidCallback onNext;
+  final ValueChanged<int> onDealer;
+  final VoidCallback onPickDealer;
+  const _Organizer({
+    required this.session,
+    required this.onNext,
+    required this.onDealer,
+    required this.onPickDealer,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final s = session;
+    final learned = s.learnedSeats;
+    if (learned == null) {
+      final next = s.players[(s.buttonSeat + 1) % s.tableSize];
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(64),
+            textStyle: t.titleLarge,
+          ),
+          onPressed: () {
+            HapticFeedback.mediumImpact();
+            onNext();
+          },
+          icon: const Icon(Icons.skip_next, size: 30),
+          label: const Text('Next hand'),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${s.players[s.buttonSeat]} is dealing · next: $next. '
+          'Organizer taps once per hand; untouched hands count as folds.',
+          style: t.bodySmall,
+          textAlign: TextAlign.center,
+        ),
+      ]);
+    }
+    final first = learned >= 2 ? s.players[0] : null;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(learned == 0 ? 'Who deals the first hand?' : 'Who is dealing now?',
+              style: t.titleMedium),
+          const SizedBox(height: 2),
+          Text(
+            'Organizer: tap each dealer as the deal goes round. The order you '
+            'tap becomes the seating, then the button moves by itself.'
+            '${learned == 0 ? '' : ' Dealing now: ${s.players[s.buttonSeat]}.'}',
+            style: t.bodySmall,
+          ),
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (var i = learned; i < s.tableSize; i++)
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(minimumSize: const Size(96, 52)),
+                onPressed: () => onDealer(i),
+                child: Text(i == s.heroSeat ? '${s.players[i]} (you)' : s.players[i]),
+              ),
+            if (first != null)
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(minimumSize: const Size(96, 52)),
+                onPressed: () => onDealer(0),
+                child: Text('$first again: orbit done'),
+              ),
+          ]),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Asks for one player name; null when cancelled or blank.
+Future<String?> askName(BuildContext context) async {
+  final c = TextEditingController();
+  final name = await showDialog<String>(
+    context: context,
+    builder: (d) => AlertDialog(
+      title: const Text('New player'),
+      content: TextField(
+        controller: c,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Name'),
+        onSubmitted: (v) => Navigator.pop(d, v),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(d, c.text), child: const Text('Add')),
+      ],
+    ),
+  );
+  final n = name?.trim();
+  return n == null || n.isEmpty ? null : n;
+}
+
 
 /// Add or remove players mid-game. You can't remove yourself.
 void showSeatsEditor(BuildContext context, HomeGameModel model) {
@@ -580,7 +787,11 @@ void showSeatsEditor(BuildContext context, HomeGameModel model) {
                   Text('Players & seats (clockwise)',
                       style: Theme.of(ctx).textTheme.titleMedium),
                   const SizedBox(height: 4),
-                  Text('Tap + between two players to seat someone there.',
+                  Text(
+                      s.learning
+                          ? 'Seats are being learned from the deal: '
+                              '${s.learnedSeats} of ${s.tableSize} confirmed.'
+                          : 'Tap + between two players to seat someone there.',
                       style: Theme.of(ctx).textTheme.bodySmall),
                   for (var i = 0; i < s.tableSize; i++) ...[
                     _AddHere(onAdd: (name) => model.addPlayer(name, i)),
@@ -605,6 +816,11 @@ void showSeatsEditor(BuildContext context, HomeGameModel model) {
                     ),
                   ],
                   _AddHere(onAdd: (name) => model.addPlayer(name, s.tableSize)),
+                  if (s.bench.isNotEmpty)
+                    Text(
+                        'Not in the deal: ${s.bench.join(', ')}. They join the '
+                        'rotation when picked as dealer.',
+                        style: Theme.of(ctx).textTheme.bodySmall),
                 ]),
           ),
         );
@@ -626,28 +842,8 @@ class _AddHere extends StatelessWidget {
         icon: const Icon(Icons.add, size: 16),
         label: const Text('Seat someone here'),
         onPressed: () async {
-          final c = TextEditingController();
-          final name = await showDialog<String>(
-            context: context,
-            builder: (d) => AlertDialog(
-              title: const Text('New player'),
-              content: TextField(
-                controller: c,
-                autofocus: true,
-                decoration: const InputDecoration(hintText: 'Name'),
-                onSubmitted: (v) => Navigator.pop(d, v),
-              ),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(d),
-                    child: const Text('Cancel')),
-                FilledButton(
-                    onPressed: () => Navigator.pop(d, c.text),
-                    child: const Text('Add')),
-              ],
-            ),
-          );
-          if (name != null && name.trim().isNotEmpty) onAdd(name.trim());
+          final name = await askName(context);
+          if (name != null) onAdd(name);
         },
       ),
     );
