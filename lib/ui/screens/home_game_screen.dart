@@ -18,6 +18,7 @@ import 'crew_screen.dart';
 import 'dashboard_screen.dart';
 import 'help_screen.dart';
 import 'recap_screen.dart';
+import 'table_night_screen.dart';
 import 'review_sheet.dart';
 
 class HomeGameScreen extends StatelessWidget {
@@ -191,6 +192,15 @@ class _SetupState extends State<_Setup> {
           icon: const Icon(Icons.timer_outlined),
           label: const Text('Blind clock'),
         ),
+        if (tableNightUiEnabled) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const TableNightScreen())),
+            icon: const Icon(Icons.qr_code_2),
+            label: const Text('Table night (beta)'),
+          ),
+        ],
         if (past.isNotEmpty) ...[
           const SizedBox(height: 10),
           OutlinedButton.icon(

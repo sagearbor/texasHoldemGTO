@@ -1,409 +1,310 @@
-# Multi-phone table nights (prototype design)
+# Multi-phone table nights (local-first design)
 
-Status: **prototype on a branch, not in the app.** Nothing here is deployed.
-There is no Firebase project, no Firebase plugin in `pubspec.yaml`, and no
-config file. What exists:
+Status: **built on branch `multiphone-sync`, not deployed.** There is no
+Firebase project. The default build is local-only: it never initialises
+Firebase and works with no network. The cloud path is compiled in but only
+switched on with `--dart-define=FELT_CLOUD=true` (section 7).
+
+This replaces the earlier prototype design (a live shared hand counter in
+Firestore). The owner's venue rules that out: a basement with no cell
+service and flaky wifi.
 
 | Piece | File | State |
 |---|---|---|
-| Data model, hand numbering, late-entry matching, aggregates | `lib/sync/table_sync.dart` | done, unit-tested |
-| In-memory backend that enforces the same rules | `lib/sync/fake_table_sync.dart` | done, used by tests |
-| Firestore implementation | `lib/sync/firestore_table_sync.dart` | documented stub (every method throws; comments give the exact Firestore call) |
-| Security rules | `firestore.rules` | done, 79 tests pass on the local emulator |
+| Event model, join ticket (QR payload), ids | `lib/sync/night_events.dart` | done, tested |
+| Durable local log (the outbox) | `lib/sync/event_log.dart` | done, tested |
+| `TableSync` interface + `LocalTableSync` | `lib/sync/table_sync.dart` | done, tested |
+| Uploader (backoff, idempotent parts), `CloudLogs` interface, fake cloud | `lib/sync/cloud_logs.dart` | done, tested |
+| Merge: hand alignment, default fold, live TV rows, drama lines | `lib/sync/night_merge.dart` | done, heavily tested |
+| Firestore `CloudLogs` | `lib/sync/firestore_cloud_logs.dart` | written; compiles for android/ios/web; not run against a real project (none exists) |
+| Build flag + Firebase options from defines | `lib/sync/cloud_config.dart` | done |
+| QR join screens + stand-in player pad | `lib/ui/screens/table_night_screen.dart` | done; entry "Table night (beta)" on the Home game screen, debug builds or `FELT_TABLE_NIGHT=true` only |
+| Security rules | `firestore.rules`, `firestore.indexes.json` | done, 45 emulator tests pass |
 | Rules tests | `tool/firestore_rules/` (`./run.sh`) | local emulator, project id `demo-feltnotes` |
-| Dart tests | `test/table_sync_test.dart` | 18 tests |
+| Dart tests | `test/night_merge_test.dart` (32), `test/night_sync_test.dart` (16) | green |
 
-## 1. The question
+## 1. The night, as the players see it
 
-> If friends each log their own hands on their own phone, how do the hands
-> line up? People enter during the next deal, so timestamps are not enough,
-> and only one person should record the flop, turn and river.
+1. **Start.** The organizer opens "Table night", types their name and gets a
+   QR. Each player photographs it once (ML Kit reads the QR on the phone;
+   on the web, or without a camera, they paste the code
+   `ABCD2345-WXYZ6789`). If the organizer already has a roster, the player
+   taps "which one are you". That is the only moment phones need to be near
+   each other.
+2. **During the night nobody needs a network.**
+   * The organizer does the dealer bookkeeping for everyone (the
+     effortless-input screens): first-orbit dealer taps give the seat
+     order, rotation is automatic, one tap per "next hand" (timestamped to
+     the ms), add / remove players.
+   * Each player taps **only for hands they play** (call or raise). Every
+     other hand they were at the table for is a fold. Cards are optional
+     and stay on the phone unless that player turns on sharing.
+3. **After.** Each phone uploads its own log whenever it next has a
+   connection: on the wifi if it works, in the car, the next morning. No
+   phone relays anyone else's data. No end-of-night scan (people leave at
+   different times).
+4. **Recap / season.** Any phone fetches all logs of the night and merges
+   them into one night: everyone's VPIP / PFR / style, the Night Recap,
+   season stats, and lines like `Cooler · Joe AA vs John KK · 8:22pm`.
+5. **Live TV.** The TV is the organizer's phone (mirrored). It always shows
+   the organizer's own data (hand count, dealers, its own taps) and adds
+   any player whose upload has arrived. Incomplete is fine and expected.
 
-The answer has four parts:
+## 2. Data on each phone
 
-1. **One shared hand counter, owned by the table.** The host's phone creates
-   a "table night". The table document holds the seat order and the dealer
-   button, and a `currentHand` number. Every phone works out the hand
-   number, the dealer and its own position from that one document. No phone
-   ever numbers hands on its own and nothing is matched by clock.
-2. **An entry is pinned to a hand when you start it, not when you save it.**
-   The moment you tap your first card or action, the form remembers "hand
-   #42, Bob's deal". If you finish typing during the next deal the form
-   says *Saving to hand #42 (Bob dealt). The table is on #43* and files it
-   under #42.
-3. **Late entries pick the hand from a list**: hand number, dealer, and the
-   board if the board caller recorded it. You can type the board cards you
-   remember ("king, seven") and the list narrows to the hands whose board
-   has them ("match by board"). Time is never used to guess.
-4. **One board caller.** Only the board caller (the host by default; the host
-   can hand the job to anyone) may write boards. Everyone else only ever
-   writes their own entries.
+Every phone has a device id (12 characters, made once per install) and, per
+night, an **append-only event log** in `shared_preferences`
+(`EventLog`). Each event is `deviceId_seq` (seq counts from 1 on that
+phone), so ids never collide and re-sending is harmless. The log is the
+source of truth; the cloud copy can always be rebuilt from it.
 
-## 2. Data model (Firestore)
+| Kind | Who | Data | Meaning |
+|---|---|---|---|
+| `join` | any | `name, claim?, offset?` | scanned the QR; `offset` = organizer clock - my clock (ms) |
+| `play` | any | `e, a, f?` | one tap: entry no., call / raise / fold, facing |
+| `cards` | any | `e, c?` | own hole cards for entry `e` |
+| `undo` | any | `e` | withdraw entry `e` |
+| `share` | any | `on` | card sharing on / off |
+| `leave` | any | | gone for the night |
+| `seats` | organizer | `seats: [[pid, name]..]` | clockwise table from the next hand on |
+| `hand` | organizer | `n, d` | hand `n` starts now, dealer pid `d` |
+| `unhand` | organizer | `n` | that "next hand" was a mis-tap |
+| `board` | organizer | `n, c` | 3-5 community cards, if anyone called them |
+| `end` | organizer | | night over |
 
-```
-tables/{code}                      written by the host (members may only do "next hand")
-  hostUid, name, createdAt, closed
-  currentHand: int                 the hand being dealt now; hands below it are over
-  boardCaller: uid
-  delayMin: int                    TV dashboard delay (existing dashboardDelays)
-  rotation: [ {from, seats[], button} ... ]   append-only seat history
-  names: {uid: display name}
+Every event carries the phone's own clock (`ms`). An **entry** groups what a
+player recorded for one hand: cards then a tap within 3 minutes are one
+entry; a second tap within 10 s replaces the first (mis-tap); otherwise a
+tap starts a new entry (`LocalTableSync.tap`).
 
-tables/{code}/players/{uid}        written by that phone only
-  name, sharing: bool (false -> true only), joinedAt
+### The QR (join ticket)
 
-tables/{code}/entries/{uid}_{n}    your public action for hand n (never cards)
-  uid, handNo, action?, facing?, position, hasCards, ts (server time)
+`feltnotes:join?t=<night id>&s=<secret>&n=<organizer>&c=<organizer clock, base36>&r=<pid~name,..>`
 
-tables/{code}/boards/{n}           written by the board caller (or host)
-  handNo, cards[3..5], by, ts
+Under 200 characters with a 10-player roster, so it is a small, easy QR.
+The organizer screen redraws it every second, so `c` is at most a second
+old; the scanning phone stores `c - its clock at the photo` as its offset.
+The typed code (`ABCD2345-WXYZ6789`) has no clock reading; such a phone's
+offset comes from server time later (section 4).
 
-tables/{code}/cards/{uid}_{n}      your hole cards
-  uid, handNo, cards[2], revealed: bool
-```
+## 3. What the organizer UI must call (for `effortless-input`)
 
-Cards are the app's existing ints (`rank * 4 + suit`, `lib/poker/cards.dart`).
-Actions are the existing `PreAction` / `Facing` enums, stored by name.
+The dealer bookkeeping UI is built on another branch. It needs nothing from
+the network; it only calls `TableSync` (`lib/sync/table_sync.dart`), which
+appends to the organizer's local log:
 
-**Join code.** 6 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no
-0/O/1/I, since codes are read out across a table): 32^6, about a billion
-codes. The code is the document id. Anyone signed in can `get` a table by
-its code; nobody can `list` tables, so codes cannot be enumerated. A QR code
-would encode `https://<pages-site>/#/join?c=ABC234` (needs a QR package;
-see decisions).
-
-**Auth.** Firebase anonymous auth: each phone gets a uid with no account,
-email or password. The display name is just a field.
-
-### Hand numbering from the rotation
-
-The host's table document holds an append-only list of seat segments. A
-segment says "from hand `from`, these uids sit clockwise in `seats`, and
-`seats[button]` deals hand `from`". The button moves one seat per hand, so
-for any hand `h`:
-
-```
-seg     = last segment with seg.from <= h
-dealer  = seg.seats[(seg.button + h - seg.from) % seg.seats.length]
-position of uid = positionName(n, (seatOf(uid) - buttonSeat) % n)   // existing function
-```
-
-When someone sits down, leaves or the host corrects the dealer, the host
-appends a new segment starting at the current hand (`TableState.reseat`).
-Old segments are never edited, so hand #12 keeps Bob as its dealer even
-after Bob goes home. If the dealer leaves, the button passes to the next
-seated player clockwise.
-
-**Next hand.** Any seated phone may raise `currentHand` by exactly one. The
-rules only accept `new == old + 1`, so when two phones tap "Next hand" for
-the same deal, the second write is rejected and the app treats that as
-"already advanced" (`advanceHand` returns false). No transaction is needed.
-The host may set any value that is not lower (to fix a missed tap).
-
-### What each phone writes
-
-| Who | Writes |
-|---|---|
-| host | the table document (seats, dealer fixes, board caller, close) |
-| board caller | `boards/{n}`: 3 cards, then overwritten with 4 and 5 |
-| every player | own `players/{uid}`, own `entries/{uid}_{n}`, own `cards/{uid}_{n}` |
-| any member | `currentHand + 1` |
-
-### Voice board entry
-
-The voice feature being built separately only needs to produce
-`(handNo, List<int> cards)` with 3, 4 or 5 cards and call
-`TableSync.recordBoard(code, handNo, cards)`. Calling it again with more
-cards adds the turn and river. The hand number to use is the board
-caller's own `EntryDraft` for the hand (so a river called late still lands
-on the right hand).
-
-## 3. Privacy and give-to-get
-
-Rules (`firestore.rules`, `match /cards/{cardId}`):
-
-* Your cards are always readable by you.
-* Someone else may read your cards only if **all** of:
-  * you marked that hand `revealed`,
-  * the hand is over (`handNo < currentHand`), so nobody sees cards in a hand
-    still being played,
-  * the reader is a member of the table **and is sharing** (`players/{me}.sharing`).
-* `sharing` can be turned on but never off for that night.
-* Once you share, every cards document you write must be `revealed: true`
-  (that is the "give"). A non-sharer may still reveal a single hand (giving
-  without getting).
-* `revealed` can never go back to false, and revealed cards cannot be
-  deleted.
-* Entries (actions) never contain cards; unknown fields are rejected.
-
-Firestore rules are not filters, so a query must prove it only asks for
-allowed documents. The reveal feed is therefore:
-
-```
-cards.where('revealed', '==', true).where('handNo', '<', currentHand)
-```
-
-The emulator tests confirm that this query succeeds for a sharer, and that
-the same query with a bound above `currentHand`, or without
-`revealed == true`, is rejected.
-
-What this does **not** protect against (and cannot, without a referee):
-
-* A player can type fake cards. Give-to-get is enforced on visibility, not on
-  honesty.
-* "Private" means private from other players. Whoever administers the
-  Firebase project can read everything in the console. If that matters, the
-  recommended setting is to keep unrevealed cards on the phone only (see
-  decision 1), so the cloud only ever holds cards people chose to show.
-* Actions are readable by members as soon as they are written (they are
-  public at the table anyway). The rules could delay them until the hand is
-  over, but then the dashboard's single listener would need a moving query
-  bound and would re-read the whole night every hand, which breaks the cost
-  budget. The dashboard delay is applied by the app instead.
-
-## 4. TV dashboard aggregates
-
-`tableAggregates(table, players, entries, now:)` gives per player: entries
-counted, hands with an action, VPIP, PFR and the same style label the app
-already uses (`playStyle`, shared with `SessionStats`). It counts an entry
-only when its hand is over **and** it was written at least `delayMin` minutes
-ago (server timestamp, enforced by the rules), so the TV never shows the hand
-that just finished. It needs only the public entries; no cards.
-
-The dashboard is the host's phone mirrored to the TV (as today), so only that
-one phone listens to `entries`.
-
-## 5. Cost: stays inside the free tier
-
-Firestore free tier (Spark plan, no billing account), **per project per
-day**: 50,000 document reads, 20,000 writes, 20,000 deletes, 1 GiB stored.
-Anonymous auth is free. On Spark there is no card on file, so going over a
-quota cannot cost money: requests fail until the daily reset (midnight
-Pacific) and the app keeps logging locally, as it does today.
-
-Assumptions for one night: 8 players + the dashboard, 4 hours, 30 hands an
-hour = 120 hands, everyone logs every hand (an upper bound; real logging is
-patchier), 70% of hands see a flop.
-
-**Writes**
-
-| What | Count |
-|---|---|
-| Next hand | 120 |
-| Seat changes, dealer fixes, joins, sharing | ~30 |
-| Entries: 8 x 120, +20% edits | ~1,150 |
-| Cards: 8 x 120 (full mode) | 960 |
-| Reveal flips | ~200 |
-| Boards: flop/turn/river on ~85 hands | ~250 |
-| **Total** | **~2,700 (13% of 20,000)** |
-
-**Reads**
-
-| What | Count |
-|---|---|
-| Rules lookups (`get`/`exists` on table and player docs, billed as reads), ~2 per write | ~5,400 |
-| Table listener on 9 devices x ~150 table updates | ~1,350 |
-| Boards: listener only while the late-entry picker is open or on the board caller's phone, last 12 hands | ~1,500 |
-| Dashboard listener on `entries` (1 device) | ~1,150 |
-| Reveal feed: on demand, incremental (`handNo >= lastSeen`), 8 sharers | up to ~7,700 |
-| Reconnects (a listener away more than 30 minutes re-reads its result set) and slack | ~3,000 |
-| **Total** | **~20,000 (40% of 50,000)** |
-
-**Lean mode** (recommended): unrevealed cards never leave the phone, and
-nobody listens to boards except the board caller.
-
-| | Writes | Reads |
+| UI moment | Call | Notes |
 |---|---|---|
-| Full | ~2,700 | ~20,000 |
-| Lean | ~1,800 | ~10,000 |
+| start the night | `LocalTableSync.organize(store, organizerName:, selfPid:, roster:)` | `selfPid` = the organizer's own seat id |
+| show the join QR | `qrTicket().encode()` every second | `OrganizerQrScreen` does this |
+| first orbit done / player added / removed | `setSeats([Seat(pid, name), ...])` clockwise | full list each time; applies from the next `startHand` |
+| "next hand" | `startHand(n, dealerPid)` | the UI owns numbering and rotation (`nextDealer(seats, dealer)` helps). **The call time is the hand boundary**, so call it when the deal starts |
+| undo next hand | `undoHand(n)` | |
+| board called (optional) | `recordBoard(n, cards)` | 3-5 cards; again to add turn / river |
+| night over | `endNight()` | closes the last hand |
+| organizer's own play | `tap(action)` / `setCards(cards)` | the organizer is also a player |
+| TV | `watchMerged()` + `liveRows(merged, nowMs:, delayMs:)` | organizer data always, others as they arrive |
+| recap / stats | `merged().loggedHandsFor(pid)` | plain `LoggedHand`s: every existing stat, recap and badge works unchanged |
+| drama | `dramaLines(merged)` | |
 
-Storage: about 3,000 small documents (a few hundred bytes each) per night,
-roughly 1-2 MB with indexes. Deleting a closed night costs ~3,000 of the
-20,000 daily deletes.
+Rules for pids: any stable string per seat for the night (players without
+the app get one too). Players link to a pid by picking it from the QR's
+roster, by having the same name (case and spacing ignored), or by a manual
+`links` override passed to `mergeNight`. A phone the organizer never seated
+still gets its hands counted (position unknown).
 
-**The real limit is shared, not per night.** The free quota belongs to the
-project, and every friend group using the published app would use the same
-project. At these numbers one project carries about 2 (full) to 5 (lean)
-table nights per day across all users. That is plenty for the owner's own
-games and a few friends' groups; it is not a public multiplayer service.
-Ways to stretch it, cheapest first: lean mode; one project per friend group
-(the owner can create several free projects); and only then a paid plan.
+## 4. Merge: lining up everyone's taps
 
-Listeners per device: **1** (table doc) on every player phone, **+1**
-(entries) on the dashboard phone, **+1** (boards) on the board caller's phone
-or while the picker is open. Everything else is a one-shot read.
+`mergeNight(organizerDeviceId:, logs:)` in `lib/sync/night_merge.dart` is
+pure Dart and is what the TV, the recap and season stats call.
 
-## 6. UX flows
+1. **Union** every copy of every event by `deviceId_seq`. Duplicate
+   uploads, overlapping parts, out-of-order arrival and the phone's own
+   local copy all collapse to one set. Merging twice gives the same night.
+2. **Timeline** from the organizer's log: hand `n` runs from its
+   `startHand` time to the next hand's (the last hand to `end`, or 8
+   minutes). A repeated hand number replaces the earlier tap; `unhand`
+   deletes one. Each hand keeps the seat list in force when it started,
+   so dealer and positions are exact.
+3. **Clock offset per phone:** the QR offset if it has one; otherwise
+   server-time skew (each uploader measures `server time - its clock` once,
+   on a quick round trip, and stores it with its log): `offset = skew(phone)
+   - skew(organizer)`; otherwise zero, with a warning.
+4. **Presence:** a phone is at the table from its `join` to its `leave`
+   (organizer clock). It counts for a hand only if it was present then and
+   the organizer had it seated (or never seated it at all). So late joiners
+   start when the organizer adds them, and early leavers stop at their
+   `leave` even if the organizer forgets to remove them, and vice versa.
+5. **Assignment:** each entry's time (its first event, on the organizer
+   clock) is filed under the hand whose interval holds it. One entry per
+   phone per hand, so when skew pushes two taps into one hand an
+   order-preserving dynamic program picks the assignment with the least
+   total distance (the earlier tap moves back a hand). An entry farther
+   than 2 minutes from every hand that phone sat in is reported as
+   unassigned, never guessed.
+6. **Default fold:** a present phone with no entry for a hand folded
+   (`inferred: true`, so the UI can say "38 hands, 11 tapped"). An entry
+   with cards but no tap is a fold with cards.
 
-### Host: start a table night
+Accuracy in the tests (fabricated nights, hands 1-5 minutes, clocks up to
+±5 minutes off, taps 10-90 % into the hand):
 
-```
-+------------------------------+
-| New game night               |
-|  Name   [ Friday at Sam's  ] |
-|  ( ) Just my phone           |
-|  (o) Table night (phones)    |
-|          [ Start ]           |
-+------------------------------+
-            |
-            v
-+------------------------------+
-| Table night: Friday at Sam's |
-|                              |
-|      Join code  ABC 234      |
-|        [ QR code ]           |
-|                              |
-|  Joined (tap to seat):       |
-|   Host (you)       seat 1    |
-|   Alice            seat 2    |
-|   Bob              seat 3    |
-|   Cy           [ seat ]      |
-|  Dealer for hand 1: [Host v] |
-|  Board caller:      [Host v] |
-|        [ Deal hand 1 ]       |
-+------------------------------+
-```
+* QR-grade offsets (±2 s): **every** player-hand right in 40 random nights.
+* Offsets wrong by up to 15 s (e.g. a typed code and a slow network):
+  at least 98 % right.
+* A tap is only at risk when it is closer to a hand boundary than the
+  offset error, which with the QR is about a second.
 
-### Player: join
+### Drama lines
 
-```
-+------------------------------+
-| Join a table                 |
-|  Code  [ A B C 2 3 4 ]       |
-|  Name  [ Alice        ]      |
-|          [ Join ]            |
-|                              |
-| Waiting for the host to      |
-| seat you...                  |
-+------------------------------+
-```
+From hands where two players who share cards both played:
+`Cooler · Joe AA vs John KK · 8:22pm` (both JJ+ or AK) and, when the board
+was recorded, `Bad beat · John KK vs Joe 85s · 8:22pm` (the preflop
+favourite, at least 65 %, listed first, lost). Without a board the app
+cannot know who won, so no bad beats without one.
 
-### Logging a hand (any phone)
-
-```
-+------------------------------+
-| Hand #42 . Bob deals . you CO|
-|  [A s][K d]   (tap cards)    |
-|  Facing: (o) unopened ( ) raise
-|  [ Fold ] [ Call ] [ Raise ] |
-|                              |
-|  ! Saving to hand #42 (Bob   |
-|    dealt). Table is on #43.  |   <- only once the table moved on
-|        [ Save ]              |
-|  [ Next hand -> #43 ]        |   <- any phone; duplicates ignored
-+------------------------------+
-```
-
-### Late entry: which hand was it?
+## 5. Cloud layout and rules
 
 ```
-+------------------------------+
-| Log an earlier hand          |
-| Board had: [K][7][ ][ ][ ]   |
-|                              |
-|  #40  Alice dealt  Ks 7d 2c 9h|  <- both have K and 7;
-|  #38  Host dealt   Kd 7s Ah  |     matching suits first
-|  ---- all recent hands ----  |
-|  #43  Cy dealt     (no board)|
-|  #42  Bob dealt    Qh Jh 4c  |  logged
-|  #41  Alice dealt  (no flop) |
-+------------------------------+
+nights/{nightId}                     {secret, organizer, createdAt}
+nights/{nightId}/members/{uid}       {name, deviceId, secret, joinedAt}
+nights/{nightId}/logs/{deviceId}_{p} {uid, deviceId, part, count, events[], name, skew?, clientMs, updatedAt}
 ```
 
-### Board caller
+* **Auth:** Firebase anonymous auth (a uid per install, no account).
+* **Night:** created by whichever phone gets online first (it holds the
+  ticket, so it knows the id and secret). Immutable afterwards. A non-member
+  may only learn that a night does not exist yet; nobody lists nights.
+* **Members:** a phone joins by writing its member doc with the secret,
+  which the rules compare to the night's. The device id is fixed per member.
+* **Logs:** one document per phone per 400 events (a whole night is one
+  document per phone). Only the member whose device id it is may write it;
+  `count` must equal the events list and never shrink, so a stale
+  re-upload cannot erase anything. Members read every log; nobody else
+  reads anything.
+* **Cards:** a player who does not share never uploads cards (the cloud
+  copy says only "had cards"). Turning sharing off re-uploads with cards
+  removed. So the rules need no card-level privacy: what is in the cloud is
+  what players chose to show the table.
+* `firestore.indexes.json` exempts `events` from indexing (it is never
+  queried; saves storage).
 
-```
-+------------------------------+
-| Board for hand #42 (Bob)     |
-|  [Qh][Jh][4c][  ][  ]        |
-|  [ mic: "queen jack four" ]  |   <- voice entry, same data
-|  [ Turn ] [ River ]          |
-+------------------------------+
-```
+The rules tests (`tool/firestore_rules/run.sh`, 45 cases) cover: creating
+nights (id / secret format, unknown fields, server time, no overwrite,
+update, delete or list), joining (secret check, own uid only, nonexistent
+night, device-id format, rename allowed, device swap refused, member reads),
+and logs (owner-only, idempotent re-upload, append, never shrink, 400 cap,
+doc id = `deviceId_part`, uid / device spoofing, unknown fields, member-only
+reads).
 
-### Sharing (give-to-get)
+## 6. Cost: inside the Firestore free tier
 
-```
-+------------------------------+
-| Share your cards tonight?    |
-| Others' shown hands are only |
-| visible to people who share  |
-| too. Once on, every hand you |
-| enter is shown after it ends.|
-| You can't turn it off until  |
-| the next night.              |
-|   [ Not now ]  [ Share ]     |
-+------------------------------+
-```
+Spark plan (no billing account, so it can never cost money; past a quota,
+requests fail until midnight Pacific and the phones simply retry later from
+their local logs). Per project per day: **50,000 reads, 20,000 writes,
+20,000 deletes, 1 GiB stored; 10 GiB/month egress.** Anonymous auth: free.
 
-### TV dashboard (host phone mirrored)
+One night: 10 phones (organizer + 9), 4 hours, 120 hands, each player plays
+~30 % of hands. The uploader writes at most once per 2 minutes per phone
+while online, and only when there is something new.
 
-```
-+--------------------------------------+
-| Friday at Sam's    hand 43  (15 min) |
-|  Alice   VPIP 52%  PFR 31%  Maniac   |
-|  Bob     VPIP 33%  PFR 8%   Loose-Pas|
-|  Cy      VPIP 14%  PFR 10%  Rock     |
-|  Host    too early to tell (6 hands) |
-+--------------------------------------+
-```
+| Per night | Basement (upload at home) | Wifi works all night (worst case) |
+|---|---|---|
+| Night + member docs | 11 writes | 11 writes |
+| Log uploads | ~2 per phone = 20 | organizer ~120, players ~36 each = ~445 |
+| Rules lookups (1 billed read per write) | ~30 | ~455 |
+| Skew measurement (1 read per phone) | 10 | 10 |
+| TV listener (1 read per changed log doc, organizer only, when online) | ~10 | ~445 |
+| Recap: every phone fetches the night once (11 docs) | 110 | 110 |
+| **Total** | **~31 writes, ~160 reads** | **~456 writes, ~1,020 reads** |
 
-## 7. Migration from the single-phone model
+Storage: an event is ~45 bytes; a night is ~30-90 KB. 1 GiB holds about
+15,000-30,000 nights.
 
-Nothing existing changes. "Just my phone" stays the default and needs no
-sign-in or network.
+**The owner's group** (one night a week): under 0.1 % of a day's quota.
 
-* A table night is still a local `HomeSession` on each phone, with two new
-  optional fields (`tableCode`, `myUid`). Old saved nights simply lack them.
-* In a table night, `logHand` takes the hand number from `currentHand` (or
-  the entry's draft) instead of `hands.length + 1`, takes dealer and
-  position from the rotation instead of the local `buttonSeat`, writes the
-  local `LoggedHand` as today, and also calls `logEntry` / `saveCards`.
-* `loggedHandFrom(table, uid, n, entry:, cards:)` builds the normal
-  `LoggedHand`, so stats, recap, dealer luck, milestones and the share card
-  keep working unchanged. Hands you skipped still get their dealer.
-* Local first: the Firestore SDK queues writes offline. Because the hand
-  number is fixed when the entry starts, a write sent minutes later still
-  lands on the right hand.
-* Undo becomes "edit or delete my entry for #n" (own docs only); the host's
-  "set dealer" replaces the local dealer picker.
+**The public app.** All users share one project's daily quota. Groups of 8,
+4 nights a month each: nights per day ≈ users / 60. Weekend evenings
+concentrate play, so allow 3× the average on a Saturday.
+
+| Users | Nights / day (Sat peak) | Worst-case reads | Basement-case reads |
+|---|---|---|---|
+| 1,000 | ~50 | ~51,000 (at the limit) | ~8,000 |
+| 3,000 | ~150 | over | ~24,000 |
+| 8,000 | ~400 | over | ~64,000 (over) |
+
+So: free for thousands of users when most nights upload in a few bursts
+(which the basement guarantees), and about 1,000 users if every table has
+wifi all night. Levers, cheapest first: raise the player upload interval
+(2 → 10 minutes cuts worst-case writes ~4×; the TV just updates less
+often); upload only on `leave` / app pause for players; then one project
+per region or a paid plan. Storage needs a retention rule within a year or
+two at those volumes (decision 4).
+
+## 7. The build flag
+
+`lib/sync/cloud_config.dart`:
+
+* Default (`FELT_CLOUD` unset): `openCloud()` returns null. No
+  `Firebase.initializeApp`, no network, no crash; table nights are stored
+  on the phone and merged from local data.
+* `--dart-define=FELT_CLOUD=true --dart-define=FELT_FB_PROJECT=demo-feltnotes
+  --dart-define=FELT_FB_EMULATOR=10.0.2.2:8012`: talks only to a local
+  emulator (a `demo-` project cannot reach a real one).
+* A real project later adds `FELT_FB_API_KEY`, `FELT_FB_APP_ID`,
+  `FELT_FB_SENDER` (public client ids, not secrets, but none are in the
+  repo). No `google-services.json` / `GoogleService-Info.plist` / FlutterFire
+  config is needed: options are passed in code.
+* Firestore offline persistence is **off**: the local log is the outbox,
+  and a queued SDK write would spoil the server-time skew measurement.
+
+Packages added (all build on Flutter 3.22.2 / Dart 3.4.3, AGP 8.11.1,
+Gradle 8.14, minSdk 24, compile/target 36, iOS 15.5; no existing pin
+changed): `qr_flutter 4.1.0`, `google_mlkit_barcode_scanning 0.14.1` (same
+`google_mlkit_commons 0.11.0` as the pinned text recognizer),
+`firebase_core 3.8.1`, `firebase_auth 5.3.3`, `cloud_firestore 5.5.1`.
+Verified: `flutter build apk --debug`, `flutter build appbundle`,
+`flutter build ios --debug --no-codesign`, `flutter build web` (with and
+without `FELT_CLOUD`).
 
 ## 8. Running the tests
 
 ```
-flutter test test/table_sync_test.dart
+flutter test test/night_merge_test.dart test/night_sync_test.dart
 cd tool/firestore_rules && ./run.sh      # local emulator only, demo-feltnotes
 ```
 
-`run.sh` uses `npx firebase-tools@13.35.1` with JDK 17 (the installed
-firebase-tools 15 wants JDK 21), on ports 8012 / 4412 / 4512 so it does not
-clash with another emulator. A `demo-` project id cannot reach any real
-project.
+`run.sh` uses `npx firebase-tools@13.35.1` with JDK 17, on ports 8012 /
+4412 / 4512 so it does not clash with another emulator.
 
-## 9. Decisions for the owner
+Not tested: `FirestoreCloudLogs` itself against the emulator from a device
+(it needs a simulator or phone; the rules it relies on are tested from
+Node with the same paths and fields).
 
-1. **Where unrevealed cards live.** Recommended: on the phone only (lean
-   mode; the cloud only sees cards people choose to show; half the reads).
-   Alternative: in `cards/` readable only by the owner (backs them up, lets a
-   player switch phones mid-night).
-2. **Give-to-get granularity.** Built: one-way per-night "share" switch;
-   from then on, every hand a sharer enters is revealed (earlier hidden hands
-   stay hidden unless the app flips them when sharing starts). Stricter alternative: per hand
-   (see #42 only if you showed #42), which needs one query per hand.
-3. **Who taps "Next hand".** Built: any phone (duplicates ignored).
-   Alternatives: host or board caller only, or advance automatically when
-   the board caller starts the next hand.
-4. **Is it worth adding Firebase at all?** It adds firebase_core /
-   firebase_auth / cloud_firestore (versions known to build here:
-   ^3.8.1 / ^5.3.3 / ^5.5.1), a Firebase project, config files per platform,
-   and a privacy-policy update (anonymous ids and game data leave the
-   phone). The single-phone app keeps working either way.
-5. **One shared project, or one per friend group.** One project carries
-   about 2-5 nights per day for all users combined (section 5).
-6. **App Check.** Recommended before any public release, so nobody can burn
-   the shared quota from a script (free with Play Integrity / DeviceCheck).
-7. **Retention.** Delete a table night after N days (host phone deletes it;
-   ~3,000 deletes), or keep it for a "season" view.
-8. **QR code.** Needs a QR package compatible with Flutter 3.22 and a join
-   link route; the 6-character code alone works without it.
+## 9. Decisions still open for the owner
+
+1. **Create the Firebase project** (Spark plan, no billing account) and
+   pick **which Google account** owns it (personal vs a dedicated
+   Felt Notes account). Nothing has been created.
+2. **Turn it on:** enable Anonymous sign-in, deploy `firestore.rules` and
+   `firestore.indexes.json`, register the Android / iOS / web apps, and
+   decide where the three `FELT_FB_*` values live for release builds.
+3. **App Check** (Play Integrity / DeviceCheck, free) before a public
+   release, so nobody can burn the shared quota from a script.
+4. **Retention:** delete nights after N days, or keep them for season
+   stats (then a cap, e.g. 18 months).
+5. **Privacy policy update:** names, taps and (only when shared) cards
+   leave the phone, under an anonymous id.
+6. **Upload interval vs TV liveliness:** 2 minutes is built; 10 minutes
+   for players stretches the free tier ~4× (section 6).
+7. **Boards:** bad-beat lines need the board. Keep the voice caller /
+   board phone as the source, or accept coolers only.
+8. **Season stats on a new phone:** device ids are per install. Moving to a
+   new phone loses the link to old nights unless we add an optional
+   account later.
+9. **App size:** the release AAB grew from 43.6 MB (main, 0.2.1+7) to
+   55.9 MB (+12.3 MB: Firebase SDKs plus the ML Kit barcode model), even
+   though the default build never uses Firebase; the iOS build now
+   compiles gRPC (slower clean builds). If that matters before a project
+   exists, the Firebase packages can wait on a branch until decision 1,
+   or the cloud side can use the Firestore REST API (no native SDK).
