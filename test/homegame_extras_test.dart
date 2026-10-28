@@ -491,12 +491,17 @@ void main() {
     testWidgets('crew screen shows my result and badges', (tester) async {
       final m = HomeGameModel(lib)..sessions.addAll([bigNight(1), bigNight(2)]);
       await pump(tester, CrewScreen(model: m));
-      await tester.scrollUntilVisible(find.text(myResultNote), 300);
+      // The page's own list: the badge wall and sparklines hold Scrollables
+      // too, and the default `.first` can pick one that scrolls off screen.
+      final page = find
+          .descendant(of: find.byType(ListView).first, matching: find.byType(Scrollable))
+          .first;
+      await tester.scrollUntilVisible(find.text(myResultNote), 300, scrollable: page);
       expect(find.text('-\$125'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Badges'), 300);
+      await tester.scrollUntilVisible(find.text('Badges'), 100, scrollable: page);
       expect(find.text('Badges'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Pocket Rockets'), 300);
-      await tester.scrollUntilVisible(find.text('In the Black'), 300);
+      await tester.scrollUntilVisible(find.text('Pocket Rockets'), 300, scrollable: page);
+      await tester.scrollUntilVisible(find.text('In the Black'), 300, scrollable: page);
       expect(tester.takeException(), isNull);
     });
   });

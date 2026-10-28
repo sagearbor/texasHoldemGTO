@@ -16,29 +16,32 @@ GTO preflop drills, strategy charts, equity and home-game stats. Fully offline.
 
 GTO drills and home-game stats
 
-## Full description (~1500)
+## Full description (~2500)
 
-Felt Notes is a pocket poker coach for Texas Hold'em. Drill preflop decisions, look up the strategy for any spot, and track how you really play at your home game. No account, no ads, and nothing ever leaves your phone.
+Felt Notes is a pocket poker coach for Texas Hold'em and a stats keeper for your home game. Drill decisions against solver strategy, see exactly which hands you keep getting wrong, and find out how your table really plays, without anyone keeping score. No account, no ads, and Felt Notes sends nothing anywhere.
 
 TRAIN
-You get a seat, the action before you and two cards. Tap what you would do and get graded instantly: GTO play, a mixed hand where either choice is fine, or a mistake. Every answer comes with the chart for that spot and a short explanation built from the strategy data. Drill all spots, 6-max 100bb cash, heads-up push/fold, or let "Drill my leaks" keep serving the hands you get wrong.
+You get a seat, the action before you and two cards. Tap what you'd do and get graded instantly: GTO play, a mixed hand where either choice is fine, or a mistake, with the chart and a short explanation built from the strategy data. Daily 10 (the same 10 spots for everyone each day, so you can compare with friends), spaced repetition, pot-odds and range-reading quizzes, difficulty levels and a 60-second leak test.
 
-CHARTS
-13x13 strategy grids for 19 six-max 100bb spots: opens, calls, 3-bets and blind defence. Heads-up push/fold charts from 3 to 25 big blinds, solved by Felt Notes. Tap any hand for its frequencies and the reasoning.
+CHARTS AND MISTAKES
+13x13 strategy grids for six-max 100bb cash spots, plus heads-up and 3-handed push/fold charts solved by Felt Notes, and river decisions from our own solver. Flip any chart to "My mistakes" to see your recent errors as a heatmap, then tap "Drill my weak hands".
 
-EQUITY
-Hand vs hand for up to six players with any board, or your hand against a whole range such as a button open.
-
-STATS
-A you-vs-GTO heatmap of every starting hand, your weakest spots with one-tap drills, and your most teachable repeat mistakes.
+PROGRESS
+Your GTO score over time, by day or week, and a grade for every home-game night.
 
 HOME GAME
-At your weekly game, log your own two cards (or just tap Fold) each hand. Felt Notes follows the dealer button, works out your position and shows live VPIP, PFR, playing style, card luck and a preflop GTO grade. Mirror your phone to the TV for a big-type dashboard that only shows hands from a while ago, so nobody reads the last hand off the screen.
+Built so nobody has to keep score. Hands you don't touch count as folds; tap to call, swipe up to raise, without looking. The organizer taps who's dealing during the first orbit and Felt Notes learns the seats and moves the button from there. Optionally snap a photo of your own two cards (read on the phone) and let whoever calls the board say it out loud.
+
+TV DASHBOARD AND NIGHT RECAP
+Mirror a phone to the TV for a blind clock (cash or tournament), rotating moments, dealer luck and tonight's drama, always delayed so nobody reads a live hand off the screen. End the night with a swipeable recap, awards like Golden Arm and Dealer of Doom, and a share image for the group chat.
+
+GLOSSARY
+Every term in plain English: UTG, cutoff, iso, complete, squeeze, VPIP, push/fold and more.
 
 PRIVATE BY DESIGN
-No sign-up, no ads, no tracking, no analytics. Everything is stored on this device and can be wiped from About & privacy.
+No sign-up, no ads, no tracking, no analytics. Camera and microphone are optional. Card photos are read on the phone and never saved. The board mic uses your phone's built-in speech recognition (Apple or Google may process that audio); Felt Notes keeps no audio. Back up, restore or wipe your data from Settings.
 
-The 6-max charts are approximate GTO baselines; the push/fold charts are an exact equilibrium. Felt Notes is a learning tool and offers no real-money gambling.
+The cash charts are approximate GTO baselines; push/fold charts are an exact equilibrium. Felt Notes is a learning tool and offers no real-money gambling.
 
 ## Release notes (0.1.x, first public release)
 
