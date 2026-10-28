@@ -23,7 +23,9 @@ class BlindClockController extends ChangeNotifier {
   BlindClockController({int Function()? now})
       : now = now ?? (() => DateTime.now().millisecondsSinceEpoch);
 
-  BlindClock clock = BlindClock();
+  /// A fresh install starts in cash mode (the monthly game); the tournament
+  /// clock is one menu tap away. A saved clock keeps the mode it had.
+  BlindClock clock = BlindClock(mode: ClockMode.cash);
   bool loaded = false;
   Future<void>? _loading;
 
@@ -32,7 +34,7 @@ class BlindClockController extends ChangeNotifier {
 
   /// Re-reads the clock from storage (after a restore).
   Future<void> reload() {
-    clock = BlindClock();
+    clock = BlindClock(mode: ClockMode.cash);
     _seen = null;
     return _loading = _load();
   }

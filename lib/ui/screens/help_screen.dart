@@ -122,8 +122,10 @@ const _topics = {
       'Remembered your cards late? Enter them, tap "That was hand…" and pick the hand by its '
           'board: they go on that hand instead of the one being played now.',
       'With boards the Night Recap adds flops seen and your best made hand.',
-      'Blind clock: from the setup screen or the menu at the top right. Big countdown for the TV, levels and '
-          'breaks you can edit, or Cash game mode. It keeps time even if the phone sleeps.',
+      'Blind clock: from the setup screen or the menu at the top right. It starts as a '
+          'cash game (stakes on the TV, no timer). For a tournament pick Tournament clock in '
+          'its menu: a big countdown, levels and breaks you can edit. It keeps time even if '
+          'the phone sleeps.',
       'End game night shows the Night Recap: best hand, cold streaks, card luck, awards and '
           '"Dealer of Doom" (who dealt you the worst cards). Copy it for the group chat.',
       'Crew & season (setup screen): everyone who has played, attendance streaks and your '
