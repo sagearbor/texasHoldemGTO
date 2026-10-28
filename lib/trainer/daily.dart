@@ -12,6 +12,9 @@ import '../gto/spots.dart';
 import 'trainer_model.dart' show Clock, edginess;
 
 const dailyLength = 10;
+
+/// Cash spot groups the Daily 10 never uses (added after launch).
+const dailyExcludedGroups = {limperGroup, threeBetGroup};
 const dailyUrl = 'https://sagearbor.github.io/texasHoldemGTO/';
 
 /// Day #1 of the Daily 10.
@@ -89,9 +92,13 @@ List<DailyDrill> dailySet(SpotLibrary lib, DateTime date) {
     return out;
   }
 
-  // Facing-limper spots are left out so the set for a date stays identical
-  // across app versions (web updates before the phone apps do).
-  final cash = [for (final s in lib.cash) if (s.group != limperGroup) s];
+  // Spots added after the Daily 10 launched (facing limpers, facing a
+  // 3-bet) are left out so the set for a date stays identical across app
+  // versions (web updates before the phone apps do).
+  final cash = [
+    for (final s in lib.cash)
+      if (!dailyExcludedGroups.contains(s.group)) s
+  ];
   final spots = lib.pushFold.isEmpty
       ? take([...cash, ...lib.pushFold], dailyLength)
       : [...take(cash, 6), ...take(lib.pushFold, dailyLength - 6)];
@@ -198,6 +205,12 @@ class DailyModel extends ChangeNotifier {
       prev = k;
     }
     return best;
+  }
+
+  /// Forgets the in-memory results (before re-loading after a restore).
+  void clearMemory() {
+    results.clear();
+    _best = 0;
   }
 
   Future<void> load() async {

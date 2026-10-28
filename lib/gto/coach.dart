@@ -50,9 +50,12 @@ List<String> simpleCoachNotes(Spot spot, HandClass h, int chosen) {
   ];
 }
 
-String _rangeSizeNote(Spot spot) => spot.actions.contains('Fold')
-    ? '${spot.hero} plays about ${pct(spot.playPercent)} of hands here.'
-    : '${spot.hero} raises about ${pct(spot.playPercent)} of hands here.';
+String _rangeSizeNote(Spot spot) => spot.reach != null
+    ? 'Of the hands ${spot.hero} opens, it continues with about '
+        '${pct(spot.continueShare)} here.'
+    : spot.actions.contains('Fold')
+        ? '${spot.hero} plays about ${pct(spot.playPercent)} of hands here.'
+        : '${spot.hero} raises about ${pct(spot.playPercent)} of hands here.';
 
 String pct(double f) => '${(f * 100).round()}%';
 
@@ -158,6 +161,7 @@ List<String> coachNotes(Spot spot, HandClass h, int chosen) {
     notes.add('Facing-limper charts are hand-authored approximations: '
         'limped pots are not in standard solver trees.');
   }
+  if (spot.group == threeBetGroup) notes.addAll(_threeBetNotes(spot, h));
   if (spot.hero == 'BTN' &&
       spot.villain == null &&
       spot.format == SpotFormat.cash100) {
@@ -225,4 +229,47 @@ List<HandClass> _family(HandClass h) {
 String _spanName(List<HandClass> hands) {
   if (hands.length == 1) return hands.first.name;
   return '${hands.first.name}–${hands.last.name}';
+}
+
+/// Template notes for the hand-authored facing-a-3-bet spots.
+List<String> _threeBetNotes(Spot spot, HandClass h) {
+  final f = spot.freqs(h);
+  final notes = <String>[];
+  final ip = spot.actions[0] == fourBetLabel(inPosition: true);
+  final call = spot.actions.indexOf('Call');
+  final broadway = h.lowRank >= 8; // both cards T or higher
+  if ((spot.reach?[h.index] ?? 1) == 0) {
+    notes.add('${h.name} is not in the ${spot.hero} opening range, so it '
+        'never reaches this spot: it folds before the flop.');
+  } else if (f[0] >= 0.25 && (h.isPair || (h.highRank == 12 && h.lowRank == 11))) {
+    notes.add('4-bet for value: ${h.name} is at the top of your range and '
+        'ahead of most 3-betting hands. Building the pot now gets stacks in '
+        'by the river.');
+  } else if (f[0] > 0.05 &&
+      h.isSuited &&
+      h.highRank == 12 &&
+      h.lowRank <= 3) {
+    notes.add('${h.name} is a 4-bet bluff: the ace blocks AA and AK, so the '
+        '3-bettor is less likely to have a hand that continues, and the '
+        'wheel straight and nut-flush draws give it equity when called. The '
+        '4-bet range stays polarised: big value hands plus a few of these.');
+  }
+  if (call >= 0 && f[call] >= 0.5) {
+    notes.add(ip
+        ? 'Calling in position works: you act last on every street, so '
+            'pairs, suited broadways and suited connectors realise their '
+            'equity and win big pots when they hit.'
+        : 'Calling out of position is harder: the 3-bettor keeps the '
+            'initiative and you act first on every street, so out-of-position '
+            'calls stay tight (pairs and strong suited broadways).');
+  }
+  if (!h.isPair && !h.isSuited && broadway && f[spot.passiveIndex] >= 0.5 &&
+      (spot.reach?[h.index] ?? 1) > 0) {
+    notes.add('Fold offsuit broadways like ${h.name}: they are dominated by '
+        'the 3-bettor\'s AK, AQ and KQ, make few strong hands and have no '
+        'flush potential to make up for it.');
+  }
+  notes.add('Facing-a-3-bet charts are hand-authored approximations (4-bet '
+      '22bb in position, 25bb out of position), not solver output.');
+  return notes;
 }

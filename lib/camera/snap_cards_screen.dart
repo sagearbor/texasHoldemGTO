@@ -1,10 +1,18 @@
 /// EXPERIMENTAL "Snap my cards" (Beta).
 ///
-/// Takes one still photo with the system camera (image_picker), runs Google
-/// ML Kit on-device text recognition on it, and hands the OCR words plus the
-/// decoded pixels to the pure-Dart [readCards]. Nothing leaves the phone and
-/// nothing costs money. The user always confirms (or fixes) the result; the
-/// manual picker is never blocked.
+/// Takes one still photo with the camera (or picks one from the gallery),
+/// then reads the hole cards on the device:
+///
+///  1. the pure-Dart glyph reader ([readGlyphs]: classical corner-index
+///     localiser + a tiny CNN, assets/data/glyph_cnn.bin) in a background
+///     isolate. If it finds two confident cards, they are used.
+///  2. otherwise, on Android / iOS, Google ML Kit text recognition on the
+///     whole photo ([readCards]) fills in what the glyph reader missed.
+///
+/// The glyph reader also counts the face-up board cards; the street it
+/// implies ("Board: flop") is shown as a hint only. Nothing leaves the
+/// device and nothing costs money. The user always confirms (or fixes) the
+/// result; the manual picker is never blocked.
 library;
 
 import 'dart:io';
@@ -12,6 +20,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -19,20 +28,50 @@ import '../poker/cards.dart';
 import '../ui/theme.dart';
 import '../ui/widgets/playing_card.dart';
 import 'card_reader.dart';
+import 'glyph_reader.dart';
 
-/// Only Android and iOS have ML Kit; hide the feature everywhere else.
-bool get snapCardsSupported =>
+/// ML Kit exists only on Android and iOS.
+bool get _mlKitSupported =>
     !kIsWeb &&
     (defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS);
 
-/// Opens the camera flow. Returns two cards (either may be null when the
-/// user wants to fill that slot by hand), or null when cancelled.
+/// The glyph reader is pure Dart, so the feature also works on the web
+/// (photo from the camera or a file via the browser's file picker).
+bool get snapCardsSupported => kIsWeb || _mlKitSupported;
+
+/// Opens the camera / photo flow. Returns two cards (either may be null when
+/// the user wants to fill that slot by hand), or null when cancelled.
 Future<List<int?>?> snapCards(BuildContext context) async {
+  final source = await showModalBottomSheet<ImageSource>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) => SafeArea(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Text('Photograph your two cards: corners (rank and suit) big, sharp and well lit.'),
+        ),
+        ListTile(
+          leading: const Icon(Icons.photo_camera_outlined),
+          title: const Text('Take a photo'),
+          onTap: () => Navigator.pop(ctx, ImageSource.camera),
+        ),
+        ListTile(
+          leading: const Icon(Icons.photo_library_outlined),
+          title: const Text('Pick a photo'),
+          onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+        ),
+      ]),
+    ),
+  );
+  if (source == null || !context.mounted) return null;
   final XFile? shot;
   try {
     shot = await ImagePicker().pickImage(
-      source: ImageSource.camera,
+      source: source,
+      // A 3000x4000 phone photo comes back as 1500x2000: the size the
+      // glyph reader was tuned at.
       maxWidth: 2000,
       maxHeight: 2000,
       requestFullMetadata: false,
@@ -40,66 +79,135 @@ Future<List<int?>?> snapCards(BuildContext context) async {
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Camera unavailable ($e). Tap the cards to pick them.')));
+          SnackBar(content: Text('Photo unavailable ($e). Tap the cards to pick them.')));
     }
     return null;
   }
   if (shot == null || !context.mounted) return null;
+  final bytes = await shot.readAsBytes();
+  if (!context.mounted) return null;
   return Navigator.of(context).push<List<int?>>(
-    MaterialPageRoute(builder: (_) => _SnapResultScreen(path: shot!.path)),
+    MaterialPageRoute(builder: (_) => _SnapResultScreen(path: shot!.path, bytes: bytes)),
   );
 }
 
-/// Decodes the photo (EXIF orientation applied by the engine), saves the
-/// exact pixels as PNG so ML Kit sees the same frame we sample colours from,
-/// runs OCR and the card reader.
-Future<CardReadResult> _analyse(String path) async {
-  final bytes = await File(path).readAsBytes();
+/// One proposed hole card for the review screen.
+class _Seed {
+  final int rank;
+  final int? suit;
+  final double conf;
+  const _Seed(this.rank, this.suit, this.conf);
+}
+
+class _Outcome {
+  final List<_Seed> cards;
+
+  /// "flop" etc. from the board-card count, or null.
+  final String? street;
+  final int boardCount;
+
+  /// Which reader produced the cards (shown small, for beta feedback).
+  final String source;
+  const _Outcome(this.cards, this.street, this.boardCount, this.source);
+}
+
+Uint8List? _cnnBytes;
+
+Future<Uint8List> _loadCnn() async =>
+    _cnnBytes ??= (await rootBundle.load('assets/data/glyph_cnn.bin')).buffer.asUint8List();
+
+Future<_Outcome> _analyse(String path, Uint8List bytes) async {
+  // Decode (EXIF orientation applied by the engine).
   final codec = await ui.instantiateImageCodec(bytes);
   final frame = await codec.getNextFrame();
   final image = frame.image;
   try {
     final raw = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    final png = await image.toByteData(format: ui.ImageByteFormat.png);
-    if (raw == null || png == null) return const CardReadResult([], []);
-    final pngPath = '$path.snap.png';
-    await File(pngPath).writeAsBytes(png.buffer.asUint8List(), flush: true);
-    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
-    final RecognizedText text;
+    if (raw == null) return const _Outcome([], null, 0, 'none');
+    final rgba = raw.buffer.asUint8List();
+    GlyphReadResult glyph;
     try {
-      text = await recognizer.processImage(InputImage.fromFilePath(pngPath));
-    } finally {
-      await recognizer.close();
-      File(pngPath).delete().ignore();
+      final req = GlyphReadRequest(rgba, image.width, image.height, cnn: await _loadCnn());
+      glyph = await compute(readGlyphsMessage, req);
+    } catch (e) {
+      debugPrint('glyph reader failed: $e');
+      glyph = GlyphReadResult.empty;
     }
-    final tokens = <OcrToken>[
-      for (final b in text.blocks)
-        for (final l in b.lines)
-          for (final e in l.elements)
-            if (e.cornerPoints.length == 4)
-              OcrToken(
-                e.text,
-                [for (final p in e.cornerPoints) Pt(p.x.toDouble(), p.y.toDouble())],
-                lineText: l.text,
-              ),
+    final glyphSeeds = [
+      for (final c in glyph.hero) _Seed(cardRank(c.card), cardSuit(c.card), c.confident ? 1.0 : 0.5)
     ];
-    final px = RgbaImage(image.width, image.height, raw.buffer.asUint8List());
-    return readCards(tokens, px);
+    final street = glyph.street;
+    if (glyph.confident || !_mlKitSupported) {
+      return _Outcome(glyphSeeds, street, glyph.boardCount, 'glyph reader');
+    }
+    // Fallback: ML Kit OCR on the whole photo, merged with what the glyph
+    // reader did find (its cards first).
+    CardReadResult ocr;
+    try {
+      ocr = await _mlKit(path, image, rgba);
+    } catch (e) {
+      debugPrint('ML Kit failed: $e');
+      ocr = const CardReadResult([], []);
+    }
+    final seeds = <_Seed>[...glyphSeeds.where((s) => s.conf >= 1.0)];
+    for (final c in ocr.cards) {
+      if (seeds.length >= 2) break;
+      if (seeds.any((s) => s.rank == c.rank && s.suit == c.suit)) continue;
+      seeds.add(_Seed(c.rank, c.suit, c.suitConfidence));
+    }
+    for (final s in glyphSeeds) {
+      if (seeds.length >= 2) break;
+      if (!seeds.contains(s)) seeds.add(s);
+    }
+    final src = seeds.isEmpty
+        ? 'none'
+        : (ocr.cards.isEmpty ? 'glyph reader' : (glyphSeeds.isEmpty ? 'ML Kit' : 'glyph reader + ML Kit'));
+    return _Outcome(seeds, street, glyph.boardCount, src);
   } finally {
     image.dispose();
   }
 }
 
+/// Saves the decoded pixels as PNG so ML Kit sees the same frame we sample
+/// colours from, runs OCR and the token-based card reader.
+Future<CardReadResult> _mlKit(String path, ui.Image image, Uint8List rgba) async {
+  final png = await image.toByteData(format: ui.ImageByteFormat.png);
+  if (png == null) return const CardReadResult([], []);
+  final pngPath = '$path.snap.png';
+  await File(pngPath).writeAsBytes(png.buffer.asUint8List(), flush: true);
+  final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+  final RecognizedText text;
+  try {
+    text = await recognizer.processImage(InputImage.fromFilePath(pngPath));
+  } finally {
+    await recognizer.close();
+    File(pngPath).delete().ignore();
+  }
+  final tokens = <OcrToken>[
+    for (final b in text.blocks)
+      for (final l in b.lines)
+        for (final e in l.elements)
+          if (e.cornerPoints.length == 4)
+            OcrToken(
+              e.text,
+              [for (final p in e.cornerPoints) Pt(p.x.toDouble(), p.y.toDouble())],
+              lineText: l.text,
+            ),
+  ];
+  return readCards(tokens, RgbaImage(image.width, image.height, rgba));
+}
+
 class _SnapResultScreen extends StatefulWidget {
   final String path;
-  const _SnapResultScreen({required this.path});
+  final Uint8List bytes;
+  const _SnapResultScreen({required this.path, required this.bytes});
 
   @override
   State<_SnapResultScreen> createState() => _SnapResultScreenState();
 }
 
 class _SnapResultScreenState extends State<_SnapResultScreen> {
-  late final Future<CardReadResult> _future = _analyse(widget.path);
+  late final Future<_Outcome> _future = _analyse(widget.path, widget.bytes);
 
   /// Rank + suit per slot (null = unknown).
   final List<int?> _rank = [null, null];
@@ -107,13 +215,13 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
   final List<double> _conf = [0, 0];
   bool _seeded = false;
 
-  void _seed(CardReadResult r) {
+  void _seed(_Outcome r) {
     if (_seeded) return;
     _seeded = true;
     for (var i = 0; i < r.cards.length && i < 2; i++) {
       _rank[i] = r.cards[i].rank;
       _suit[i] = r.cards[i].suit;
-      _conf[i] = r.cards[i].suitConfidence;
+      _conf[i] = r.cards[i].conf;
     }
   }
 
@@ -130,7 +238,7 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
           BetaBadge(),
         ]),
       ),
-      body: FutureBuilder<CardReadResult>(
+      body: FutureBuilder<_Outcome>(
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
@@ -138,7 +246,7 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 CircularProgressIndicator(),
                 SizedBox(height: 12),
-                Text('Reading the corners on your phone...'),
+                Text('Reading the corners on your device...'),
               ]),
             );
           }
@@ -150,7 +258,7 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
           }
           final r = snap.data!;
           _seed(r);
-          if (r.isEmpty) {
+          if (r.cards.isEmpty) {
             return _Message(
               'No card corners found. Try again with the top-left corners of both '
               'cards (the rank and suit) big, sharp and well lit.',
@@ -163,13 +271,28 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: Image.file(File(widget.path), height: 180, fit: BoxFit.cover),
+                child: Image.memory(widget.bytes, height: 180, fit: BoxFit.cover),
               ),
               const SizedBox(height: 12),
               Text(
-                  'Check the suits. Camera reading is a beta guess; fix anything '
-                  'wrong here or tap a card later to use the picker.',
+                  'Check the cards. Camera reading is a beta guess; fix any suit '
+                  'here, or tap a card later to use the picker.',
                   style: t.bodySmall),
+              // Only positive evidence: the board detector looks for photo-faced
+              // cards (the owner's deck), so 0 may just mean "not this deck".
+              if (r.street != null && r.boardCount > 0) ...[
+                const SizedBox(height: 6),
+                Row(children: [
+                  const Icon(Icons.info_outline, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                        'Board: ${r.street} (${r.boardCount} cards seen). '
+                        'Info only, nothing is logged from it.',
+                        style: t.bodySmall),
+                  ),
+                ]),
+              ],
               const SizedBox(height: 12),
               for (var i = 0; i < 2; i++) _slot(i),
               if (dup)
@@ -185,6 +308,8 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
                 onPressed: () => Navigator.pop(context, <int?>[null, null]),
                 child: const Text('Enter by hand instead'),
               ),
+              const SizedBox(height: 8),
+              Text('Read by: ${r.source}', style: t.labelSmall, textAlign: TextAlign.center),
             ],
           );
         },
@@ -206,8 +331,8 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
               _rank[i] == null
                   ? 'Card ${i + 1}: not found (pick it by hand)'
                   : 'Card ${i + 1}: rank ${rankChars[_rank[i]!] == 'T' ? '10' : rankChars[_rank[i]!]}'
-                      '${unsure ? ' - suit unsure, tap the right one' : ''}',
-              style: t.labelMedium?.copyWith(color: unsure ? Felt.mixed : null),
+                      '${unsure ? ' - unsure, check it' : ''}',
+              style: t.labelMedium?.copyWith(color: unsure ? Felt.mixedText(context) : null),
             ),
             const SizedBox(height: 4),
             if (_rank[i] != null)
@@ -217,7 +342,9 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
                     label: Text(suitSymbols[s],
                         style: TextStyle(
                             fontSize: 18,
-                            color: s == 1 || s == 2 ? const Color(0xFFD62839) : null)),
+                            // Black suits keep the theme's text colour so they
+                            // stay readable on a dark chip.
+                            color: s == 1 || s == 2 ? suitColor(s) : null)),
                     selected: _suit[i] == s,
                     visualDensity: VisualDensity.compact,
                     onSelected: (_) => setState(() {

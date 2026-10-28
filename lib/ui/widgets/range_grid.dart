@@ -88,7 +88,7 @@ class ActionPatternPainter extends CustomPainter {
     canvas.save();
     canvas.clipRect(Offset.zero & size);
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.55)
+      ..color = Colors.white.withOpacity(0.4)
       ..isAntiAlias = true;
     switch (kind) {
       case ActionKind.aggressive:
@@ -147,7 +147,7 @@ class RangeGrid extends StatelessWidget {
           semantics: (h) => cellSemantics(spot, h),
           cell: (h) {
             final f = spot.freqs(h);
-            return Row(
+            final row = Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   for (var i = 0; i < f.length; i++)
@@ -157,10 +157,17 @@ class RangeGrid extends StatelessWidget {
                           child: ActionBand(
                               action: spot.actions[i], patterned: cb)),
                 ]);
+            // Hands hero never holds here (not in the opening range) fade.
+            return spot.reach?[h.index] == 0
+                ? Opacity(opacity: 0.35, child: row)
+                : row;
           },
           textColor: (h) {
             final fold = spot.passiveIndex;
-            final folded = spot.freqs(h)[fold] > 0.5;
+            // Light theme: white text over a cell that is ~40% pale fold
+            // band washed out, so switch to dark text sooner.
+            final folded =
+                spot.freqs(h)[fold] > (b == Brightness.dark ? 0.5 : 0.3);
             if (!folded) return Colors.white;
             return b == Brightness.dark ? Colors.white60 : Colors.black54;
           },
@@ -313,7 +320,7 @@ class _Grid extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                     color: textColor(h),
                     shadows: const [
-                      Shadow(blurRadius: 2, color: Colors.black26)
+                      Shadow(blurRadius: 2, color: Colors.black54)
                     ],
                   ),
                 ),

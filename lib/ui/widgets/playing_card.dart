@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../poker/cards.dart';
+import '../app_settings.dart';
+import '../theme.dart';
 
 /// A face-up card, or a placeholder slot when [card] is null.
 class PlayingCard extends StatelessWidget {
@@ -9,15 +11,13 @@ class PlayingCard extends StatelessWidget {
   final VoidCallback? onTap;
   const PlayingCard({super.key, this.card, this.width = 64, this.onTap});
 
-  static const _suitColors = [
-    Color(0xFF1F7A3F), // clubs: green (four-colour deck)
-    Color(0xFF2563EB), // diamonds: blue
-    Color(0xFFD62839), // hearts: red
-    Color(0xFF1B1B1B), // spades: black
-  ];
-
+  /// Rebuilds when the deck style (4-colour / classic) changes.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ValueListenableBuilder<CardStyle>(
+      valueListenable: AppSettings.cardStyle,
+      builder: (context, style, _) => _build(context, style));
+
+  Widget _build(BuildContext context, CardStyle style) {
     final h = width * 1.4;
     final c = card;
     final child = c == null
@@ -50,16 +50,23 @@ class PlayingCard extends StatelessWidget {
                         fontSize: width * 0.42,
                         fontWeight: FontWeight.w800,
                         height: 1,
-                        color: _suitColors[cardSuit(c)])),
+                        color: suitColor(cardSuit(c), style))),
                 Text(suitSymbols[cardSuit(c)],
                     style: TextStyle(
                         fontSize: width * 0.38,
                         height: 1.1,
-                        color: _suitColors[cardSuit(c)])),
+                        color: suitColor(cardSuit(c), style))),
               ],
             ),
           );
-    return onTap == null ? child : GestureDetector(onTap: onTap, child: child);
+    if (onTap == null) return child;
+    // Tappable slot: expose it as a button so screen readers can use it.
+    return Semantics(
+      container: true,
+      button: true,
+      label: c == null ? 'Choose a card' : null,
+      child: GestureDetector(onTap: onTap, child: child),
+    );
   }
 }
 
@@ -108,7 +115,7 @@ class _PickCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = PlayingCard._suitColors[cardSuit(card)];
+    final color = suitColor(cardSuit(card));
     return Opacity(
       opacity: enabled ? 1 : 0.2,
       child: InkWell(

@@ -50,6 +50,7 @@ Future<Uint8List> renderShareCardPng(Widget card, {Size size = shareCardSize}) a
       data: MediaQueryData(size: size, textScaler: TextScaler.noScaling),
       child: Directionality(
         textDirection: TextDirection.ltr,
+        // Share cards are dark-only by design, whatever the app theme.
         child: Theme(
           data: Felt.dark(),
           child: DefaultTextStyle(

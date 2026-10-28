@@ -1,7 +1,7 @@
 name: felt_notes
 description: "Felt Notes: GTO poker trainer and home-game stats."
 publish_to: 'none'
-version: 0.2.0+6
+version: 0.2.1+7
 
 environment:
   sdk: '>=3.4.3 <4.0.0'
@@ -23,6 +23,13 @@ dependencies:
   package_info_plus: ">=8.3.1 <9.0.0"
   # Share the report-card PNG. 10.1.x is the last line built for Flutter 3.22 / Dart 3.4.
   share_plus: ">=10.1.4 <10.2.0"
+  # Board caller: push-to-talk, on-device speech recognition (OS engine, free).
+  # 7.2+ uses compileSdk = flutter.compileSdkVersion (fails on Flutter 3.22),
+  # 7.5+ needs Flutter 3.44 / Dart 3.12. 7.1.0 builds.
+  speech_to_text: ">=7.1.0 <7.2.0"
+  # Restore from a backup file. 8.3.2 declares Flutter >=3.22 / Dart >=3.4
+  # (compileSdk 34, AGP 7.4) and builds; 8.3.3+ was not verified on 3.22.
+  file_picker: ">=8.3.2 <8.3.3"
 
 dev_dependencies:
   flutter_test:

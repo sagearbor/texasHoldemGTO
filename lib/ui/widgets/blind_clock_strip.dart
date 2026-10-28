@@ -14,6 +14,8 @@ void levelChangeAlert() {
   SystemSound.play(SystemSoundType.alert);
 }
 
+/// Dark-only by design: shown on the TV dashboard, which forces the dark
+/// felt theme (see Felt.darkOnly), so the white-on-felt colours are fixed.
 /// One-line clock for the top of the TV dashboard. Renders nothing unless a
 /// blind clock has been started. Tap to open the full clock.
 class BlindClockStrip extends StatefulWidget {

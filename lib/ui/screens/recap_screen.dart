@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../gto/coach.dart';
+import '../../homegame/board_speech.dart';
+import '../../homegame/board_stats.dart';
 import '../../homegame/home_game.dart';
 import '../../homegame/moments.dart';
 import '../../homegame/my_result.dart';
@@ -32,8 +34,12 @@ class _RecapScreenState extends State<RecapScreen> {
     super.dispose();
   }
 
+  // Dark-only by design (read across the room / shared as screenshots):
+  // the felt look stays even when the app is in light mode.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Felt.darkOnly(Builder(builder: _build));
+
+  Widget _build(BuildContext context) {
     final r = nightRecap(widget.session, widget.model.library);
     final cards = recapCards(r);
     return Scaffold(
@@ -52,7 +58,12 @@ class _RecapScreenState extends State<RecapScreen> {
           ),
         ],
       ),
-      body: SafeArea(
+      // Same 640 px column as the main shell: on a TV the story card
+      // stretched edge to edge with tiny text in the middle.
+      body: Center(
+          child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: SafeArea(
         child: Column(children: [
           Expanded(
             child: PageView(
@@ -138,7 +149,7 @@ class _RecapScreenState extends State<RecapScreen> {
             ]),
           ),
         ]),
-      ),
+      ))),
     );
   }
 }
@@ -166,7 +177,7 @@ List<Widget> recapCards(NightRecap r) {
       icon: Icons.emoji_events_outlined,
       label: 'Best hand',
       value: h.hand!.name,
-      caption: '${cardToString(h.cards![0])} ${cardToString(h.cards![1])}',
+      caption: prettyCards(h.cards!),
       lines: [
         'Hand #${h.number} from ${h.position}',
         '${pct(r.bestEquity)} vs a random hand',
@@ -174,6 +185,7 @@ List<Widget> recapCards(NightRecap r) {
       ],
     ));
   }
+  out.addAll(boardRecapCards(boardStats(r.session.hands)));
   if (r.coldRun != null) {
     out.add(RecapCard(
       icon: Icons.ac_unit,
@@ -268,6 +280,31 @@ List<Widget> recapCards(NightRecap r) {
   }
   return out;
 }
+
+/// Cards from the board caller's boards: flops seen and best made hand.
+List<Widget> boardRecapCards(BoardStats b) => [
+      if (b.flopChances >= RecapGates.flopsMinChances)
+        RecapCard(
+          icon: Icons.filter_3_outlined,
+          label: 'Flops seen',
+          value: pct(b.flopSeenPct),
+          caption: '${b.flopsSeen} of ${b.flopChances} hands with a flop called',
+          lines: const ['Hands where you did not fold before the flop'],
+        ),
+      if (b.best != null)
+        RecapCard(
+          icon: Icons.workspace_premium_outlined,
+          label: 'Best made hand',
+          value: b.bestName!,
+          small: true,
+          caption: '${boardLabel(b.best!.cards!)}  on  ${boardLabel(b.best!.board!)}',
+          lines: [
+            'Hand #${b.best!.number}${b.best!.dealer == null ? '' : ', dealt by ${b.best!.dealer}'}',
+            if (b.showdowns > 1)
+              'Your hands by the river: ${[for (final (n, c) in b.categoryRows) '$n $c'].join(' · ')}',
+          ],
+        ),
+    ];
 
 class RecapCard extends StatelessWidget {
   final IconData icon;

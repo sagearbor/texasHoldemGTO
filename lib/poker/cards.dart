@@ -15,6 +15,13 @@ int makeCard(int rank, int suit) => rank * 4 + suit;
 String cardToString(int card) =>
     '${rankChars[cardRank(card)]}${suitChars[cardSuit(card)]}';
 
+/// Display form with a suit symbol, e.g. "A♠". Use [cardToString] for
+/// clipboard / CSV exports that must stay plain ASCII.
+String prettyCard(int card) => '${rankChars[cardRank(card)]}${suitSymbols[cardSuit(card)]}';
+
+/// Display form of several cards, space-separated: "A♠ K♥".
+String prettyCards(Iterable<int> cards) => cards.map(prettyCard).join(' ');
+
 /// Parses "As", "Td", "9h". Throws [FormatException] on bad input.
 int parseCard(String s) {
   if (s.length != 2) throw FormatException('Bad card: $s');

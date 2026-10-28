@@ -9,7 +9,7 @@ void showBadgeSnack(BuildContext context, List<Milestone> fresh) {
   final more = fresh.length - 1;
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
     content: Row(children: [
-      const Icon(Icons.military_tech, color: Felt.gold),
+      Icon(Icons.military_tech, color: Felt.accent(context)),
       const SizedBox(width: 10),
       Expanded(
         child: Text('Badge unlocked: ${fresh.first.title}'
@@ -37,7 +37,7 @@ class BadgeWall extends StatelessWidget {
           child: ListTile(
             dense: true,
             leading: Icon(b.unlocked ? Icons.military_tech : Icons.lock_outline,
-                color: b.unlocked ? Felt.gold : cs.onSurface.withOpacity(0.4)),
+                color: b.unlocked ? Felt.accent(context) : cs.onSurface.withOpacity(0.4)),
             title: Text(b.title,
                 style: TextStyle(
                     fontWeight: FontWeight.w700,

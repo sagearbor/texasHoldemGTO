@@ -78,7 +78,7 @@ class SolverDice extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(children: [
-            const Icon(Icons.casino_outlined, size: 18, color: Felt.gold),
+            Icon(Icons.casino_outlined, size: 18, color: Felt.accent(context)),
             const SizedBox(width: 6),
             Text('Solver dice', style: t.labelLarge),
             const Spacer(),
@@ -109,9 +109,15 @@ class SolverDice extends StatelessWidget {
                                     e - s >= 18 ? spot.actions[i] : '',
                                     maxLines: 1,
                                     overflow: TextOverflow.clip,
-                                    style: const TextStyle(
+                                    // White on the light theme's pale fold
+                                    // band was invisible.
+                                    style: TextStyle(
                                         fontSize: 10,
-                                        color: Colors.white,
+                                        color: ThemeData.estimateBrightnessForColor(
+                                                    Felt.actionColor(spot.actions[i], b)) ==
+                                                Brightness.dark
+                                            ? Colors.white
+                                            : Colors.black87,
                                         fontWeight: FontWeight.w700),
                                   ),
                                 ),

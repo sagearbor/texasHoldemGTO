@@ -30,6 +30,13 @@ class BlindClockController extends ChangeNotifier {
   /// Load once; later calls return the same future.
   Future<void> ensureLoaded() => _loading ??= _load();
 
+  /// Re-reads the clock from storage (after a restore).
+  Future<void> reload() {
+    clock = BlindClock();
+    _seen = null;
+    return _loading = _load();
+  }
+
   Future<void> _load() async {
     try {
       final prefs = await SharedPreferences.getInstance();

@@ -4,6 +4,7 @@ import 'app_data.dart';
 import 'gto/spots.dart';
 import 'homegame/home_game.dart';
 import 'trainer/trainer_model.dart';
+import 'ui/app_settings.dart';
 import 'ui/chart_prefs.dart';
 import 'ui/screens/charts_screen.dart';
 import 'ui/screens/equity_screen.dart';
@@ -32,7 +33,8 @@ class _FeltNotesAppState extends State<FeltNotesApp> {
     SpotLibrary.load().then((lib) async {
       final m = TrainerModel(lib);
       final h = HomeGameModel(lib);
-      await Future.wait([m.load(), h.load(), ChartPrefs.load()]);
+      await Future.wait(
+          [m.load(), h.load(), ChartPrefs.load(), AppSettings.load()]);
       if (mounted) {
         setState(() {
           model = m;
@@ -42,18 +44,24 @@ class _FeltNotesAppState extends State<FeltNotesApp> {
     });
   }
 
+  static final _light = Felt.light();
+  static final _dark = Felt.dark();
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Felt Notes',
-      debugShowCheckedModeBanner: false,
-      theme: Felt.light(),
-      darkTheme: Felt.dark(),
-      themeMode: ThemeMode.dark,
-      // Above the Navigator so every route (e.g. About's reset) can reach it.
-      builder: (context, child) =>
-          AppScope(trainer: model, home: home, child: child!),
-      home: const _Home(),
+    return ValueListenableBuilder<ThemeChoice>(
+      valueListenable: AppSettings.theme,
+      builder: (context, choice, _) => MaterialApp(
+        title: 'Felt Notes',
+        debugShowCheckedModeBanner: false,
+        theme: _light,
+        darkTheme: _dark,
+        themeMode: themeModeFor(choice),
+        // Above the Navigator so every route (e.g. About's reset) can reach it.
+        builder: (context, child) =>
+            AppScope(trainer: model, home: home, child: child!),
+        home: const _Home(),
+      ),
     );
   }
 }
@@ -87,8 +95,19 @@ class _ShellState extends State<Shell> {
   @override
   void initState() {
     super.initState();
+    shellTabs.addListener(_onTabRequest);
     WidgetsBinding.instance
-        .addPostFrameCallback((_) => maybeShowWelcome(context));
+        .addPostFrameCallback((_) => maybeShowWelcome(context, widget.model));
+  }
+
+  void _onTabRequest() {
+    if (mounted) setState(() => tab = shellTabs.tab);
+  }
+
+  @override
+  void dispose() {
+    shellTabs.removeListener(_onTabRequest);
+    super.dispose();
   }
 
   void _drill(String spotId) {
@@ -106,22 +125,52 @@ class _ShellState extends State<Shell> {
       StatsScreen(model: m, onDrill: _drill),
       HomeGameScreen(model: widget.home, trainer: m),
     ];
-    return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: IndexedStack(index: tab, children: pages),
-        ),
+    const dests = [
+      (Icons.fitness_center, 'Train'),
+      (Icons.grid_on, 'Charts'),
+      (Icons.percent, 'Equity'),
+      (Icons.insights, 'Stats'),
+      (Icons.groups, 'Home game'),
+    ];
+    final content = Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 640),
+        child: IndexedStack(index: tab, children: pages),
       ),
+    );
+    void select(int i) => setState(() => tab = i);
+    // Wide screens (desktop browser, TV, tablet landscape): a rail on the left
+    // instead of a 1920-px-wide bottom bar under a 640-px column.
+    if (MediaQuery.sizeOf(context).width > 900) {
+      return Scaffold(
+        body: SafeArea(
+          child: Row(
+            children: [
+              NavigationRail(
+                selectedIndex: tab,
+                onDestinationSelected: select,
+                labelType: NavigationRailLabelType.all,
+                groupAlignment: -0.6,
+                destinations: [
+                  for (final d in dests)
+                    NavigationRailDestination(icon: Icon(d.$1), label: Text(d.$2)),
+                ],
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: content),
+            ],
+          ),
+        ),
+      );
+    }
+    return Scaffold(
+      body: content,
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
-        onDestinationSelected: (i) => setState(() => tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.fitness_center), label: 'Train'),
-          NavigationDestination(icon: Icon(Icons.grid_on), label: 'Charts'),
-          NavigationDestination(icon: Icon(Icons.percent), label: 'Equity'),
-          NavigationDestination(icon: Icon(Icons.insights), label: 'Stats'),
-          NavigationDestination(icon: Icon(Icons.groups), label: 'Home game'),
+        onDestinationSelected: select,
+        destinations: [
+          for (final d in dests)
+            NavigationDestination(icon: Icon(d.$1), label: d.$2),
         ],
       ),
     );

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../gto/coach.dart';
 import '../../gto/hand_class.dart';
 import '../../gto/spots.dart';
+import '../app_settings.dart';
 import '../theme.dart';
 import '../widgets/range_grid.dart';
 import '../widgets/solver_dice.dart';
@@ -52,18 +53,25 @@ class CoachPanel extends StatelessWidget {
         ActionFreqBar(spot: spot, hand: hand),
         const SizedBox(height: 4),
         Text(strategyLine(spot, hand), style: t.bodyMedium),
-        if (roll != null && SolverDice.applies(spot, hand)) ...[
-          const SizedBox(height: 10),
-          SolverDice(spot: spot, hand: hand, roll: roll!),
-        ],
+        if (roll != null && SolverDice.applies(spot, hand))
+          // Settings > Trainer can hide the dice.
+          ValueListenableBuilder<bool>(
+            valueListenable: AppSettings.solverDice,
+            builder: (_, show, __) => !show
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: SolverDice(spot: spot, hand: hand, roll: roll!),
+                  ),
+          ),
         const SizedBox(height: 10),
         for (final n in notes)
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 6, right: 8),
-                child: Icon(Icons.circle, size: 6, color: Felt.gold),
+              Padding(
+                padding: const EdgeInsets.only(top: 6, right: 8),
+                child: Icon(Icons.circle, size: 6, color: Felt.accent(context)),
               ),
               Expanded(child: Text(n, style: t.bodyMedium)),
             ]),
@@ -99,7 +107,8 @@ class GradeBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final (color, icon) = switch (grade) {
       Grade.correct => (Felt.good, Icons.check_circle),
-      Grade.mixed => (Felt.mixed, Icons.balance),
+      // Plain gold text is ~1.9:1 on the light theme's cream card.
+      Grade.mixed => (Felt.mixedText(context), Icons.balance),
       Grade.rare => (Felt.bad, Icons.error_outline),
       Grade.mistake => (Felt.bad, Icons.cancel),
     };

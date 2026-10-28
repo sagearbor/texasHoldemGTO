@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
+
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
 import '../../homegame/milestones.dart';
@@ -19,7 +21,7 @@ class CrewScreen extends StatelessWidget {
     final trend = heroTrend(model.sessions, model.library);
     return Scaffold(
       appBar: AppBar(title: const Text('Crew & season')),
-      body: crew.nights.isEmpty
+      body: Felt.narrow(crew.nights.isEmpty
           ? const Center(
               child: Padding(
               padding: EdgeInsets.all(24),
@@ -71,7 +73,7 @@ class CrewScreen extends StatelessWidget {
                 Text('Badges', style: t.titleLarge),
                 BadgeWall(badges: milestones(model.sessions, model.library)),
               ],
-            ),
+            )),
     );
   }
 

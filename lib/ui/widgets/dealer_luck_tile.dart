@@ -5,6 +5,8 @@ import '../../homegame/home_game.dart';
 import '../../homegame/recap.dart';
 import '../theme.dart';
 
+/// Dark-only by design: shown on the TV dashboard, which forces the dark
+/// felt theme (see Felt.darkOnly), so the white-on-felt colours are fixed.
 /// Compact dealer-luck tile for the TV dashboard. Pass only the hands the
 /// dashboard is allowed to show (its delay cutoff), never the live tail.
 /// Renders nothing until some dealer has enough hands to rank.

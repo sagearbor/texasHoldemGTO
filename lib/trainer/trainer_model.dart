@@ -207,6 +207,20 @@ class TrainerModel extends ChangeNotifier {
     next();
   }
 
+  /// Re-reads everything from storage (after a restore), dropping what is
+  /// in memory first.
+  Future<void> reload() async {
+    history.clear();
+    _seeds.clear();
+    _lastKey = null;
+    lastAnswer = null;
+    focusSpotId = null;
+    difficulty = Difficulty.intermediate;
+    streak = sessionCount = sessionGood = 0;
+    daily.clearMemory();
+    await load();
+  }
+
   /// Replays history and home-game seeds, in time order, into the deck.
   void _rebuildDeck() {
     deck.clear();
@@ -385,14 +399,22 @@ class TrainerModel extends ChangeNotifier {
     final filtered = difficulty == Difficulty.intermediate
         ? null
         : _pickForDifficulty(spot);
+    final reach = spot.reach;
     if (filtered != null) {
       hand = filtered;
     } else if (_rng.nextBool()) {
-      final cards = dealRandom(_rng, 2, {});
-      hand = HandClass.fromCards(cards[0], cards[1]);
+      if (reach != null) {
+        // Only hands hero can hold here (e.g. ones it opened).
+        hand = HandClass.byIndex(_weighted(
+            [for (final h in allHandClasses) h.comboCount * reach[h.index]]));
+      } else {
+        final cards = dealRandom(_rng, 2, {});
+        hand = HandClass.fromCards(cards[0], cards[1]);
+      }
     } else {
       final weights = [
-        for (final h in allHandClasses) h.comboCount * edginess(spot, h)
+        for (final h in allHandClasses)
+          h.comboCount * edginess(spot, h) * (reach?[h.index] ?? 1)
       ];
       hand = HandClass.byIndex(_weighted(weights));
     }
@@ -411,9 +433,12 @@ class TrainerModel extends ChangeNotifier {
 
   /// A hand for Beginner / Expert, or null when no hand in [spot] fits.
   HandClass? _pickForDifficulty(Spot spot) {
+    final reach = spot.reach;
     final fits = [
       for (final h in allHandClasses)
-        if (handFitsDifficulty(spot, h, difficulty)) h
+        if ((reach == null || reach[h.index] > 0) &&
+            handFitsDifficulty(spot, h, difficulty))
+          h
     ];
     if (fits.isEmpty) return null;
     var from = fits;
@@ -427,7 +452,8 @@ class TrainerModel extends ChangeNotifier {
         from = _rng.nextBool() ? play : fold;
       }
     }
-    return from[_weighted([for (final h in from) h.comboCount])];
+    return from[_weighted(
+        [for (final h in from) h.comboCount * (reach?[h.index] ?? 1)])];
   }
 
   int _weighted(List<num> w) {

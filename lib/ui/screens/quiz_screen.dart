@@ -113,7 +113,7 @@ class _QuizScreenState extends State<QuizScreen> {
             ),
         ],
       ),
-      body: s == null
+      body: Felt.narrow(s == null
           ? _StartView(
               focus: _focus,
               onFocus: (f) => setState(() => _focus = f),
@@ -141,7 +141,7 @@ class _QuizScreenState extends State<QuizScreen> {
                           last: _index + 1 >= s.length,
                         ),
                       ],
-                    ),
+                    )),
     );
   }
 }
@@ -158,7 +158,7 @@ class _StartView extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     Widget item(IconData icon, String title, String body) => ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: Icon(icon, color: Felt.gold),
+          leading: Icon(icon, color: Felt.accent(context)),
           title: Text(title),
           subtitle: Text(body),
         );
@@ -182,6 +182,8 @@ class _StartView extends StatelessWidget {
                       ButtonSegment(value: f, label: Text(quizFocusLabels[f]!)),
                   ],
                   selected: {focus},
+                  // The tick squeezed "Pot odds" onto two lines at 390 px.
+                  showSelectedIcon: false,
                   onSelectionChanged: (v) => onFocus(v.first),
                 ),
                 const SizedBox(height: 14),
@@ -220,7 +222,8 @@ class _Progress extends StatelessWidget {
         Text('Question ${index + 1} of $total',
             style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 6),
-        LinearProgressIndicator(value: (index + 1) / total, color: Felt.gold),
+        LinearProgressIndicator(
+            value: (index + 1) / total, color: Felt.accent(context)),
       ],
     );
   }
