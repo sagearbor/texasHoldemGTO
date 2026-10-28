@@ -16,10 +16,14 @@ class MomentsCarousel extends StatefulWidget {
   final List<LoggedHand> hands;
   final SpotLibrary library;
   final Duration every;
+
+  /// Your name, for the drama callout.
+  final String hero;
   const MomentsCarousel({
     super.key,
     required this.hands,
     required this.library,
+    this.hero = 'Me',
     this.every = const Duration(seconds: 15),
   });
 
@@ -47,7 +51,7 @@ class _MomentsCarouselState extends State<MomentsCarousel> {
 
   @override
   Widget build(BuildContext context) {
-    final moments = dashboardMoments(widget.hands, widget.library);
+    final moments = dashboardMoments(widget.hands, widget.library, hero: widget.hero);
     if (moments.isEmpty) return const SizedBox.shrink();
     final m = moments[_i % moments.length];
     return Padding(
@@ -96,11 +100,12 @@ class _MomentsCarouselState extends State<MomentsCarousel> {
 /// One-line "Tonight's drama" from story-tagged hands past the delay.
 class DramaLine extends StatelessWidget {
   final List<LoggedHand> hands;
-  const DramaLine({super.key, required this.hands});
+  final String hero;
+  const DramaLine({super.key, required this.hands, this.hero = 'Me'});
 
   @override
   Widget build(BuildContext context) {
-    final line = dramaLine(hands);
+    final line = dramaLine(hands, hero: hero);
     if (line == null) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),

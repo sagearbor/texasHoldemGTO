@@ -143,8 +143,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         '${model.dashboardDelayMinutes}-minute delay',
                         style: const TextStyle(color: Colors.white54)),
                   ),
-                MomentsCarousel(hands: shown, library: model.library),
-                DramaLine(hands: shown),
+                MomentsCarousel(
+                    hands: shown, library: model.library, hero: s.heroName),
+                DramaLine(hands: shown, hero: s.heroName),
                 if (wide)
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Expanded(flex: 3, child: tiles),

@@ -373,7 +373,7 @@ String recapText(NightRecap r) {
   if (told.isNotEmpty) {
     b.writeln('Stories:');
     for (final h in told.reversed) {
-      b.writeln('  ${storyLine(h)}');
+      b.writeln('  ${storyLine(h, hero: r.session.heroName)}');
     }
   }
   final net = r.session.net;
