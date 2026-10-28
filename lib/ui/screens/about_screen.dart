@@ -16,7 +16,7 @@ import 'settings_screen.dart';
 
 // TODO(owner): replace with the real support address before store release
 // (Play and App Store both require a contact email on the listing too).
-const feedbackEmail = 'TODO-feedback@example.com';
+const feedbackEmail = 'sagearbor+feltnotes@gmail.com';
 
 const privacyPolicyUrl = 'https://sagearbor.github.io/texasHoldemGTO/privacy.html';
 

@@ -66,11 +66,7 @@ SDK's Roboto plus a system font for the card suits).
 Order: 1 Train (graded answer), 2 Charts, 3 Equity, 4 Stats, 5 Home game,
 6 TV dashboard.
 
-## Owner TODO before submitting
+## Contact and URLs
 
-- Support / contact email: replace `TODO-feedback@example.com` in
-  `lib/ui/screens/about_screen.dart` and `web/privacy.html`.
-- Privacy policy URL (live after the next Pages deploy):
-  https://sagearbor.github.io/texasHoldemGTO/privacy.html
-- Content rating questionnaire: the app has no real-money gambling and no
-  betting with chips or coins; it does reference poker (a gambling theme).
+- Support / contact email: sagearbor+feltnotes@gmail.com
+- Privacy policy URL: https://sagearbor.github.io/texasHoldemGTO/privacy.html

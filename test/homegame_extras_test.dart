@@ -493,8 +493,9 @@ void main() {
       await pump(tester, CrewScreen(model: m));
       await tester.scrollUntilVisible(find.text(myResultNote), 300);
       expect(find.text('-\$125'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Pocket Rockets'), 300);
+      await tester.scrollUntilVisible(find.text('Badges'), 300);
       expect(find.text('Badges'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Pocket Rockets'), 300);
       await tester.scrollUntilVisible(find.text('In the Black'), 300);
       expect(tester.takeException(), isNull);
     });
