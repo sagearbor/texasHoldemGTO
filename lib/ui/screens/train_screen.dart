@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/table_diagram.dart';
 import 'daily_screen.dart';
+import 'glossary_screen.dart';
 import 'help_screen.dart';
 import 'quiz_screen.dart';
 import 'review_sheet.dart';
@@ -23,7 +24,12 @@ class TrainScreen extends StatelessWidget {
         final d = model.current;
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Train'),
+            // A focus-spot chip is long: on a phone it gets the title's room
+            // (the bottom bar already says Train).
+            title: model.focusSpotId != null &&
+                    MediaQuery.sizeOf(context).width < 400
+                ? null
+                : const Text('Train'),
             actions: [
               _ModeMenu(model: model),
               IconButton(
@@ -32,6 +38,7 @@ class TrainScreen extends StatelessWidget {
                 onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const QuizScreen())),
               ),
+              const GlossaryButton(),
               const HelpButton(HelpTopic.train),
             ],
           ),
@@ -70,9 +77,11 @@ class _ModeMenu extends StatelessWidget {
     String name(DrillMode m) => m == DrillMode.leaks && due > 0
         ? '${labels[m]} · $due due'
         : labels[m]!;
-    final label = model.focusSpotId != null
-        ? model.library.byId(model.focusSpotId!).title
-        : name(model.mode);
+    final label = model.focusSpotId == null
+        ? name(model.mode)
+        : model.weakTargets.isNotEmpty
+            ? 'Weak hands · ${model.library.byId(model.focusSpotId!).title}'
+            : model.library.byId(model.focusSpotId!).title;
     return PopupMenuButton<Object>(
       tooltip: 'Drill mode',
       onSelected: (v) {

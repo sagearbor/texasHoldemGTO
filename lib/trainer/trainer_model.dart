@@ -166,6 +166,16 @@ class TrainerModel extends ChangeNotifier {
   /// When non-null, drills stay in this one spot.
   String? focusSpotId;
 
+  /// "Drill my weak hands": (spotId, hand class) pairs, worst first, that
+  /// most drills are dealt from while set. Cleared by any focus / mode
+  /// change. The Daily 10 is unaffected.
+  List<(String, int)> weakTargets = const [];
+
+  /// Share of drills dealt from [weakTargets] while it is set; the rest
+  /// are normal drills in the focus spot so the hands don't become a
+  /// memorised list.
+  static const weakShare = 0.75;
+
   Drill? current;
   Answer? lastAnswer;
   int streak = 0;
@@ -177,6 +187,9 @@ class TrainerModel extends ChangeNotifier {
         _clock = clock ?? DateTime.now;
 
   int get _now => _clock().millisecondsSinceEpoch;
+
+  /// This model's clock (tests inject a fake one).
+  DateTime get now => _clock();
 
   Future<void> load() async {
     try {
@@ -215,6 +228,7 @@ class TrainerModel extends ChangeNotifier {
     _lastKey = null;
     lastAnswer = null;
     focusSpotId = null;
+    weakTargets = const [];
     difficulty = Difficulty.intermediate;
     streak = sessionCount = sessionGood = 0;
     daily.clearMemory();
@@ -302,6 +316,7 @@ class TrainerModel extends ChangeNotifier {
     streak = sessionCount = sessionGood = 0;
     mode = DrillMode.mixed;
     focusSpotId = null;
+    weakTargets = const [];
     await _save();
     next();
   }
@@ -340,6 +355,7 @@ class TrainerModel extends ChangeNotifier {
   void setMode(DrillMode m) {
     mode = m;
     focusSpotId = null;
+    weakTargets = const [];
     next();
   }
 
@@ -359,6 +375,19 @@ class TrainerModel extends ChangeNotifier {
 
   void focus(String? spotId) {
     focusSpotId = spotId;
+    weakTargets = const [];
+    next();
+  }
+
+  /// Drills [spotId], dealing mostly from [targets] ((spotId, hand) pairs,
+  /// worst first; they may be other spots of the same group). Targets in
+  /// spots that no longer exist are dropped.
+  void drillWeakHands(String spotId, List<(String, int)> targets) {
+    focusSpotId = spotId;
+    weakTargets = [
+      for (final t in targets)
+        if (_spotOrNull(t.$1) != null) t
+    ];
     next();
   }
 
@@ -372,6 +401,20 @@ class TrainerModel extends ChangeNotifier {
   Drill _pick() {
     final pool = _pool;
     Spot spot;
+    if (weakTargets.isNotEmpty && _rng.nextDouble() < weakShare) {
+      // Worst first gets the most weight (n, n-1, ..., 1), skipping the
+      // card just answered when there is a choice.
+      final n = weakTargets.length;
+      final w = [
+        for (var i = 0; i < n; i++)
+          n > 1 && '${weakTargets[i].$1}:${weakTargets[i].$2}' == _lastKey
+              ? 0
+              : n - i
+      ];
+      final (s, h) = weakTargets[_weighted(w)];
+      final combos = HandClass.byIndex(h).combos();
+      return Drill(_spotOrNull(s)!, combos[_rng.nextInt(combos.length)]);
+    }
     // Spaced repetition first: the most overdue card that isn't the one just
     // answered.
     if (mode == DrillMode.leaks && focusSpotId == null) {

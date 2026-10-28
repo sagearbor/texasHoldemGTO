@@ -18,6 +18,7 @@ import '../widgets/story_tags.dart';
 import 'blind_clock_screen.dart';
 import 'crew_screen.dart';
 import 'dashboard_screen.dart';
+import 'glossary_screen.dart';
 import 'help_screen.dart';
 import 'recap_screen.dart';
 import 'review_sheet.dart';
@@ -39,6 +40,7 @@ class HomeGameScreen extends StatelessWidget {
           appBar: AppBar(
             title: Text(s == null ? 'Home game' : s.name),
             actions: [
+              const GlossaryButton(),
               const HelpButton(HelpTopic.homeGame),
               if (s != null)
                 IconButton(
@@ -497,14 +499,19 @@ class _LoggerState extends State<_Logger> {
                   const SizedBox(height: 4),
                   Wrap(spacing: 6, runSpacing: 4, children: [
                     for (final p in s.positionsInOrder)
-                      ChoiceChip(
-                        label: Text(p),
-                        selected: p == s.position,
-                        visualDensity: VisualDensity.compact,
-                        // A tick made the chip wider, so correcting the
-                        // position reflowed the whole row.
-                        showCheckmark: false,
-                        onSelected: (_) => widget.model.setPosition(p),
+                      // Long press explains the seat; tap still corrects it.
+                      GlossaryLink(
+                        term: p,
+                        longPressOnly: true,
+                        child: ChoiceChip(
+                          label: Text(p),
+                          selected: p == s.position,
+                          visualDensity: VisualDensity.compact,
+                          // A tick made the chip wider, so correcting the
+                          // position reflowed the whole row.
+                          showCheckmark: false,
+                          onSelected: (_) => widget.model.setPosition(p),
+                        ),
                       ),
                   ]),
                   const SizedBox(height: 14),

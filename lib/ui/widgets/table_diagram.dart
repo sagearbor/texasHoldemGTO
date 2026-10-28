@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../../gto/spots.dart';
+import '../screens/glossary_screen.dart';
 import '../theme.dart';
 
 /// Small oval table showing the hero's seat (gold), the villain (red) and
@@ -62,7 +63,10 @@ class TableDiagram extends StatelessWidget {
               return Positioned(
                 left: x - 24,
                 top: y - 14,
-                child: Container(
+                // Tap a seat for what UTG / CO / ... means.
+                child: GlossaryLink(
+                  term: s,
+                  child: Container(
                   width: 48,
                   height: 28,
                   alignment: Alignment.center,
@@ -80,6 +84,7 @@ class TableDiagram extends StatelessWidget {
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: isHero ? Colors.black : Colors.white)),
+                  ),
                 ),
               );
             }(),

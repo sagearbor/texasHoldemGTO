@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app_data.dart';
+import '../../learn/glossary.dart';
 import '../../trainer/trainer_model.dart';
 import '../theme.dart';
 import 'about_screen.dart';
+import 'glossary_screen.dart';
 import 'leak_test_screen.dart';
 import 'settings_screen.dart';
 
@@ -48,6 +50,9 @@ const _topics = {
       'Colour blind? The menu at the top right of Charts (or Settings) turns on colour-blind friendly charts: blue / orange '
           'plus stripes = raise, dots = call, plain = fold, on every grid and bar.',
       'Tap any hand for its frequencies and an explanation. "Drill" sends that spot to the trainer.',
+      'My mistakes (toggle above the grid): each hand coloured by how often you got it right in '
+          'that spot (or the whole group), recent answers counting most. Grey = not drilled yet. '
+          '"Drill my weak hands" deals mostly the reddest cells.',
       '6-max 100bb charts are approximate GTO baselines. Push/fold charts are an exact '
           'solution computed by Felt Notes.',
       'River spots (solved), at the bottom of Charts: 40 river boards solved with CFR+ for '
@@ -80,6 +85,8 @@ const _topics = {
       'Fills in as you train. The grid colours each hand by how GTO you play it: green good, red leak.',
       '"Most teachable hands" lists your repeat mistakes, worst first. Tap one to review it.',
       'Spots are listed weakest first, each with a Drill button.',
+      'GTO score over time (chart icon at the top): your accuracy per week or per day, '
+          'plus the GTO grade of each home-game night.',
       'Everything stays on this phone.',
     ]
   ),
@@ -149,6 +156,8 @@ const _topics = {
       'VPIP: % of hands you voluntarily put money in before the flop.',
       'PFR: % of hands you raised before the flop. Compared with VPIP it shows how aggressive you are.',
       'Positions: UTG (first to act) → HJ → CO → BTN (dealer, acts last) → SB → BB.',
+      'More terms: the Glossary (book icon at the top of Train and Home game, or at the top '
+          'of this page). Tap a seat on the table diagram to look it up.',
     ]
   ),
 };
@@ -174,6 +183,16 @@ class HelpScreen extends StatelessWidget {
               subtitle: const Text('Theme, cards, difficulty, currency'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => openSettings(context),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              key: const Key('help-glossary'),
+              leading: Icon(Icons.menu_book_outlined, color: Felt.accent(context)),
+              title: Text('Glossary', style: t.titleMedium),
+              subtitle: Text('${glossary.length} poker terms in plain English'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => openGlossary(context),
             ),
           ),
           for (final e in _topics.entries)
