@@ -59,15 +59,14 @@ First release of Felt Notes.
 | --- | --- |
 | `feature-graphic-1024x500.png` | Play feature graphic (`python3 tool/make_feature_graphic.py`) |
 | `../assets/icon/play-512.png` | Play hi-res icon (`python3 tool/make_icons.py`) |
-| `screenshots/android-phone/*.png` | Play phone screenshots, 1080x1920 (9:16); TV dashboard 1920x1080 |
-| `screenshots/ios-6.7/*.png` | App Store 6.7"/6.9" iPhone slot, 1290x2796; TV dashboard 2796x1290 |
+| `screenshots/android-phone/*.png` | Play phone screenshots, 1080x1920 (9:16), all portrait |
+| `screenshots/ios-6.7/*.png` | App Store 6.7"/6.9" iPhone slot, 1290x2796, all portrait |
 
-Screenshots are rendered from the real screens with seeded data:
-`flutter test test_driver/store_screenshots_test.dart` (macOS: uses the Flutter
-SDK's Roboto plus a system font for the card suits).
+Screenshots are rendered from the real web build with seeded demo data by the
+Playwright scripts kept in `tmp/screens-web/` (gitignored).
 
-Order: 1 Train (graded answer), 2 Charts, 3 Equity, 4 Stats, 5 Home game,
-6 TV dashboard.
+Order: 1 Train, 2 Charts, 3 My mistakes, 4 Progress, 5 Home game,
+6 TV dashboard, 7 Night Recap, 8 Glossary.
 
 ## Contact and URLs
 
