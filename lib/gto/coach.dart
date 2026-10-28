@@ -158,8 +158,12 @@ List<String> coachNotes(Spot spot, HandClass h, int chosen) {
           'cheap multiway flop to hit a set or a big draw, and they gain '
           'little from an iso-raise.');
     }
-    notes.add('Facing-limper charts are hand-authored approximations: '
-        'limped pots are not in standard solver trees.');
+    notes.add(spot.solved
+        ? 'Solved by Felt Notes against an assumed loose-passive UTG limping '
+            'range (the limp range is an input; everything after it is '
+            'equilibrium output).'
+        : 'Facing-limper charts are hand-authored approximations: '
+            'limped pots are not in standard solver trees.');
   }
   if (spot.group == threeBetGroup) notes.addAll(_threeBetNotes(spot, h));
   if (spot.format == SpotFormat.rejam) notes.addAll(_rejamNotes(spot, h));
@@ -270,8 +274,12 @@ List<String> _threeBetNotes(Spot spot, HandClass h) {
         'the 3-bettor\'s AK, AQ and KQ, make few strong hands and have no '
         'flush potential to make up for it.');
   }
-  notes.add('Facing-a-3-bet charts are hand-authored approximations (4-bet '
-      '22bb in position, 25bb out of position), not solver output.');
+  notes.add(spot.solved
+      ? 'Solved by Felt Notes (4-bet 22bb in position, 25bb out of position, '
+          '5-bet all-in): the 3-bettor\'s ranges are equilibrium output; your '
+          'opening range is the approximate chart.'
+      : 'Facing-a-3-bet charts are hand-authored approximations (4-bet '
+          '22bb in position, 25bb out of position), not solver output.');
   return notes;
 }
 

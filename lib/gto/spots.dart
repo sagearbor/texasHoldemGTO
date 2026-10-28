@@ -63,6 +63,10 @@ class Spot {
   /// best-response gains), when the solver recorded it.
   final double? exploitabilityBb;
 
+  /// Model caveat of a solved 100bb spot (data/solved/preflop.json), shown
+  /// after the exploitability in [solverNote].
+  final String? modelNote;
+
   Spot({
     required this.id,
     required this.format,
@@ -78,15 +82,25 @@ class Spot {
     this.reach,
     this.otherVillains = const [],
     this.exploitabilityBb,
+    this.modelNote,
   });
+
+  static String _bb(double e) =>
+      e < 1e-4 ? 'under 0.0001' : e.toStringAsFixed(4);
 
   /// Where the strategy comes from and how exact it is, for spot info.
   String? get solverNote {
     final e = exploitabilityBb;
-    if (format != SpotFormat.rejam || e == null) return null;
+    if (e == null) return null;
+    if (format == SpotFormat.cash100 && solved) {
+      return 'Solved by Felt Notes: preflop equilibrium whose flops are valued '
+          'by our own heads-up flop, turn and river solves. Exploitable for '
+          '${_bb(e)}bb per hand within the model.'
+          '${modelNote == null ? '' : ' $modelNote'}';
+    }
+    if (format != SpotFormat.rejam) return null;
     return 'Solved by Felt Notes (jam-or-fold equilibrium): exploitable for '
-        '${e < 1e-4 ? 'under 0.0001' : e.toStringAsFixed(4)}bb per hand. The '
-        'opening range is the approximate 100bb chart.';
+        '${_bb(e)}bb per hand. The opening range is the approximate 100bb chart.';
   }
 
   List<double> freqs(HandClass h) => strategy[h.index];
@@ -759,6 +773,53 @@ Future<List<Spot>> loadRejamSpots() async => rejamSpotsFrom(
     jsonDecode(await rootBundle.loadString('assets/data/rejam.json'))
         as Map<String, dynamic>);
 
+/// Solved 100bb preflop spots (facing limpers, facing a 3-bet), computed by
+/// tool/solve_all.sh and published as an open dataset (CC BY 4.0, see
+/// data/solved/README.md).
+const solvedPreflopAsset = 'data/solved/preflop.json';
+
+/// [cash] with every spot that has a passing entry in a decoded
+/// data/solved/preflop.json replaced by its solved version (same id, group,
+/// title and actions; position in the list unchanged).
+List<Spot> applySolvedSpots(List<Spot> cash, Map<String, dynamic> data) {
+  final solved = data['spots'] as Map<String, dynamic>;
+  return [for (final s in cash) _solved(s, solved[s.id]) ?? s];
+}
+
+Spot? _solved(Spot base, Object? raw) {
+  if (raw is! Map<String, dynamic> || raw['passed'] != true) return null;
+  final actions = (raw['actions'] as List).cast<String>();
+  if (actions.join('|') != base.actions.join('|')) return null;
+  List<double> nums(List l) =>
+      [for (final v in l) (v as num?)?.toDouble() ?? 0];
+  final reach = raw['reach'] as List?;
+  return Spot(
+    id: base.id,
+    format: base.format,
+    group: base.group,
+    title: base.title,
+    situation: base.situation.replaceAll(' (Approximate chart.)', ''),
+    hero: base.hero,
+    villain: base.villain,
+    otherVillains: base.otherVillains,
+    actions: base.actions,
+    strategy: [for (final row in raw['strategy'] as List) nums(row as List)],
+    solved: true,
+    reach: reach == null ? base.reach : nums(reach),
+    exploitabilityBb: (raw['exploitabilityBb'] as num).toDouble(),
+    modelNote: raw['note'] as String?,
+  );
+}
+
+Future<Map<String, dynamic>?> loadSolvedPreflop() async {
+  try {
+    return jsonDecode(await rootBundle.loadString(solvedPreflopAsset))
+        as Map<String, dynamic>;
+  } catch (_) {
+    return null;
+  }
+}
+
 class SpotLibrary {
   final List<Spot> cash;
   final List<Spot> pushFold;
@@ -779,10 +840,14 @@ class SpotLibrary {
   List<Spot> get all => [...cash, ...pushFold, ...pushFold3, ...rejam];
   Spot byId(String id) => all.firstWhere((s) => s.id == id);
 
-  static Future<SpotLibrary> load() async => SpotLibrary(
-      buildCashSpots(),
-      await loadPushFoldSpots(),
-      await loadVsRandom(),
-      await loadPushFold3Spots(),
-      await loadRejamSpots());
+  static Future<SpotLibrary> load() async {
+    final solved = await loadSolvedPreflop();
+    final cash = buildCashSpots();
+    return SpotLibrary(
+        solved == null ? cash : applySolvedSpots(cash, solved),
+        await loadPushFoldSpots(),
+        await loadVsRandom(),
+        await loadPushFold3Spots(),
+        await loadRejamSpots());
+  }
 }

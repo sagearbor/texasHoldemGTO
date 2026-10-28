@@ -149,10 +149,11 @@ def game_3bet(spot, tab, Rt):
     pv = BLIND.get(V, 0.0)
     dead = sum(b for p, b in BLIND.items() if p not in (O, V))
     t = spot["three"]
-    villain_blind = V in BLIND
-    hero_ip = villain_blind
+    # the opener is in position unless the 3-bettor sits behind it on the
+    # button, or the opener is the SB (vs the BB)
+    hero_ip = V in BLIND and O != "SB"
     f = 22.0 if hero_ip else 25.0
-    oop = 1 if villain_blind else 0
+    oop = 1 if hero_ip else 0
     srp = pot_type(f"SRP:{O}-{V}", 2 * o + dead, STACK - o, oop, 0)
     tbp = pot_type(f"3BP:{O}-{V}", 2 * t + dead, STACK - t, oop, 1)
     jam_node = pf.Node(0, ["Call", "Fold"], [pf.allin(tab, STACK, dead),
@@ -161,7 +162,7 @@ def game_3bet(spot, tab, Rt):
         pf.fold(0, f, t, dead),
         pf.allin(tab, f, dead, kind="post4", info={"potType": "4BP"}),
         jam_node], "threeBettorVs4bet")
-    hero = pf.Node(0, ["4-bet", "Call", "Fold"], [
+    hero = pf.Node(0, [f"4-bet {int(f)}bb", "Call", "Fold"], [
         v4,
         pf.post(tab, tbp, t, dead, R_of(Rt, tbp, 0), R_of(Rt, tbp, 1)),
         pf.fold(1, o, t, dead)], "hero")

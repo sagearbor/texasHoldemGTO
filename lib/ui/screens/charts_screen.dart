@@ -255,6 +255,8 @@ class _ChartsScreenState extends State<ChartsScreen> {
                     const SizedBox(height: 6),
                     Text(
                       switch (s.format) {
+                        SpotFormat.cash100 when s.solved =>
+                          '${s.solverNote ?? ''} Tap any hand for coaching.',
                         SpotFormat.cash100 => s.reach != null
                             ? 'Hand-authored approximation. Faded hands are not '
                                 'in the opening range. Tap any hand for coaching.'
