@@ -21,6 +21,9 @@ class RiverDrillScreen extends StatefulWidget {
 
 class _RiverDrillScreenState extends State<RiverDrillScreen> {
   final rng = Random();
+
+  /// null = every preflop line, else a preset id ('srp', '3bp').
+  String? preset;
   late RiverQuestion q = randomRiverQuestion(widget.library, rng);
   int? chosen;
   int played = 0, good = 0;
@@ -36,20 +39,39 @@ class _RiverDrillScreenState extends State<RiverDrillScreen> {
   }
 
   void _next() => setState(() {
-        q = randomRiverQuestion(widget.library, rng);
+        q = randomRiverQuestion(widget.library, rng, preset: preset);
         chosen = null;
       });
+
+  void _setPreset(String? p) {
+    preset = p;
+    _next();
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-    final info = riverNodeInfo[q.node.id]!;
+    final info = riverNodeInfo(q.node.id);
     final br = Theme.of(context).brightness;
     return Scaffold(
       appBar: AppBar(title: const Text('River drill')),
       body: Felt.narrow(ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final (id, label) in [
+              (null, 'All pots'),
+              for (final p in widget.library.presets) (p.id, p.label),
+            ])
+              ChoiceChip(
+                visualDensity: VisualDensity.compact,
+                showCheckmark: false,
+                label: Text(label),
+                selected: preset == id,
+                onSelected: (_) => _setPreset(id),
+              ),
+          ]),
+          const SizedBox(height: 8),
           Text(
               played == 0
                   ? 'Pick the play the solver makes most.'
@@ -79,7 +101,7 @@ class _RiverDrillScreenState extends State<RiverDrillScreen> {
               ),
           ]),
           const SizedBox(height: 10),
-          Text('Single-raised pot, BTN opened and BB called. ${info.$2}',
+          Text('${q.board.preset.label}: ${q.board.preset.line} ${info.$2}',
               style: t.bodyMedium, textAlign: TextAlign.center),
           const SizedBox(height: 12),
           Wrap(
@@ -122,7 +144,7 @@ class _RiverDrillScreenState extends State<RiverDrillScreen> {
                         style: t.titleSmall),
                     const SizedBox(height: 6),
                     for (final n
-                        in riverCoach(q, chosen!, widget.library.stack))
+                        in riverCoach(q, chosen!))
                       Padding(
                         padding: const EdgeInsets.only(bottom: 4),
                         child: Text('• $n', style: t.bodyMedium),
@@ -130,6 +152,10 @@ class _RiverDrillScreenState extends State<RiverDrillScreen> {
                     const SizedBox(height: 6),
                     Text('${q.hero}\'s whole range here: ${_rangeLine()}',
                         style: t.bodySmall),
+                    const SizedBox(height: 6),
+                    Text(q.board.solverLine,
+                        style: t.bodySmall
+                            ?.copyWith(fontStyle: FontStyle.italic)),
                   ],
                 ),
               ),

@@ -29,6 +29,7 @@ class RiverScreen extends StatefulWidget {
 class _RiverScreenState extends State<RiverScreen> {
   int boardIdx = 0;
   String nodeId = 'root';
+  String? presetId;
 
   @override
   Widget build(BuildContext context) {
@@ -53,32 +54,55 @@ class _RiverScreenState extends State<RiverScreen> {
 
   Widget _body(BuildContext context, RiverLibrary lib) {
     final t = Theme.of(context).textTheme;
-    final b = lib.boards[boardIdx];
-    final node = b.nodes[nodeId]!;
+    final pid = presetId ?? lib.presets.first.id;
+    final preset = lib.presets.firstWhere((p) => p.id == pid);
+    final boards = lib.boardsOf(pid);
+    final b = boards[boardIdx.clamp(0, boards.length - 1)];
+    final node = b.nodes[nodeId] ?? b.nodes['root']!;
     final textures = <String, List<int>>{};
-    for (var i = 0; i < lib.boards.length; i++) {
-      (textures[lib.boards[i].texture] ??= []).add(i);
+    for (var i = 0; i < boards.length; i++) {
+      (textures[boards[i].texture] ??= []).add(i);
     }
     final rf = b.rangeFreqs(node);
+    final info = riverNodeInfo(node.id);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
       children: [
         Text(
-            'BB vs BTN, single-raised pot. ${lib.boards.length} river boards '
-            'solved with CFR+. Simplified ranges (full preflop ranges, '
-            'board blockers removed); stacks ${lib.stack.toStringAsFixed(0)} '
-            'pots deep.',
+            '${lib.boards.length} river boards solved with CFR+ by Felt '
+            'Notes, BB vs BTN. Simplified ranges (the app\'s preflop charts, '
+            'board blockers removed).',
+            style: t.bodySmall),
+        const SizedBox(height: 8),
+        Wrap(spacing: 6, runSpacing: 6, children: [
+          for (final p in lib.presets)
+            ChoiceChip(
+              visualDensity: VisualDensity.compact,
+              showCheckmark: false,
+              label: Text('${p.label} (${lib.boardsOf(p.id).length})'),
+              selected: p.id == pid,
+              onSelected: (_) => setState(() {
+                presetId = p.id;
+                boardIdx = 0;
+                nodeId = 'root';
+              }),
+            ),
+        ]),
+        const SizedBox(height: 4),
+        Text(
+            '${preset.line} Stacks ${preset.stack.toStringAsFixed(1)} pots '
+            'deep at the start of the river.',
             style: t.bodySmall),
         const SizedBox(height: 8),
         DropdownButton<int>(
           isExpanded: true,
-          value: boardIdx,
+          value: boards.indexOf(b),
           items: [
             for (final e in textures.entries)
               for (final i in e.value)
                 DropdownMenuItem(
                   value: i,
-                  child: Text('${e.key}: ${_pretty(lib.boards[i].boardStr)}',
+                  child: Text('${e.key}: ${_pretty(boards[i].boardStr)}',
                       overflow: TextOverflow.ellipsis),
                 ),
           ],
@@ -100,13 +124,14 @@ class _RiverScreenState extends State<RiverScreen> {
         }),
         const SizedBox(height: 12),
         Wrap(spacing: 6, runSpacing: 6, children: [
-          for (final id in riverNodeInfo.keys)
-            if (b.nodes.containsKey(id) && !id.startsWith('ipVsRaise'))
-              ChoiceChip(
-                label: Text(riverNodeInfo[id]!.$1),
-                selected: id == nodeId,
-                onSelected: (_) => setState(() => nodeId = id),
-              ),
+          for (final spec in preset.nodes)
+            ChoiceChip(
+              visualDensity: VisualDensity.compact,
+              showCheckmark: false,
+              label: Text(riverNodeInfo(spec.id).$1),
+              selected: spec.id == node.id,
+              onSelected: (_) => setState(() => nodeId = spec.id),
+            ),
         ]),
         const SizedBox(height: 8),
         Card(
@@ -115,10 +140,12 @@ class _RiverScreenState extends State<RiverScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                    '${riverSeatName[node.player]}: ${riverNodeInfo[nodeId]!.$1}',
+                Text('${riverSeatName[node.player]}: ${info.$1}',
                     style: t.titleMedium),
-                Text(riverNodeInfo[nodeId]!.$2, style: t.bodySmall),
+                Text(
+                    '${info.$2} Reached ${pct(b.arrival[node.id]!)} of the '
+                    'time.',
+                    style: t.bodySmall),
                 const SizedBox(height: 10),
                 RiverGrid(
                   strategy: b.classStrategy(node),
@@ -152,9 +179,7 @@ class _RiverScreenState extends State<RiverScreen> {
                     child: Text('• $line', style: t.bodyMedium),
                   ),
                 Text(
-                  'Solver accuracy: exploitable for '
-                  '${b.exploitabilityPctPot.toStringAsFixed(3)}% of the pot '
-                  '(${lib.iterations} CFR+ iterations).',
+                  b.solverLine,
                   style: t.bodySmall?.copyWith(fontStyle: FontStyle.italic),
                 ),
               ],
@@ -206,7 +231,7 @@ class _RiverScreenState extends State<RiverScreen> {
             children: [
               Text(
                   '${h.name}: ${riverSeatName[node.player]}, '
-                  '${riverNodeInfo[node.id]!.$1}',
+                  '${riverNodeInfo(node.id).$1}',
                   style: t.titleMedium),
               const SizedBox(height: 6),
               if (idx.isEmpty)
@@ -224,9 +249,8 @@ class _RiverScreenState extends State<RiverScreen> {
                           'beats ${pct(side.eq[i])}',
                           style: t.bodyMedium),
                       Text(
-                          reach[i] < 1e-4
-                              ? 'Never reaches this spot. '
-                                  '${riverStrategyLine(node.actions, node.freqs(i))}'
+                          reach[i] <= 0
+                              ? 'Never reaches this spot.'
                               : riverStrategyLine(node.actions, node.freqs(i)),
                           style: t.bodySmall),
                     ],

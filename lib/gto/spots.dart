@@ -16,6 +16,10 @@
 ///    tool/solve_pushfold.dart (assets/data/pushfold.json).
 ///  * 3-handed push/fold (BTN, SB, BB): equilibrium computed by
 ///    tool/solve_pushfold3.dart (assets/data/pushfold3.json).
+///  * Short-stack cash, 15-25bb: the big blind's jam-or-fold over an open
+///    and the opener's call-off, solved by tool/solve_rejam.dart
+///    (assets/data/rejam.json). The opener's range is the RFI chart above
+///    (an approximate input); everything else is equilibrium output.
 library;
 
 import 'dart:convert';
@@ -25,7 +29,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'hand_class.dart';
 import 'range_parser.dart';
 
-enum SpotFormat { cash100, pushFold, pushFold3 }
+enum SpotFormat { cash100, pushFold, pushFold3, rejam }
 
 class Spot {
   final String id;
@@ -55,6 +59,10 @@ class Spot {
   /// CO or BTN 3-bets"), shown alongside [villain] on the table diagram.
   final List<String> otherVillains;
 
+  /// Exploitability of the solved strategy (bb per hand, both players'
+  /// best-response gains), when the solver recorded it.
+  final double? exploitabilityBb;
+
   Spot({
     required this.id,
     required this.format,
@@ -69,7 +77,17 @@ class Spot {
     this.solved = false,
     this.reach,
     this.otherVillains = const [],
+    this.exploitabilityBb,
   });
+
+  /// Where the strategy comes from and how exact it is, for spot info.
+  String? get solverNote {
+    final e = exploitabilityBb;
+    if (format != SpotFormat.rejam || e == null) return null;
+    return 'Solved by Felt Notes (jam-or-fold equilibrium): exploitable for '
+        '${e < 1e-4 ? 'under 0.0001' : e.toStringAsFixed(4)}bb per hand. The '
+        'opening range is the approximate 100bb chart.';
+  }
 
   List<double> freqs(HandClass h) => strategy[h.index];
 
@@ -677,6 +695,70 @@ Future<List<double>> loadVsRandom() async {
   return [for (final v in data['vsRandom'] as List) (v as num).toDouble()];
 }
 
+/// Effective stacks (bb) of the short-stack jam-over-an-open spots.
+const rejamStacks = [15, 20, 25];
+
+/// Openers of the short-stack jam-over-an-open spots.
+const rejamOpeners = ['UTG', 'HJ', 'CO', 'BTN', 'SB'];
+
+String rejamGroup(int stack) => 'Short stack ${stack}bb: jam over an open';
+
+/// BB's jam-or-fold vs [opener]'s open at [stack] bb.
+String rejamBbId(String opener, int stack) => 'rj-bb-$opener-$stack';
+
+/// [opener] facing the BB's [stack] bb jam after opening.
+String rejamOpenerId(String opener, int stack) => 'rj-$opener-vs-jam-$stack';
+
+/// Spots from a decoded assets/data/rejam.json map.
+List<Spot> rejamSpotsFrom(Map<String, dynamic> data) {
+  final spots = <Spot>[];
+  for (final s in (data['stacks'] as List).cast<int>()) {
+    for (final p in (data['openers'] as List).cast<String>()) {
+      final d = data['spots']['$p-$s'] as Map<String, dynamic>;
+      List<double> l(String k) =>
+          [for (final v in d[k] as List) (v as num).toDouble()];
+      final open = p == 'SB' ? '3bb' : '2.5bb';
+      final rest = p == 'SB' ? '' : ', the rest fold';
+      spots.add(Spot(
+        id: rejamBbId(p, s),
+        format: SpotFormat.rejam,
+        group: rejamGroup(s),
+        title: 'BB jam vs $p open (${s}bb)',
+        situation: 'You have ${s}bb in the BB. $p opens $open$rest. Jam or '
+            'fold? (Model: no flat call or small 3-bet.)',
+        hero: 'BB',
+        villain: p,
+        actions: ['All-in', 'Fold'],
+        strategy: [for (final f in l('bbJam')) [f, 1 - f]],
+        edge: l('bbJamEdge'),
+        solved: true,
+        exploitabilityBb: (d['exploitabilityBb'] as num).toDouble(),
+      ));
+      spots.add(Spot(
+        id: rejamOpenerId(p, s),
+        format: SpotFormat.rejam,
+        group: rejamGroup(s),
+        title: '$p vs BB jam (${s}bb)',
+        situation: 'You open $open from the $p$rest. The BB has ${s}bb and '
+            'moves all-in. Call or fold?',
+        hero: p,
+        villain: 'BB',
+        actions: ['Call', 'Fold'],
+        strategy: [for (final f in l('openCall')) [f, 1 - f]],
+        edge: l('openCallEdge'),
+        solved: true,
+        reach: rfiReach(p),
+        exploitabilityBb: (d['exploitabilityBb'] as num).toDouble(),
+      ));
+    }
+  }
+  return spots;
+}
+
+Future<List<Spot>> loadRejamSpots() async => rejamSpotsFrom(
+    jsonDecode(await rootBundle.loadString('assets/data/rejam.json'))
+        as Map<String, dynamic>);
+
 class SpotLibrary {
   final List<Spot> cash;
   final List<Spot> pushFold;
@@ -684,12 +766,23 @@ class SpotLibrary {
 
   /// 3-handed (BTN/SB/BB) push/fold spots.
   final List<Spot> pushFold3;
-  SpotLibrary(this.cash, this.pushFold,
-      [this.vsRandom = const [], this.pushFold3 = const []]);
 
-  List<Spot> get all => [...cash, ...pushFold, ...pushFold3];
+  /// Short-stack cash: BB jam over an open / opener vs the jam (solved).
+  /// Kept out of [cash] so the Daily 10 (which draws from [cash] and
+  /// [pushFold]) never changes.
+  final List<Spot> rejam;
+  SpotLibrary(this.cash, this.pushFold,
+      [this.vsRandom = const [],
+      this.pushFold3 = const [],
+      this.rejam = const []]);
+
+  List<Spot> get all => [...cash, ...pushFold, ...pushFold3, ...rejam];
   Spot byId(String id) => all.firstWhere((s) => s.id == id);
 
-  static Future<SpotLibrary> load() async => SpotLibrary(buildCashSpots(),
-      await loadPushFoldSpots(), await loadVsRandom(), await loadPushFold3Spots());
+  static Future<SpotLibrary> load() async => SpotLibrary(
+      buildCashSpots(),
+      await loadPushFoldSpots(),
+      await loadVsRandom(),
+      await loadPushFold3Spots(),
+      await loadRejamSpots());
 }

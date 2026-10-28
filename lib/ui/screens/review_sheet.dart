@@ -78,6 +78,9 @@ class CoachPanel extends StatelessWidget {
           ),
         if (!spot.solved)
           Text('100bb charts are approximate GTO baselines.',
+              style: t.bodySmall?.copyWith(fontStyle: FontStyle.italic))
+        else if (spot.solverNote != null)
+          Text(spot.solverNote!,
               style: t.bodySmall?.copyWith(fontStyle: FontStyle.italic)),
         if (showGrid) ...[
           const SizedBox(height: 12),
