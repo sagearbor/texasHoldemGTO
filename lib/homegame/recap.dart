@@ -413,8 +413,8 @@ List<HomeSession> _nights(List<HomeSession> sessions) =>
     [for (final s in sessions) if (s.hands.isNotEmpty) s]
       ..sort((a, b) => a.started.compareTo(b.started));
 
-/// Everyone who sat with you (current seats plus anyone who dealt a logged
-/// hand, so people who left mid-game still count). You are identified by
+/// Everyone who sat with you (current seats, the night's bench, plus anyone
+/// who dealt a logged hand, so people who left mid-game still count). You are identified by
 /// your seat in each night, not by name, and never appear in the list.
 CrewStats crewStats(List<HomeSession> sessions) {
   final nights = _nights(sessions);
@@ -437,7 +437,7 @@ CrewStats crewStats(List<HomeSession> sessions) {
     for (final h in s.hands) {
       add(h.dealer);
     }
-    for (final p in s.players) {
+    for (final p in [...s.players, ...s.bench]) {
       add(p);
     }
   }

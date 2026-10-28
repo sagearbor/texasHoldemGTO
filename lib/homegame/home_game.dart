@@ -2,6 +2,19 @@
 /// optionally, your preflop action. The app tracks the dealer button (one
 /// seat per logged hand) so it can predict your position; you can correct
 /// the position or dealer on any hand, and add/remove players mid-game.
+///
+/// Default fold: the organizer marks hand boundaries ("Next hand", or a
+/// dealer tap during the first orbit) and any hand you did not tap is
+/// stored as a fold with [LoggedHand.assumed] set. "Skip" still exists
+/// and stores no action at all (unknown), so the two stay distinct.
+///
+/// Sync interface (additive, for a later multi-phone merge): every hand
+/// has a start and end ms timestamp ([LoggedHand.start], [LoggedHand.ts]),
+/// [HomeSession.handAt] maps any tap time to its hand, and
+/// [HomeSession.rosterToJson] is the seat order / button / bench snapshot.
+/// New JSON keys: hand `s` (start ms), `af` (assumed fold); session `hs`
+/// (current hand start ms), `pa`/`pf`/`pk` (pending tap), `ls` (seats
+/// learned so far in the first orbit), `bench`. Old saves read unchanged.
 library;
 
 import 'dart:convert';
@@ -61,6 +74,14 @@ class LoggedHand {
   /// flop is possible). Recorded by the board caller; null when nobody did.
   final List<int>? board;
 
+  /// Ms when the hand started (the previous boundary). Null on hands saved
+  /// before boundaries were stored; [ts] is when it ended.
+  final int? start;
+
+  /// True when [action] is a default fold: nobody tapped anything before
+  /// the next hand began. Counts as a fold in every stat.
+  final bool assumed;
+
   LoggedHand({
     required this.number,
     required this.cards,
@@ -71,25 +92,31 @@ class LoggedHand {
     required this.ts,
     this.tag,
     this.board,
+    this.start,
+    this.assumed = false,
   });
 
+  /// A new [action] is a real tap, so it clears [assumed].
   LoggedHand copyWith({
     List<int>? cards,
     PreAction? action,
     Facing? facing,
     List<int>? board,
+    String? position,
     bool clearAction = false,
   }) =>
       LoggedHand(
         number: number,
         cards: cards ?? this.cards,
-        position: position,
+        position: position ?? this.position,
         dealer: dealer,
         action: clearAction ? null : action ?? this.action,
         facing: clearAction ? null : facing ?? this.facing,
         ts: ts,
         board: board ?? this.board,
         tag: tag,
+        start: start,
+        assumed: !clearAction && action == null && assumed,
       );
 
   HandClass? get hand =>
@@ -108,6 +135,8 @@ class LoggedHand {
         't': ts,
         if (tag != null) 'g': tag!.name,
         if (board != null && board!.isNotEmpty) 'b': board,
+        if (start != null) 's': start,
+        if (assumed) 'af': true,
       };
 
   static LoggedHand fromJson(Map<String, dynamic> j) => LoggedHand(
@@ -120,6 +149,8 @@ class LoggedHand {
         ts: j['t'] as int,
         tag: storyTagFromName(j['g']),
         board: (j['b'] as List?)?.cast<int>(),
+        start: j['s'] as int?,
+        assumed: j['af'] as bool? ?? false,
       );
 }
 
@@ -129,6 +160,8 @@ class HomeSession {
   final int started;
 
   /// Current players in seat order, clockwise. Changes when people join/leave.
+  /// While [learnedSeats] is set, only its first [learnedSeats] entries are
+  /// confirmed; the rest are a guess in the order they were typed.
   final List<String> players;
   int heroSeat;
 
@@ -150,6 +183,26 @@ class HomeSession {
   /// the hand when it is logged.
   List<int> currentBoard;
 
+  /// Ms when the hand being played now started. Null only while the first
+  /// orbit is being learned and nobody has been tapped as dealer yet.
+  int? handStartedAt;
+
+  /// Your tap for the hand being played now (null = default fold).
+  PreAction? pendingAction;
+  Facing? pendingFacing;
+
+  /// "I didn't see this hand": close it with no action (unknown), not a fold.
+  bool pendingSkip;
+
+  /// Seats confirmed so far while the organizer taps each dealer in the
+  /// first orbit (tap order = seat order). Null once the order is known,
+  /// and on every night saved before this existed.
+  int? learnedSeats;
+
+  /// Names on tonight's roster who are not in the dealing rotation (never
+  /// dealt in the first orbit). They join the rotation when they deal.
+  final List<String> bench;
+
   HomeSession({
     required this.id,
     required this.name,
@@ -162,12 +215,29 @@ class HomeSession {
     this.buyIn,
     this.cashOut,
     List<int>? currentBoard,
+    this.handStartedAt,
+    this.pendingAction,
+    this.pendingFacing,
+    this.pendingSkip = false,
+    this.learnedSeats,
+    List<String>? bench,
   })  : hands = hands ?? [],
-        currentBoard = currentBoard ?? [];
+        currentBoard = currentBoard ?? [],
+        bench = bench ?? [];
 
   int get tableSize => players.length;
 
   int get heroOffset => (heroSeat - buttonSeat) % tableSize;
+
+  /// Your name as typed at setup ("Me" if the seat is somehow gone).
+  String get heroName =>
+      heroSeat >= 0 && heroSeat < players.length ? players[heroSeat] : 'Me';
+
+  /// True while the organizer is still tapping dealers to learn the seats.
+  bool get learning => learnedSeats != null;
+
+  /// False only before the first dealer tap of a learned-seat night.
+  bool get handInProgress => handStartedAt != null;
 
   /// Your position for the next hand.
   String get position => positionName(tableSize, heroOffset);
@@ -196,9 +266,12 @@ class HomeSession {
   void addPlayer(String name, int atSeat) {
     final i = atSeat.clamp(0, tableSize);
     players.insert(i, name);
+    bench.remove(name);
     if (i <= heroSeat) heroSeat++;
     if (i <= buttonSeat) buttonSeat++;
     buttonSeat %= tableSize;
+    final n = learnedSeats;
+    if (n != null && i < n) learnedSeats = n + 1;
   }
 
   /// Removes a player (never you). If they had the button, it passes to the
@@ -209,20 +282,100 @@ class HomeSession {
     if (seat < heroSeat) heroSeat--;
     if (seat < buttonSeat) buttonSeat--;
     buttonSeat %= tableSize;
+    final n = learnedSeats;
+    if (n != null && seat < n) learnedSeats = n - 1;
+    _maybeFinishOrbit();
   }
+
+  /// Moves [seat] to the first unconfirmed slot and makes them the dealer.
+  void learnDealer(int seat) {
+    final at = learnedSeats!;
+    final hero = heroName;
+    players.insert(at, players.removeAt(seat));
+    heroSeat = players.indexOf(hero);
+    learnedSeats = at + 1;
+    buttonSeat = at;
+    _maybeFinishOrbit();
+  }
+
+  /// Every seat has dealt once: the order is known, rotation is automatic.
+  void _maybeFinishOrbit() {
+    final n = learnedSeats;
+    if (n != null && n >= tableSize) finishOrbit();
+  }
+
+  /// Ends seat learning. Anyone never tapped as dealer goes to the [bench]
+  /// (you stay seated, after the last dealer). Positions of the hands so
+  /// far are recomputed from the learned order.
+  void finishOrbit() {
+    final n = learnedSeats;
+    if (n == null) return;
+    final hero = heroName;
+    final dealer = players[buttonSeat];
+    final cut = n.clamp(0, players.length);
+    final untapped = players.sublist(cut);
+    players.removeRange(cut, players.length);
+    for (final p in untapped) {
+      p == hero ? players.add(p) : bench.add(p);
+    }
+    heroSeat = players.indexOf(hero);
+    buttonSeat = players.indexOf(dealer).clamp(0, tableSize - 1);
+    learnedSeats = null;
+    for (var i = 0; i < hands.length; i++) {
+      final d = hands[i].dealer;
+      final seat = d == null ? -1 : players.indexOf(d);
+      if (seat < 0) continue;
+      hands[i] = hands[i].copyWith(
+          position: positionName(tableSize, (heroSeat - seat) % tableSize));
+    }
+  }
+
+  /// Start of logged hand [i] (older saves: when the hand before it ended).
+  int _startOf(int i) =>
+      hands[i].start ?? (i == 0 ? started : hands[i - 1].ts);
+
+  /// Hand boundaries in ms, oldest first: the start of every logged hand,
+  /// then the start of the hand being played now (if one is). A tap at time
+  /// t belongs to the hand whose start is the last boundary <= t.
+  List<int> get boundaries => [
+        for (var i = 0; i < hands.length; i++) _startOf(i),
+        if (handStartedAt != null) handStartedAt!,
+      ];
+
+  /// The logged hand that was being played at [ms], or null (before the
+  /// first hand, or during the hand being played now).
+  LoggedHand? handAt(int ms) {
+    for (var i = hands.length - 1; i >= 0; i--) {
+      if (ms >= hands[i].ts) return null;
+      if (ms >= _startOf(i)) return hands[i];
+    }
+    return null;
+  }
+
+  /// Seat order, button and bench only: what another phone needs to agree
+  /// on who dealt which hand.
+  Map<String, dynamic> rosterToJson() => {
+        'players': players,
+        'hero': heroSeat,
+        'btnNext': buttonSeat,
+        if (learnedSeats != null) 'ls': learnedSeats,
+        if (bench.isNotEmpty) 'bench': bench,
+        if (handStartedAt != null) 'hs': handStartedAt,
+      };
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'started': started,
-        'players': players,
-        'hero': heroSeat,
-        'btnNext': buttonSeat,
+        ...rosterToJson(),
         'hands': [for (final h in hands) h.toJson()],
         'closed': closed,
         if (buyIn != null) 'buyIn': buyIn,
         if (cashOut != null) 'cashOut': cashOut,
         if (currentBoard.isNotEmpty) 'cb': currentBoard,
+        if (pendingAction != null) 'pa': pendingAction!.index,
+        if (pendingFacing != null) 'pf': pendingFacing!.index,
+        if (pendingSkip) 'pk': true,
       };
 
   static HomeSession fromJson(Map<String, dynamic> j) {
@@ -234,10 +387,12 @@ class HomeSession {
     // v0.1.0 stored the first hand's button and derived the rest.
     final btn = j['btnNext'] as int? ??
         ((j['btn'] as int) + hands.length) % players.length;
+    final started = j['started'] as int;
+    final learned = j['ls'] as int?;
     return HomeSession(
       id: j['id'] as String,
       name: j['name'] as String,
-      started: j['started'] as int,
+      started: started,
       players: List.of(players),
       heroSeat: j['hero'] as int,
       buttonSeat: btn,
@@ -246,6 +401,14 @@ class HomeSession {
       buyIn: (j['buyIn'] as num?)?.toDouble(),
       cashOut: (j['cashOut'] as num?)?.toDouble(),
       currentBoard: (j['cb'] as List?)?.cast<int>().toList(),
+      // Older saves: the hand being played began when the last one ended.
+      handStartedAt: j['hs'] as int? ??
+          (learned != null ? null : (hands.isEmpty ? started : hands.last.ts)),
+      pendingAction: j['pa'] == null ? null : PreAction.values[j['pa'] as int],
+      pendingFacing: j['pf'] == null ? null : Facing.values[j['pf'] as int],
+      pendingSkip: j['pk'] as bool? ?? false,
+      learnedSeats: learned,
+      bench: (j['bench'] as List?)?.cast<String>().toList(),
     );
   }
 }
@@ -281,8 +444,12 @@ class SessionStats {
   /// Hands with your cards entered.
   final int dealt;
 
-  /// Hands with a preflop action recorded (VPIP/PFR denominator).
+  /// Hands with a preflop action recorded (VPIP/PFR denominator),
+  /// default folds included.
   final int recorded;
+
+  /// Of [recorded], default folds: nobody tapped before the next hand.
+  final int assumed;
   final int vpip;
   final int pfr;
   final int premiums;
@@ -295,6 +462,7 @@ class SessionStats {
     required this.logged,
     required this.dealt,
     required this.recorded,
+    this.assumed = 0,
     required this.vpip,
     required this.pfr,
     required this.premiums,
@@ -328,6 +496,7 @@ SessionStats computeStats(Iterable<LoggedHand> hands, SpotLibrary lib) {
   var logged = 0,
       dealt = 0,
       recorded = 0,
+      assumed = 0,
       vpip = 0,
       pfr = 0,
       premiums = 0,
@@ -339,6 +508,7 @@ SessionStats computeStats(Iterable<LoggedHand> hands, SpotLibrary lib) {
     final a = h.action;
     if (a != null) {
       recorded++;
+      if (h.assumed) assumed++;
       if (a != PreAction.fold) vpip++;
       if (a == PreAction.raise) pfr++;
     }
@@ -373,6 +543,7 @@ SessionStats computeStats(Iterable<LoggedHand> hands, SpotLibrary lib) {
     logged: logged,
     dealt: dealt,
     recorded: recorded,
+    assumed: assumed,
     vpip: vpip,
     pfr: pfr,
     premiums: premiums,
@@ -467,31 +638,54 @@ class HomeGameModel extends ChangeNotifier {
     _changed();
   }
 
+  /// Starts a night. With [learnSeats] the seat order is not typed: the
+  /// organizer taps each dealer during the first orbit and that tap order
+  /// becomes the seating ([dealerTap]). [buttonSeat] is then the first
+  /// dealer if already known (e.g. from the button draw), or -1.
   void start({
     required String name,
     required List<String> players,
     required int heroSeat,
     required int buttonSeat,
+    bool learnSeats = false,
   }) {
     for (final s in sessions) {
       s.closed = true;
     }
     final now = DateTime.now().millisecondsSinceEpoch;
-    sessions.add(HomeSession(
+    final known = !learnSeats || buttonSeat >= 0;
+    final s = HomeSession(
       id: '$now',
       name: name,
       started: now,
-      players: players,
+      players: List.of(players),
       heroSeat: heroSeat,
-      buttonSeat: buttonSeat,
-    ));
+      buttonSeat: buttonSeat < 0 ? 0 : buttonSeat,
+      handStartedAt: known ? now : null,
+      learnedSeats: learnSeats ? 0 : null,
+    );
+    if (learnSeats && buttonSeat >= 0) s.learnDealer(buttonSeat);
+    sessions.add(s);
     _changed();
   }
 
   /// Records the current hand (with the board called for it, if any), then
-  /// passes the button one seat clockwise.
-  void logHand({List<int>? cards, PreAction? action, Facing? facing}) {
+  /// passes the button one seat clockwise. This is a hand boundary: the
+  /// next hand starts now and your pending tap is cleared.
+  void logHand({
+    List<int>? cards,
+    PreAction? action,
+    Facing? facing,
+    bool assumed = false,
+  }) {
     final s = active!;
+    _close(s, cards: cards, action: action, facing: facing, assumed: assumed);
+    _changed();
+  }
+
+  void _close(HomeSession s,
+      {List<int>? cards, PreAction? action, Facing? facing, bool assumed = false}) {
+    final now = DateTime.now().millisecondsSinceEpoch;
     final board = s.currentBoard.isEmpty ? null : List<int>.of(s.currentBoard);
     s.currentBoard = [];
     s.hands.add(LoggedHand(
@@ -501,14 +695,100 @@ class HomeGameModel extends ChangeNotifier {
       dealer: s.players[s.buttonSeat],
       action: action,
       facing: action == null ? null : facing,
-      ts: DateTime.now().millisecondsSinceEpoch,
+      ts: now,
       board: board,
+      start: s.handStartedAt,
+      assumed: assumed && action != null,
     ));
     s.buttonSeat = (s.buttonSeat + 1) % s.tableSize;
+    s.handStartedAt = now;
+    s.pendingAction = null;
+    s.pendingFacing = null;
+    s.pendingSkip = false;
+  }
+
+  /// Closes the hand being played with your pending tap: none means a
+  /// default fold, "skip" means unknown. The organizer's one-tap boundary.
+  /// While seats are being learned it confirms the next guessed dealer.
+  void nextHand({List<int>? cards}) {
+    final s = active;
+    if (s == null || !s.handInProgress) return;
+    _closePending(s, cards);
+    final n = s.learnedSeats;
+    if (n != null) s.learnDealer(n % s.tableSize);
     _changed();
   }
 
-  /// Removes the last hand and gives the button back to its dealer.
+  void _closePending(HomeSession s, List<int>? cards) {
+    final a = s.pendingAction ?? (s.pendingSkip ? null : PreAction.fold);
+    _close(s,
+        cards: cards,
+        action: a,
+        facing: s.pendingAction == null ? null : s.pendingFacing,
+        assumed: s.pendingAction == null);
+  }
+
+  /// Your tap for the hand being played now; null clears it (back to the
+  /// default fold). [facing] is left unknown by the gesture pad, so those
+  /// hands count for VPIP/PFR but are not GTO-graded.
+  void setPending(PreAction? action, {Facing? facing}) {
+    final s = active;
+    if (s == null) return;
+    s.pendingAction = action;
+    s.pendingFacing = action == null ? null : facing;
+    s.pendingSkip = false;
+    _changed();
+  }
+
+  /// Marks the hand being played as unknown (not a fold) when it closes.
+  void setPendingSkip(bool skip) {
+    final s = active;
+    if (s == null) return;
+    s.pendingSkip = skip;
+    if (skip) {
+      s.pendingAction = null;
+      s.pendingFacing = null;
+    }
+    _changed();
+  }
+
+  /// First orbit, organizer only: [seat] is dealing now. Closes the hand
+  /// being played (if one is) with your pending tap and starts a new one
+  /// dealt by them; the tap order becomes the seat order. Tapping the first
+  /// dealer again ends the orbit early (the untapped go to the bench).
+  /// Returns false for a tap that means nothing (someone already seated).
+  bool dealerTap(int seat, {List<int>? cards}) {
+    final s = active;
+    final n = s?.learnedSeats;
+    if (s == null || n == null || seat < 0 || seat >= s.tableSize) return false;
+    if (seat < n) {
+      if (seat != 0 || n < 2) return false;
+      if (s.handInProgress) _closePending(s, cards);
+      s.buttonSeat = 0;
+      s.finishOrbit();
+      _changed();
+      return true;
+    }
+    if (s.handInProgress) _closePending(s, cards);
+    s.handStartedAt ??= DateTime.now().millisecondsSinceEpoch;
+    s.learnDealer(seat);
+    _changed();
+    return true;
+  }
+
+  /// [name] (benched or brand new) deals this hand: they are seated right
+  /// before the expected dealer, so the button reaches them in turn.
+  void dealerArrives(String name) {
+    final s = active;
+    final n = name.trim();
+    if (s == null || n.isEmpty || s.players.contains(n)) return;
+    s.addPlayer(n, s.buttonSeat);
+    s.buttonSeat = s.players.indexOf(n);
+    _changed();
+  }
+
+  /// Removes the last hand and gives the button back to its dealer. The
+  /// hand reopens with the tap it had, so it can be fixed.
   void undo() {
     final s = active;
     if (s == null || s.hands.isEmpty) return;
@@ -517,8 +797,15 @@ class HomeGameModel extends ChangeNotifier {
     if (last.board != null && s.currentBoard.isEmpty) {
       s.currentBoard = List.of(last.board!);
     }
+    final n = s.learnedSeats;
+    if (n != null && n > 0) s.learnedSeats = n - 1;
     final seat = last.dealer == null ? -1 : s.players.indexOf(last.dealer!);
     s.buttonSeat = seat >= 0 ? seat : (s.buttonSeat - 1) % s.tableSize;
+    s.handStartedAt = last.start ??
+        (s.hands.isEmpty ? s.started : s.hands.last.ts);
+    s.pendingAction = last.assumed ? null : last.action;
+    s.pendingFacing = last.assumed ? null : last.facing;
+    s.pendingSkip = last.action == null;
     _changed();
   }
 
@@ -580,8 +867,21 @@ class HomeGameModel extends ChangeNotifier {
     _changed();
   }
 
+  /// Dealer override for the hand being played. While seats are being
+  /// learned it fixes a mis-tap: [seat] replaces the name just tapped.
   void setDealer(int seat) {
-    active?.buttonSeat = seat;
+    final s = active;
+    if (s == null) return;
+    final n = s.learnedSeats;
+    if (n == null) {
+      s.buttonSeat = seat;
+    } else if (n == 0) {
+      dealerTap(seat);
+      return;
+    } else if (seat >= n - 1) {
+      s.learnedSeats = n - 1;
+      s.learnDealer(seat);
+    }
     _changed();
   }
 
