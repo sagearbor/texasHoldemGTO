@@ -1,509 +1,406 @@
-/// Multi-phone "table night" sync (PROTOTYPE, not wired into the app).
+/// Multi-phone table night: the seam between the app's UI and sync.
 ///
-/// One host creates a table with a short join code; friends join with a
-/// display name. The host's table document owns seat order and the dealer
-/// button; every phone derives hand numbers, dealers and positions from it,
-/// so nobody has to agree on timestamps. Each phone writes only its own
-/// entries; one board caller writes boards. Hole cards stay private unless
-/// revealed, and revealed cards are visible only to players who share too.
+/// [TableSync] is what the screens call. The organizer side (seats, "next
+/// hand", undo, board, end) is the dealer bookkeeping the effortless-input
+/// UI drives; the player side is the one-tap-per-played-hand input. Every
+/// call only appends to this phone's local log, so it works with no network
+/// at all; an [Uploader] sends the log when a connection appears, and
+/// [TableSync.merged] combines this phone's log with whatever other phones
+/// have uploaded.
 ///
-/// The design, data model, security rules and cost estimate are in
-/// docs/MULTIPHONE.md. [TableSync] is the seam: [FakeTableSync]
-/// (fake_table_sync.dart) is an in-memory implementation that enforces the
-/// same rules as firestore.rules; FirestoreTableSync is a documented stub.
+/// See docs/MULTIPHONE.md, section "What the organizer UI must call".
 library;
 
+import 'dart:async';
 import 'dart:math';
 
 import '../homegame/home_game.dart';
-import '../poker/cards.dart';
+import 'cloud_logs.dart';
+import 'event_log.dart';
+import 'night_events.dart';
+import 'night_merge.dart';
 
-// ------------------------------------------------------------- join codes
+enum NightRole { organizer, player }
 
-/// No 0/O, 1/I: codes are read aloud across a table.
-const joinCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const joinCodeLength = 6;
-
-String newJoinCode(Random rng) => String.fromCharCodes([
-      for (var i = 0; i < joinCodeLength; i++)
-        joinCodeAlphabet.codeUnitAt(rng.nextInt(joinCodeAlphabet.length))
-    ]);
-
-/// Upper-cases and drops spaces/dashes ("abc 234" -> "ABC234"). Codes never
-/// contain 0/O/1/I, so a typed look-alike simply fails validation.
-String normalizeJoinCode(String raw) =>
-    raw.toUpperCase().replaceAll(RegExp(r'[\s-]'), '');
-
-bool isValidJoinCode(String code) =>
-    RegExp('^[A-HJ-NP-Z2-9]{$joinCodeLength}\$').hasMatch(code);
-
-// ------------------------------------------------------------- table state
-
-/// From hand [from] on, [seats] (uids, clockwise) are at the table and the
-/// button is on seats[button] for hand [from], moving one seat per hand.
-/// The host appends a segment whenever seats change or the dealer is
-/// corrected; history is never rewritten, so old hand numbers keep their
-/// dealer.
-class RotationSegment {
-  final int from;
-  final List<String> seats;
-  final int button;
-
-  const RotationSegment({required this.from, required this.seats, required this.button});
-
-  Map<String, dynamic> toJson() => {'from': from, 'seats': seats, 'button': button};
-
-  static RotationSegment fromJson(Map<String, dynamic> j) => RotationSegment(
-        from: j['from'] as int,
-        seats: (j['seats'] as List).cast<String>(),
-        button: j['button'] as int,
-      );
-}
-
-/// The host-owned table document (tables/{code}).
-class TableState {
-  final String code;
-  final String hostUid;
-  final String name;
-
-  /// The hand being dealt now. Hands below it are over.
-  final int currentHand;
-  final String boardCaller;
-
-  /// TV dashboard delay in minutes (see dashboardDelays).
-  final int delayMin;
-  final bool closed;
-  final List<RotationSegment> rotation;
-
-  /// Display names by uid, copied by the host when seating people.
-  final Map<String, String> names;
-
-  const TableState({
-    required this.code,
-    required this.hostUid,
-    required this.name,
-    required this.currentHand,
-    required this.boardCaller,
-    required this.delayMin,
-    required this.closed,
-    required this.rotation,
-    required this.names,
-  });
-
-  TableState copyWith({
-    int? currentHand,
-    String? boardCaller,
-    int? delayMin,
-    bool? closed,
-    List<RotationSegment>? rotation,
-    Map<String, String>? names,
-  }) =>
-      TableState(
-        code: code,
-        hostUid: hostUid,
-        name: name,
-        currentHand: currentHand ?? this.currentHand,
-        boardCaller: boardCaller ?? this.boardCaller,
-        delayMin: delayMin ?? this.delayMin,
-        closed: closed ?? this.closed,
-        rotation: rotation ?? this.rotation,
-        names: names ?? this.names,
-      );
-
-  /// The segment in force for [hand]: the last one starting at or before it.
-  RotationSegment? segmentFor(int hand) {
-    RotationSegment? out;
-    for (final s in rotation) {
-      if (s.from <= hand) out = s;
-    }
-    return out;
-  }
-
-  List<String> seatsAt(int hand) => segmentFor(hand)?.seats ?? const [];
-
-  /// Seat index of the button for [hand], or null before anyone is seated.
-  int? buttonSeatAt(int hand) {
-    final s = segmentFor(hand);
-    if (s == null || s.seats.isEmpty) return null;
-    return (s.button + hand - s.from) % s.seats.length;
-  }
-
-  String? dealerOf(int hand) {
-    final b = buttonSeatAt(hand);
-    return b == null ? null : seatsAt(hand)[b];
-  }
-
-  String nameOf(String? uid) => uid == null ? '?' : names[uid] ?? '?';
-
-  /// [uid]'s position in [hand], or null if they were not seated.
-  String? positionOf(String uid, int hand) {
-    final seats = seatsAt(hand);
-    final seat = seats.indexOf(uid);
-    final b = buttonSeatAt(hand);
-    if (seat < 0 || b == null || seats.length < 2) return null;
-    return positionName(seats.length, (seat - b) % seats.length);
-  }
-
-  /// A new segment from the current hand with [seats], keeping the button
-  /// on [dealer] (default: whoever deals now, if still seated, else the
-  /// next seated player clockwise from them).
-  RotationSegment reseat(List<String> seats, {String? dealer}) {
-    var d = dealer ?? dealerOf(currentHand);
-    if (d != null && !seats.contains(d)) {
-      final old = seatsAt(currentHand);
-      final at = old.indexOf(d);
-      d = null;
-      for (var k = 1; k <= old.length && d == null; k++) {
-        final next = old[(at + k) % old.length];
-        if (seats.contains(next)) d = next;
-      }
-    }
-    final b = d == null ? 0 : seats.indexOf(d);
-    return RotationSegment(from: currentHand, seats: List.of(seats), button: b < 0 ? 0 : b);
-  }
-
-  Map<String, dynamic> toJson() => {
-        'hostUid': hostUid,
-        'name': name,
-        'currentHand': currentHand,
-        'boardCaller': boardCaller,
-        'delayMin': delayMin,
-        'closed': closed,
-        'rotation': [for (final s in rotation) s.toJson()],
-        'names': names,
-      };
-
-  static TableState fromJson(String code, Map<String, dynamic> j) => TableState(
-        code: code,
-        hostUid: j['hostUid'] as String,
-        name: j['name'] as String,
-        currentHand: j['currentHand'] as int,
-        boardCaller: j['boardCaller'] as String,
-        delayMin: j['delayMin'] as int,
-        closed: j['closed'] as bool,
-        rotation: [
-          for (final s in j['rotation'] as List)
-            RotationSegment.fromJson((s as Map).cast<String, dynamic>())
-        ],
-        names: (j['names'] as Map).cast<String, String>(),
-      );
-}
-
-// ----------------------------------------------------------------- records
-
-/// tables/{code}/players/{uid}
-class PlayerInfo {
-  final String uid;
-  final String name;
-
-  /// One-way for the night: "I reveal my cards, show me others' reveals".
-  final bool sharing;
-
-  const PlayerInfo({required this.uid, required this.name, this.sharing = false});
-}
-
-/// tables/{code}/entries/{uid}_{handNo}: your public, optional action.
-/// Never contains cards. [ts] is the server time of the write.
-class HandEntry {
-  final String uid;
-  final int handNo;
-  final PreAction? action;
-  final Facing? facing;
-  final String position;
-  final bool hasCards;
-  final int ts;
-
-  const HandEntry({
-    required this.uid,
-    required this.handNo,
-    this.action,
-    this.facing,
-    required this.position,
-    required this.hasCards,
-    required this.ts,
-  });
-
-  String get id => '${uid}_$handNo';
-
-  Map<String, dynamic> toJson() => {
-        'uid': uid,
-        'handNo': handNo,
-        if (action != null) 'action': action!.name,
-        if (facing != null) 'facing': facing!.name,
-        'position': position,
-        'hasCards': hasCards,
-        'ts': ts,
-      };
-}
-
-/// tables/{code}/cards/{uid}_{handNo}: your hole cards.
-class HoleCards {
-  final String uid;
-  final int handNo;
-  final List<int> cards;
-  final bool revealed;
-
-  const HoleCards({
-    required this.uid,
-    required this.handNo,
-    required this.cards,
-    required this.revealed,
-  });
-
-  String get id => '${uid}_$handNo';
-}
-
-/// tables/{code}/boards/{handNo}: 3 (flop), 4 (turn) or 5 (river) cards,
-/// written by the board caller. Voice entry produces exactly this.
-class Board {
-  final int handNo;
-  final List<int> cards;
-  final String by;
-  final int ts;
-
-  const Board({required this.handNo, required this.cards, required this.by, required this.ts});
-}
-
-/// A write the security rules (and the fake) refuse.
-class SyncDenied implements Exception {
-  final String reason;
-  const SyncDenied(this.reason);
-  @override
-  String toString() => 'SyncDenied: $reason';
-}
-
-// --------------------------------------------------------------- interface
-
-/// Everything a phone (or the TV dashboard) does with a shared table.
-/// Each phone acts as one signed-in [uid] (anonymous auth in Firestore).
 abstract class TableSync {
-  String get uid;
+  String get deviceId;
+  String get nightId;
+  NightRole get role;
+  bool get isOrganizer;
 
-  /// Creates a table with a fresh join code, joins it as host and board
-  /// caller, and seats the host. Returns the code.
-  Future<String> createTable({required String name, required String hostName, int delayMin = 15});
+  /// The organizer's ticket (for the QR) or the one this phone scanned.
+  JoinTicket get ticket;
 
-  /// Joins by code with a display name. Seating is up to the host.
-  Future<TableState> join(String code, String displayName);
+  // ------------------------------------------------ organizer bookkeeping
 
-  Future<TableState> table(String code);
+  /// The ticket to draw right now (fresh clock reading). Organizer only;
+  /// redraw it every second while the QR is on screen.
+  JoinTicket qrTicket();
 
-  /// One listener per phone: the table document (hand counter, seats).
-  Stream<TableState> watchTable(String code);
+  /// The table in clockwise order, from the next hand on. The first-orbit
+  /// dealer taps produce the first call; adding or removing a player is
+  /// another call with the new list. Pids are the organizer UI's own ids
+  /// (players without the app get one too).
+  Future<void> setSeats(List<Seat> clockwise);
 
-  // Host only.
-  Future<void> seatPlayers(String code, List<String> seats, {String? dealer});
-  Future<void> setDealer(String code, String dealerUid);
-  Future<void> setBoardCaller(String code, String uid);
-  Future<void> closeTable(String code);
+  /// "Next hand": hand [handNo] starts now, dealt by [dealerPid]. The UI
+  /// owns numbering and rotation ([nextDealer] helps); the timestamp of
+  /// this call is the hand boundary everyone's taps are matched against.
+  Future<void> startHand(int handNo, String dealerPid);
 
-  /// "Next hand". Returns false when another phone already advanced past
-  /// [from] (the rules reject the duplicate; it is not an error).
-  Future<bool> advanceHand(String code, {required int from});
+  /// The last "next hand" was a mis-tap.
+  Future<void> undoHand(int handNo);
 
-  /// Your own entry for [handNo]; position comes from the rotation.
-  Future<void> logEntry(String code,
-      {required int handNo, PreAction? action, Facing? facing, required bool hasCards});
+  /// Community cards if someone called them (3 to 5; call again to add).
+  Future<void> recordBoard(int handNo, List<int> cards);
 
-  /// Your own hole cards. Once you share, every save is revealed.
-  Future<void> saveCards(String code, int handNo, List<int> cards, {bool reveal = false});
-  Future<void> revealCards(String code, int handNo);
+  Future<void> endNight();
 
-  /// Turns on give-to-get sharing for the night (cannot be undone).
-  Future<void> startSharing(String code);
+  // ---------------------------------------------------------- any player
 
-  /// Board caller (or host) only. 3-5 cards; overwrite to add turn/river.
-  Future<void> recordBoard(String code, int handNo, List<int> cards);
+  /// One tap for a hand you played. Not tapping = fold. A second tap within
+  /// [LocalTableSync.correctionWindow] replaces the first (mis-tap), otherwise it is the
+  /// next hand.
+  Future<void> tap(PreAction action, {Facing? facing});
 
-  Future<List<PlayerInfo>> players(String code);
-  Future<List<Board>> boards(String code);
-  Stream<List<Board>> watchBoards(String code);
+  /// Your own hole cards (optional). Attached to the hand you are tapping
+  /// in, or the start of the next entry.
+  Future<void> setCards(List<int> cards);
 
-  /// Everyone's public entries (the dashboard's single listener).
-  Future<List<HandEntry>> entries(String code);
-  Stream<List<HandEntry>> watchEntries(String code);
+  /// Withdraws the latest entry.
+  Future<void> undoLast();
 
-  Future<List<HoleCards>> myCards(String code);
+  /// Card sharing with the table, per player, off by default. While off,
+  /// cards never leave this phone.
+  Future<void> setSharing(bool on);
+  bool get sharing;
 
-  /// Other players' revealed cards for finished hands. Throws [SyncDenied]
-  /// unless you are sharing.
-  Future<List<HoleCards>> revealedCards(String code);
+  Future<void> leave();
+
+  // ---------------------------------------------------------------- views
+
+  List<NightEvent> get localEvents;
+
+  /// Everyone's data that has reached this phone, merged.
+  MergedNight merged({MergeOptions opts = const MergeOptions()});
+
+  /// Fires after every local append and every cloud update.
+  Stream<MergedNight> watchMerged();
 }
 
-// ------------------------------------------------------ late entry by board
-
-/// A hand you might mean when logging late.
-class HandChoice {
-  final int handNo;
-  final String? dealerUid;
-  final String dealerName;
-  final Board? board;
-
-  /// How many hinted cards this hand's board has by rank ("a king and a
-  /// seven"), and how many of those also match the suit.
-  final int matched;
-  final int exact;
-  final bool isCurrent;
-
-  /// You already have an entry for it.
-  final bool logged;
-
-  const HandChoice({
-    required this.handNo,
-    required this.dealerUid,
-    required this.dealerName,
-    required this.board,
-    required this.matched,
-    required this.exact,
-    required this.isCurrent,
-    required this.logged,
-  });
+/// The next dealer clockwise after [dealerPid] in [seats], skipping
+/// nobody (removing a player is a new seat list). Null for an empty table.
+String? nextDealer(List<Seat> seats, String? dealerPid) {
+  if (seats.isEmpty) return null;
+  final i = seats.indexWhere((s) => s.pid == dealerPid);
+  return seats[(i + 1) % seats.length].pid;
 }
 
-(int, int) _boardMatch(Board? b, List<int> hint) {
-  if (b == null) return (0, 0);
-  final ranks = [for (final c in b.cards) cardRank(c)];
-  var matched = 0, exact = 0;
-  for (final c in hint) {
-    final i = ranks.indexOf(cardRank(c));
-    if (i < 0) continue;
-    ranks[i] = -1;
-    matched++;
-    if (b.cards.contains(c)) exact++;
+/// The local-first implementation: an [EventLog] on this phone, an optional
+/// [CloudLogs] (null in the default build: local only).
+class LocalTableSync implements TableSync {
+  final EventLog log;
+  final CloudLogs? cloud;
+  final int Function() now;
+  final String myName;
+  @override
+  final NightRole role;
+  @override
+  final JoinTicket ticket;
+
+  /// A second tap this soon after the first replaces it.
+  static const correctionWindow = Duration(seconds: 10);
+
+  /// Cards and a tap this close together are the same hand.
+  static const entryWindow = Duration(minutes: 3);
+
+  Uploader? uploader;
+  List<DeviceLog> _remote = const [];
+  StreamSubscription<List<DeviceLog>>? _sub;
+  final _out = StreamController<MergedNight>.broadcast();
+
+  LocalTableSync._(
+    this.log, {
+    required this.role,
+    required this.ticket,
+    required this.myName,
+    this.cloud,
+    int Function()? now,
+  }) : now = now ?? (() => DateTime.now().millisecondsSinceEpoch);
+
+  @override
+  String get deviceId => log.deviceId;
+  @override
+  bool get isOrganizer => role == NightRole.organizer;
+  @override
+  String get nightId => log.nightId;
+
+  /// Organizer: a fresh night. [selfPid] is the organizer's own seat id.
+  static Future<LocalTableSync> organize(
+    KeyValueStore store, {
+    required String organizerName,
+    required String selfPid,
+    List<Seat> roster = const [],
+    CloudLogs? cloud,
+    int Function()? now,
+    Random? rng,
+  }) async {
+    rng ??= Random.secure();
+    final device = await deviceIdFor(store, rng: rng);
+    final ticket = JoinTicket(
+      nightId: randomCode(rng, nightIdLength),
+      secret: randomCode(rng, secretLength),
+      organizerName: organizerName,
+      roster: roster,
+    );
+    final log = await EventLog.open(store, ticket.nightId, device);
+    final s = LocalTableSync._(log, role: NightRole.organizer, ticket: ticket, myName: organizerName, cloud: cloud, now: now);
+    await s._saveMeta();
+    await s._append(EventKind.join, {'name': organizerName, 'claim': selfPid, 'offset': 0});
+    if (roster.isNotEmpty) await s.setSeats(roster);
+    return s;
   }
-  return (matched, exact);
-}
 
-/// The picker for "which hand was that?": the last [limit] hands, newest
-/// first, each with its number, dealer and board if the caller recorded it.
-/// With [hint] (board cards you remember; ranks count, suits break ties),
-/// hands whose board has every hinted rank are the only ones kept if any
-/// exist, otherwise the best partial matches come first. Never by time.
-List<HandChoice> handChoices(
-  TableState t,
-  List<Board> boards, {
-  Set<int> logged = const {},
-  List<int> hint = const [],
-  int limit = 12,
-}) {
-  final byHand = {for (final b in boards) b.handNo: b};
-  final first = max(1, t.currentHand - limit + 1);
-  final out = <HandChoice>[
-    for (var n = t.currentHand; n >= first; n--)
-      () {
-        final (m, e) = _boardMatch(byHand[n], hint);
-        return HandChoice(
-          handNo: n,
-          dealerUid: t.dealerOf(n),
-          dealerName: t.nameOf(t.dealerOf(n)),
-          board: byHand[n],
-          matched: m,
-          exact: e,
-          isCurrent: n == t.currentHand,
-          logged: logged.contains(n),
-        );
-      }()
-  ];
-  if (hint.isEmpty) return out;
-  int byMatch(HandChoice a, HandChoice b) => a.matched != b.matched
-      ? b.matched - a.matched
-      : a.exact != b.exact
-          ? b.exact - a.exact
-          : b.handNo - a.handNo;
-  final full = out.where((c) => c.matched == hint.length).toList()..sort(byMatch);
-  return full.isNotEmpty ? full : (out..sort(byMatch));
-}
-
-/// The hand an entry belongs to is fixed when you start it (first card or
-/// action tapped), not when you press save, so finishing an entry during
-/// the next deal still files it under the right hand.
-class EntryDraft {
-  final int handNo;
-  final String dealerName;
-  EntryDraft(TableState t)
-      : handNo = t.currentHand,
-        dealerName = t.nameOf(t.dealerOf(t.currentHand));
-
-  /// Shown above the save button once the table has moved on.
-  String? banner(TableState now) => now.currentHand == handNo
-      ? null
-      : 'Saving to hand #$handNo ($dealerName dealt). '
-          'The table is on #${now.currentHand}.';
-}
-
-// ------------------------------------------------------------- dashboard
-
-class PlayerAggregate {
-  final String uid;
-  final String name;
-
-  /// Entries counted (finished hands older than the dashboard delay).
-  final int logged;
-  final int recorded;
-  final int vpip;
-  final int pfr;
-
-  const PlayerAggregate({
-    required this.uid,
-    required this.name,
-    required this.logged,
-    required this.recorded,
-    required this.vpip,
-    required this.pfr,
-  });
-
-  double get vpipPct => recorded == 0 ? 0 : vpip / recorded;
-  double get pfrPct => recorded == 0 ? 0 : pfr / recorded;
-  String get style => playStyle(recorded, vpipPct, pfrPct);
-}
-
-/// VPIP / PFR / style per player from public actions only. Counts an entry
-/// only when its hand is over and it was written at least the table's
-/// dashboard delay ago, so the TV never shows the hand just played.
-/// Players with no countable entries are still listed (zeroes).
-List<PlayerAggregate> tableAggregates(
-  TableState t,
-  List<PlayerInfo> players,
-  List<HandEntry> entries, {
-  required DateTime now,
-}) {
-  final cutoff = now.millisecondsSinceEpoch - t.delayMin * 60000;
-  final by = <String, List<HandEntry>>{};
-  for (final e in entries) {
-    if (e.handNo >= t.currentHand || e.ts > cutoff) continue;
-    by.putIfAbsent(e.uid, () => []).add(e);
+  /// Player: scanned (or typed) [t] at [scannedAtMs] on this phone's clock.
+  static Future<LocalTableSync> join(
+    KeyValueStore store,
+    JoinTicket t, {
+    required String name,
+    String? claimPid,
+    required int scannedAtMs,
+    CloudLogs? cloud,
+    int Function()? now,
+  }) async {
+    final device = await deviceIdFor(store);
+    final log = await EventLog.open(store, t.nightId, device);
+    final s = LocalTableSync._(log, role: NightRole.player, ticket: t, myName: name, cloud: cloud, now: now);
+    await s._saveMeta();
+    final offset = clockOffsetFrom(t, scannedAtMs);
+    await s._append(EventKind.join, {
+      'name': name,
+      if (claimPid != null) 'claim': claimPid,
+      if (offset != null) 'offset': offset,
+    }, ms: scannedAtMs);
+    return s;
   }
-  return [
-    for (final p in players)
-      () {
-        final es = by[p.uid] ?? const <HandEntry>[];
-        final acted = es.where((e) => e.action != null);
-        return PlayerAggregate(
-          uid: p.uid,
-          name: p.name,
-          logged: es.length,
-          recorded: acted.length,
-          vpip: acted.where((e) => e.action != PreAction.fold).length,
-          pfr: acted.where((e) => e.action == PreAction.raise).length,
-        );
-      }()
-  ];
-}
 
-// --------------------------------------------------------------- migration
+  /// Reopens a night this phone already has a log for.
+  static Future<LocalTableSync?> resume(KeyValueStore store, String nightId,
+      {CloudLogs? cloud, int Function()? now}) async {
+    final device = await deviceIdFor(store);
+    final log = await EventLog.open(store, nightId, device);
+    final t = log.meta['ticket'];
+    if (t is! String) return null;
+    final ticket = JoinTicket.parse(t);
+    if (ticket == null) return null;
+    return LocalTableSync._(
+      log,
+      role: log.meta['role'] == 'organizer' ? NightRole.organizer : NightRole.player,
+      ticket: ticket,
+      myName: (log.meta['name'] as String?) ?? '',
+      cloud: cloud,
+      now: now,
+    );
+  }
 
-/// The phone keeps its own HomeSession as today; a synced night just fills
-/// it from shared state. This builds the local [LoggedHand] for [handNo]
-/// so every existing stat, recap and badge works unchanged.
-LoggedHand loggedHandFrom(TableState t, String uid, int handNo,
-    {HandEntry? entry, HoleCards? cards}) {
-  return LoggedHand(
-    number: handNo,
-    cards: cards?.cards,
-    position: entry?.position ?? t.positionOf(uid, handNo) ?? '?',
-    dealer: t.nameOf(t.dealerOf(handNo)),
-    action: entry?.action,
-    facing: entry?.action == null ? null : entry?.facing,
-    ts: entry?.ts ?? 0,
-  );
+  Future<void> _saveMeta() async {
+    await log.setMeta('ticket', ticket.encode());
+    await log.setMeta('role', role.name);
+    await log.setMeta('name', myName);
+    await log.setMeta('organizerDevice', role == NightRole.organizer ? deviceId : null);
+    await log.setMeta('started', now());
+  }
+
+  /// The organizer's device id, once known (for a player: learned from
+  /// the cloud, the device whose log has hand events).
+  String? get organizerDeviceId {
+    final m = log.meta['organizerDevice'];
+    if (m is String) return m;
+    for (final l in _remote) {
+      if (l.events.any((e) => e.kind == EventKind.hand || e.kind == EventKind.seats)) return l.deviceId;
+    }
+    return null;
+  }
+
+  /// Starts uploading (and, on the organizer, listening for other phones)
+  /// when a [cloud] is configured. No-op in the local-only build.
+  void startSync({Duration minInterval = const Duration(minutes: 2)}) {
+    final c = cloud;
+    if (c == null) return;
+    uploader ??= Uploader(log: log, cloud: c, ticket: ticket, name: myName, now: now, minInterval: minInterval)
+      ..start();
+    _sub ??= c.watch(nightId).listen((logs) {
+      _remote = logs;
+      _emit();
+    }, onError: (_) {});
+  }
+
+  Future<void> dispose() async {
+    uploader?.stop();
+    await _sub?.cancel();
+    await _out.close();
+  }
+
+  /// Feed logs from elsewhere (tests, or a one-shot fetch at home).
+  void addRemote(List<DeviceLog> logs) {
+    _remote = [..._remote, ...logs];
+    _emit();
+  }
+
+  Future<NightEvent> _append(EventKind k, Map<String, Object?> data, {int? ms}) async {
+    final e = await log.append(k, ms ?? now(), data);
+    uploader?.kick();
+    _emit();
+    return e;
+  }
+
+  void _emit() {
+    if (!_out.isClosed && _out.hasListener) _out.add(merged());
+  }
+
+  void _organizerOnly() {
+    if (role != NightRole.organizer) throw StateError('organizer only');
+  }
+
+  // ---------------------------------------------------------- organizer
+
+  @override
+  JoinTicket qrTicket() {
+    _organizerOnly();
+    return ticket.withClock(now());
+  }
+
+  @override
+  Future<void> setSeats(List<Seat> clockwise) async {
+    _organizerOnly();
+    await _append(EventKind.seats, {'seats': [for (final s in clockwise) s.toJson()]});
+  }
+
+  @override
+  Future<void> startHand(int handNo, String dealerPid) async {
+    _organizerOnly();
+    await _append(EventKind.hand, {'n': handNo, 'd': dealerPid});
+  }
+
+  @override
+  Future<void> undoHand(int handNo) async {
+    _organizerOnly();
+    await _append(EventKind.unhand, {'n': handNo});
+  }
+
+  @override
+  Future<void> recordBoard(int handNo, List<int> cards) async {
+    _organizerOnly();
+    if (cards.length < 3 || cards.length > 5) throw ArgumentError('3 to 5 board cards');
+    await _append(EventKind.board, {'n': handNo, 'c': cards});
+  }
+
+  @override
+  Future<void> endNight() async {
+    _organizerOnly();
+    await _append(EventKind.end, const {});
+  }
+
+  // ------------------------------------------------------------- player
+
+  /// The latest entry: (entry number, first ms, has action, has cards).
+  (int, int, bool, bool)? _openEntry() {
+    int? e, first;
+    var act = false, cards = false;
+    final undone = <int>{};
+    for (final ev in log.events) {
+      if (ev.kind == EventKind.undo) undone.add(ev.data['e'] as int);
+    }
+    for (final ev in log.events.reversed) {
+      final x = ev.data['e'];
+      if (x is! int || ev.kind == EventKind.undo) continue;
+      if (e == null) {
+        if (undone.contains(x)) return null;
+        e = x;
+      }
+      if (x != e) break;
+      first = ev.ms;
+      if (ev.kind == EventKind.play) act = true;
+      if (ev.kind == EventKind.cards) cards = true;
+    }
+    return e == null ? null : (e, first!, act, cards);
+  }
+
+  int _newEntry() {
+    var top = 0;
+    for (final ev in log.events) {
+      final x = ev.data['e'];
+      if (x is int && x > top) top = x;
+    }
+    return top + 1;
+  }
+
+  @override
+  Future<void> tap(PreAction action, {Facing? facing}) async {
+    final o = _openEntry();
+    final t = now();
+    final int e;
+    if (o != null && o.$3 && t - _lastPlayMs(o.$1) <= correctionWindow.inMilliseconds) {
+      e = o.$1; // correction of a mis-tap
+    } else if (o != null && !o.$3 && o.$4 && t - o.$2 <= entryWindow.inMilliseconds) {
+      e = o.$1; // cards first, then the tap
+    } else {
+      e = _newEntry();
+    }
+    await _append(EventKind.play, {'e': e, 'a': action.name, if (facing != null) 'f': facing.name});
+  }
+
+  int _lastPlayMs(int e) {
+    for (final ev in log.events.reversed) {
+      if (ev.kind == EventKind.play && ev.data['e'] == e) return ev.ms;
+    }
+    return 0;
+  }
+
+  @override
+  Future<void> setCards(List<int> cards) async {
+    if (cards.length != 2) throw ArgumentError('two hole cards');
+    final o = _openEntry();
+    final t = now();
+    final e = (o != null && !o.$4 && t - o.$2 <= entryWindow.inMilliseconds) ? o.$1 : _newEntry();
+    await _append(EventKind.cards, {'e': e, 'c': cards});
+  }
+
+  @override
+  Future<void> undoLast() async {
+    final o = _openEntry();
+    if (o == null) return;
+    await _append(EventKind.undo, {'e': o.$1});
+  }
+
+  @override
+  bool get sharing => log.sharing;
+
+  @override
+  Future<void> setSharing(bool on) async {
+    if (on == sharing) return;
+    await _append(EventKind.share, {'on': on});
+  }
+
+  @override
+  Future<void> leave() => _append(EventKind.leave, const {});
+
+  // -------------------------------------------------------------- views
+
+  @override
+  List<NightEvent> get localEvents => log.events;
+
+  @override
+  MergedNight merged({MergeOptions opts = const MergeOptions()}) {
+    final org = organizerDeviceId;
+    final mine = DeviceLog(deviceId, log.events, serverSkewMs: log.meta['skew'] as int?);
+    return mergeNight(
+      organizerDeviceId: org ?? '',
+      logs: [mine, ..._remote],
+      opts: opts,
+    );
+  }
+
+  @override
+  Stream<MergedNight> watchMerged() => _out.stream;
 }
