@@ -325,7 +325,7 @@ class TrainerModel extends ChangeNotifier {
     if (focusSpotId != null) return [library.byId(focusSpotId!)];
     switch (mode) {
       case DrillMode.cashOnly:
-        return library.cash;
+        return [...library.cash, ...library.rejam];
       case DrillMode.pushFoldOnly:
         return [...library.pushFold, ...library.pushFold3];
       case DrillMode.mixed:
@@ -335,11 +335,14 @@ class TrainerModel extends ChangeNotifier {
   }
 
   /// Share of drills per format when a pool mixes them, so the 96 3-handed
-  /// push/fold spots don't crowd out cash spots in "All spots".
-  static const _formatShare = {
-    SpotFormat.cash100: 0.5,
-    SpotFormat.pushFold: 0.25,
-    SpotFormat.pushFold3: 0.25,
+  /// push/fold spots don't crowd out cash spots in "All spots". Cash first
+  /// (100bb charts + short-stack jam spots = 60%), tournaments 40%. Shares
+  /// are renormalised over the formats present in the pool.
+  static const formatShare = {
+    SpotFormat.cash100: 0.45,
+    SpotFormat.rejam: 0.15,
+    SpotFormat.pushFold: 0.2,
+    SpotFormat.pushFold3: 0.2,
   };
 
   List<double> _formatWeights(List<Spot> pool) {
@@ -348,7 +351,7 @@ class TrainerModel extends ChangeNotifier {
       counts[s.format] = (counts[s.format] ?? 0) + 1;
     }
     return [
-      for (final s in pool) (_formatShare[s.format] ?? 0.25) / counts[s.format]!
+      for (final s in pool) (formatShare[s.format] ?? 0.2) / counts[s.format]!
     ];
   }
 

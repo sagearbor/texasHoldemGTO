@@ -55,9 +55,14 @@ const _topics = {
           '"Drill my weak hands" deals mostly the reddest cells.',
       '6-max 100bb charts are approximate GTO baselines. Push/fold charts are an exact '
           'solution computed by Felt Notes.',
-      'River spots (solved), at the bottom of Charts: 40 river boards solved with CFR+ for '
-          'BB vs BTN. Browse each decision as a grid, read the value/bluff summary, or drill it. '
-          'Ranges are simplified (no flop/turn narrowing), so treat exact numbers as illustrative.',
+      'River spots (solved), at the bottom of Charts: 258 river boards solved with CFR+ for '
+          'BB vs BTN, in single-raised and 3-bet pots, across six board textures, with 33%, 75% '
+          'and 150% bets and all-in raises. Browse each decision as a grid, read the value/bluff '
+          'summary, or drill it. Each board shows how exploitable its solution is. Ranges are '
+          'simplified (no flop/turn narrowing), so treat exact numbers as illustrative.',
+      'Short stack (Charts): solved jam-or-fold spots for cash games when the big blind has '
+          '15, 20 or 25bb: should the BB jam over an open, and should the opener call the jam? '
+          'The opening ranges are the approximate 100bb charts; the rest is solver output.',
       'Facing limpers: iso-raise, overlimp or fold charts for limp-heavy home games '
           '(hand-authored approximations).',
       'Facing a 3-bet: you opened and got 3-bet. 4-bet (22bb in position, 25bb out of '

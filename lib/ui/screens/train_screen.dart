@@ -66,7 +66,7 @@ class _ModeMenu extends StatelessWidget {
 
   static const labels = {
     DrillMode.mixed: 'All spots',
-    DrillMode.cashOnly: '6-max 100bb',
+    DrillMode.cashOnly: 'Cash',
     DrillMode.pushFoldOnly: 'Push/fold',
     DrillMode.leaks: 'Drill my leaks',
   };
@@ -188,6 +188,7 @@ class _DrillCard extends StatelessWidget {
                   SpotFormat.cash100 => '6-max · 100bb',
                   SpotFormat.pushFold => 'HU · Nash',
                   SpotFormat.pushFold3 => '3-handed · Nash',
+                  SpotFormat.rejam => 'Short stack · solved',
                 }),
                 visualDensity: VisualDensity.compact,
               ),

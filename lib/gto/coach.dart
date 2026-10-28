@@ -162,6 +162,7 @@ List<String> coachNotes(Spot spot, HandClass h, int chosen) {
         'limped pots are not in standard solver trees.');
   }
   if (spot.group == threeBetGroup) notes.addAll(_threeBetNotes(spot, h));
+  if (spot.format == SpotFormat.rejam) notes.addAll(_rejamNotes(spot, h));
   if (spot.hero == 'BTN' &&
       spot.villain == null &&
       spot.format == SpotFormat.cash100) {
@@ -271,5 +272,33 @@ List<String> _threeBetNotes(Spot spot, HandClass h) {
   }
   notes.add('Facing-a-3-bet charts are hand-authored approximations (4-bet '
       '22bb in position, 25bb out of position), not solver output.');
+  return notes;
+}
+
+/// Template notes for the solved short-stack jam-over-an-open spots.
+List<String> _rejamNotes(Spot spot, HandClass h) {
+  final notes = <String>[];
+  final stack = int.parse(spot.id.split('-').last);
+  final opener = spot.hero == 'BB' ? spot.villain! : spot.hero;
+  final open = opener == 'SB' ? 3.0 : 2.5;
+  final dead = opener == 'SB' ? 0.0 : 0.5;
+  final pot = 2 * stack + dead;
+  if (spot.hero == 'BB') {
+    notes.add('A jam risks ${stack - 1}bb more to win the '
+        '${(open + dead + 1).toStringAsFixed(1)}bb already in the pot: it '
+        'profits from the opener\'s folds and from the equity of the hand '
+        'when called.');
+  } else if ((spot.reach?[h.index] ?? 1) == 0) {
+    notes.add('${h.name} is not in the $opener opening range, so it never '
+        'reaches this spot: it folds before the flop.');
+  } else {
+    final need = (stack - open) / pot;
+    notes.add('Calling costs ${(stack - open).toStringAsFixed(1)}bb more to '
+        'win a ${pot.toStringAsFixed(1)}bb pot: you need ${pct(need)} equity '
+        'against the BB\'s jamming range.');
+  }
+  notes.add('Solved by Felt Notes as a jam-or-fold game. The opening range '
+      'is the approximate 100bb chart (an input, not solved), and the BB '
+      'cannot flat or make a small 3-bet in this model.');
   return notes;
 }

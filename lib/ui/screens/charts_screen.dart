@@ -46,6 +46,12 @@ class _ChartsScreenState extends State<ChartsScreen> {
   /// Mistakes aggregated over every spot in the shown spot's group.
   bool wholeGroup = false;
 
+  /// Short-stack jam spots: opener seat, stack, and which side to show.
+  String rjOpener = 'BTN';
+  int rjStack = 20;
+  bool rjOpenerSide = false;
+  bool get hasRejam => widget.library.rejam.isNotEmpty;
+
   bool get has3 => widget.library.pushFold3.isNotEmpty;
   bool get threeHanded => players == 3 && has3;
   int get minStack => threeHanded ? 5 : 3;
@@ -53,6 +59,11 @@ class _ChartsScreenState extends State<ChartsScreen> {
 
   Spot get spot {
     if (format == SpotFormat.cash100) return widget.library.byId(cashId);
+    if (format == SpotFormat.rejam) {
+      return widget.library.byId(rjOpenerSide
+          ? rejamOpenerId(rjOpener, rjStack)
+          : rejamBbId(rjOpener, rjStack));
+    }
     if (threeHanded) {
       return widget.library.byId(pushFold3Id(node3, stack.clamp(5, 20)));
     }
@@ -75,9 +86,14 @@ class _ChartsScreenState extends State<ChartsScreen> {
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
           SegmentedButton<SpotFormat>(
-            segments: const [
-              ButtonSegment(value: SpotFormat.cash100, label: Text('6-max 100bb')),
-              ButtonSegment(value: SpotFormat.pushFold, label: Text('Push/fold')),
+            segments: [
+              const ButtonSegment(
+                  value: SpotFormat.cash100, label: Text('6-max 100bb')),
+              if (hasRejam)
+                const ButtonSegment(
+                    value: SpotFormat.rejam, label: Text('Short stack')),
+              const ButtonSegment(
+                  value: SpotFormat.pushFold, label: Text('Push/fold')),
             ],
             selected: {format},
             onSelectionChanged: (v) => setState(() => format = v.first),
@@ -102,7 +118,39 @@ class _ChartsScreenState extends State<ChartsScreen> {
               ]),
               const SizedBox(height: 10),
             ]
-          else ...[
+          else if (format == SpotFormat.rejam) ...[
+            Text('Opener', style: t.labelLarge),
+            const SizedBox(height: 4),
+            Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final p in rejamOpeners)
+                ChoiceChip(
+                  visualDensity: VisualDensity.compact,
+                  showCheckmark: false,
+                  label: Text(p),
+                  selected: p == rjOpener,
+                  onSelected: (_) => setState(() => rjOpener = p),
+                ),
+            ]),
+            const SizedBox(height: 8),
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: false, label: Text('BB: jam?')),
+                ButtonSegment(value: true, label: Text('Opener: call?')),
+              ],
+              selected: {rjOpenerSide},
+              onSelectionChanged: (v) => setState(() => rjOpenerSide = v.first),
+            ),
+            const SizedBox(height: 8),
+            SegmentedButton<int>(
+              segments: [
+                for (final st in rejamStacks)
+                  ButtonSegment(value: st, label: Text('${st}bb')),
+              ],
+              selected: {rjStack},
+              onSelectionChanged: (v) => setState(() => rjStack = v.first),
+            ),
+            const SizedBox(height: 10),
+          ] else ...[
             if (has3) ...[
               Row(children: [
                 Text('Players', style: t.labelLarge),
@@ -216,6 +264,9 @@ class _ChartsScreenState extends State<ChartsScreen> {
                         SpotFormat.pushFold3 =>
                           '3-handed equilibrium (BTN/SB/BB, no ante), solved by Felt Notes '
                               '(Monte Carlo 2- and 3-way equities, exact card removal).',
+                        SpotFormat.rejam => '${s.solverNote ?? ''} Monte Carlo '
+                            'equities, exact card removal; the BB has no flat or '
+                            'small 3-bet in this model.',
                       },
                       style: t.bodySmall?.copyWith(fontStyle: FontStyle.italic),
                     ),
@@ -236,7 +287,8 @@ class _ChartsScreenState extends State<ChartsScreen> {
             child: ListTile(
               leading: const Icon(Icons.water),
               title: const Text('River spots (solved)'),
-              subtitle: const Text('BB vs BTN river strategies + drill'),
+              subtitle: const Text(
+                  'BB vs BTN river strategies, single-raised and 3-bet pots, + drill'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const RiverScreen())),

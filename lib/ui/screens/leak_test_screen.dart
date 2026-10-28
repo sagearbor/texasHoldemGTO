@@ -210,6 +210,7 @@ class _TestHand extends StatelessWidget {
           SpotFormat.cash100 => '6-max · 100bb',
           SpotFormat.pushFold => 'Heads-up',
           SpotFormat.pushFold3 => '3-handed',
+          SpotFormat.rejam => 'Short stack',
         }, style: t.labelMedium),
       ]),
       const SizedBox(height: 6),
