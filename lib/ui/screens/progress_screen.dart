@@ -34,7 +34,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
             [widget.trainer, if (widget.home != null) widget.home!]),
         builder: (context, _) {
           final m = widget.trainer;
-          final buckets = bucketAnswers(m.history, m.now,
+          final buckets = bucketAnswers(m.scoredHistory, m.now,
               byDay: byDay, count: byDay ? days : weeks);
           final answered = buckets.fold<int>(0, (a, b) => a + b.count);
           final current = buckets.last;

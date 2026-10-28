@@ -87,8 +87,12 @@ void main() {
       expect(a.grade, Grade.mixed);
       expect(m.gradeOf(a), Grade.correct);
       expect(beginnerGradeFor(0.4), Grade.mistake);
+      // Hand-authored spot: the 40% overlimp is "mixed", not a mistake.
+      expect(m.gradeOf(m.record(spot, h, 1)), Grade.mixed);
       final notes = simpleCoachNotes(spot, h, 1);
-      expect(notes.first, contains('The right play is Iso 4bb'));
+      expect(notes.first, contains('Iso 4bb is the more common play'));
+      expect(simpleCoachNotes(spot, HandClass.parse('72o'), 0).first,
+          contains('The right play is Fold'));
       expect(notes.length, lessThanOrEqualTo(3));
     });
 
@@ -137,7 +141,8 @@ void main() {
       expect(actionForRoll(f, 99), 1);
       expect(
           diceText(spot, h77, 37),
-          'The solver plays this hand both ways: Iso 4bb 60%, Overlimp 40%. '
+          'This approximate chart plays this hand both ways: Iso 4bb 60%, '
+          'Overlimp 40%. '
           'Rolling 37 → Iso 4bb. Either choice is fine; mixing keeps you '
           'unexploitable.');
       expect(isMixedHand(spot, h77), isTrue);

@@ -63,6 +63,11 @@ class Spot {
   /// best-response gains), when the solver recorded it.
   final double? exploitabilityBb;
 
+  /// For hand-authored spots ([handAuthored]): the chart exactly as written,
+  /// before [softenAuthored] turned borderline hands into mixes. [strategy]
+  /// (what is shown and graded) is the softened version. Null elsewhere.
+  final List<List<double>>? authoredStrategy;
+
   Spot({
     required this.id,
     required this.format,
@@ -78,7 +83,14 @@ class Spot {
     this.reach,
     this.otherVillains = const [],
     this.exploitabilityBb,
+    this.authoredStrategy,
   });
+
+  /// True for the hand-authored (non-solver) spots: facing limpers and
+  /// facing a 3-bet. They are softened ([softenAuthored]), labelled
+  /// "Approximate · not solver-backed", and left out of every score (GTO
+  /// score, progress chart, mistake heatmap). They can still be drilled.
+  bool get handAuthored => group == limperGroup || group == threeBetGroup;
 
   /// Where the strategy comes from and how exact it is, for spot info.
   String? get solverNote {
@@ -129,6 +141,91 @@ const threeBetGroup = 'Facing a 3-bet';
 
 /// Group name of the hand-authored facing-limpers spots.
 const limperGroup = 'Facing limpers';
+
+/// Hands whose hand-authored row is kept as written even next to a range
+/// edge: the clear premiums.
+const authoredPremiums = {'AA', 'KK', 'QQ', 'AKs', 'AKo'};
+
+/// The least a borderline hand's runner-up action is shown at in a
+/// hand-authored spot: 25%, which [gradeFor] counts as "Fine: mixed spot".
+const authoredRunnerUpFloor = 0.25;
+
+/// Index of the action [row] takes at least 90% of the time, or null.
+int? _pureAction(List<double> row) {
+  for (var i = 0; i < row.length; i++) {
+    if (row[i] >= 0.9) return i;
+  }
+  return null;
+}
+
+/// Whether [h] is clear-cut in the hand-authored chart [rows]: its row is
+/// (nearly) pure, and either it is a premium ([authoredPremiums]) or every
+/// neighbour of the same kind takes the same pure action, i.e. the hand
+/// sits at least one cell inside a uniform region of the chart, away from
+/// any range edge. Neighbours of the same kind: the next pair up and down
+/// for pairs (JJ: QQ and TT); otherwise the adjacent grid cells with the
+/// same suitedness (86s: 96s, 87s, 85s, 76s). Examples: AA/KK/AKs raising,
+/// 72o/32o folding.
+bool isClearCutAuthored(List<List<double>> rows, HandClass h) {
+  final a = _pureAction(rows[h.index]);
+  if (a == null) return false;
+  if (authoredPremiums.contains(h.name)) return true;
+  final steps = h.isPair
+      ? const [(1, 1), (-1, -1)]
+      : const [(0, 1), (0, -1), (1, 0), (-1, 0)];
+  for (final (dr, dc) in steps) {
+    final r = h.row + dr, c = h.col + dc;
+    if (r < 0 || r > 12 || c < 0 || c > 12) continue;
+    final n = HandClass(r, c);
+    if (n.isPair != h.isPair || n.isSuited != h.isSuited) continue;
+    if (_pureAction(rows[n.index]) != a) return false;
+  }
+  return true;
+}
+
+/// Softens a hand-authored chart so it never teaches a habit we cannot back
+/// with solver data.
+///
+/// Rule ("distance from the range edge"): a hand is clear-cut when
+/// [isClearCutAuthored] holds; its row is kept, so it is still graded
+/// right / wrong. Every other hand (anything at or next to a range edge, or
+/// already mixed) has its runner-up action raised to at least
+/// [authoredRunnerUpFloor] (25%), taken from the top action, so the top
+/// action shows at most 75% and both are graded "Fine: mixed spot" rather
+/// than "Mistake". The runner-up is the second most-played action; for a
+/// pure row it is the neighbouring action one step more passive (Iso ->
+/// Overlimp, Complete/Call -> Fold), or one step more aggressive when the
+/// top action is already Fold / Check. Hands hero never holds here
+/// (reach 0) are left alone: they are never dealt.
+List<List<double>> softenAuthored(List<List<double>> rows,
+    {List<double>? reach}) {
+  return [
+    for (var i = 0; i < rows.length; i++)
+      () {
+        final row = rows[i];
+        final h = HandClass.byIndex(i);
+        if ((reach != null && reach[i] == 0) || isClearCutAuthored(rows, h)) {
+          return row;
+        }
+        var top = 0;
+        for (var j = 1; j < row.length; j++) {
+          if (row[j] > row[top]) top = j;
+        }
+        int? runner;
+        for (var j = 0; j < row.length; j++) {
+          if (j == top || row[j] <= 0) continue;
+          if (runner == null || row[j] > row[runner]) runner = j;
+        }
+        runner ??= top == row.length - 1 ? top - 1 : top + 1;
+        final deficit = authoredRunnerUpFloor - row[runner];
+        if (deficit <= 0) return row;
+        final out = [...row];
+        out[runner] = authoredRunnerUpFloor;
+        out[top] = row[top] - deficit;
+        return out;
+      }()
+  ];
+}
 
 List<List<double>> _rfi(String raise) {
   final r = parseRange(raise);
@@ -513,6 +610,7 @@ List<Spot> buildCashSpots() {
       'SB' => '$limpers$folds. Action is on you in the SB.',
       _ => '$limpers$folds. Action is on you on the $hero.',
     };
+    final authored = _vsLimp(ranges.$1, ranges.$2, check: hero == 'BB');
     spots.add(Spot(
       id: 'cash-limp$n-$hero',
       format: SpotFormat.cash100,
@@ -526,12 +624,15 @@ List<Spot> buildCashSpots() {
         if (hero == 'BB') 'Check' else if (hero == 'SB') 'Complete' else 'Overlimp',
         if (hero != 'BB') 'Fold',
       ],
-      strategy: _vsLimp(ranges.$1, ranges.$2, check: hero == 'BB'),
+      authoredStrategy: authored,
+      strategy: softenAuthored(authored),
     ));
   });
   for (final t in _vs3betSpots) {
     final open = t.hero == 'SB' ? '3bb' : '2.5bb';
     final rest = t.hero == 'SB' ? '' : ', the rest fold';
+    final authored = _vs3bet(t.fourBet, t.call);
+    final reach = rfiReach(t.hero);
     spots.add(Spot(
       id: 'cash-3b-${t.id}',
       format: SpotFormat.cash100,
@@ -544,8 +645,9 @@ List<Spot> buildCashSpots() {
       villain: t.villain,
       otherVillains: t.others,
       actions: [fourBetLabel(inPosition: t.heroIp), 'Call', 'Fold'],
-      strategy: _vs3bet(t.fourBet, t.call),
-      reach: rfiReach(t.hero),
+      authoredStrategy: authored,
+      strategy: softenAuthored(authored, reach: reach),
+      reach: reach,
     ));
   }
   return spots;

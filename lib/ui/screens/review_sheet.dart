@@ -37,9 +37,7 @@ class CoachPanel extends StatelessWidget {
     final f = spot.freqs(hand);
     final grade = chosen == null
         ? null
-        : simple
-            ? beginnerGradeFor(f[chosen!])
-            : gradeFor(f[chosen!]);
+        : gradeChoice(spot, f[chosen!], beginner: simple);
     final notes = simple && chosen != null
         ? simpleCoachNotes(spot, hand, chosen!)
         : coachNotes(spot, hand, chosen ?? _best(f));
@@ -49,6 +47,11 @@ class CoachPanel extends StatelessWidget {
         if (grade != null) GradeBadge(grade: grade, action: spot.actions[chosen!]),
         const SizedBox(height: 10),
         Text('${hand.name}: ${spot.title}', style: t.titleMedium),
+        if (spot.handAuthored) ...[
+          const SizedBox(height: 6),
+          const Align(
+              alignment: Alignment.centerLeft, child: ApproximateChip()),
+        ],
         const SizedBox(height: 6),
         ActionFreqBar(spot: spot, hand: hand),
         const SizedBox(height: 4),
@@ -98,6 +101,33 @@ class CoachPanel extends StatelessWidget {
       if (f[i] > f[b]) b = i;
     }
     return b;
+  }
+}
+
+/// Small "Approximate · not solver-backed" chip for hand-authored spots.
+class ApproximateChip extends StatelessWidget {
+  const ApproximateChip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = Felt.mixedText(context);
+    return Container(
+      key: const Key('approximate-chip'),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8), border: Border.all(color: c)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.info_outline, size: 14, color: c),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(approximateLabel,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: c, fontWeight: FontWeight.w600)),
+        ),
+      ]),
+    );
   }
 }
 
