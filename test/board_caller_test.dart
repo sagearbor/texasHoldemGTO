@@ -261,6 +261,8 @@ void main() {
 
       await tester.tap(find.text('Fold'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Next hand'));
+      await tester.pumpAndSettle();
       expect(m.active!.hands.single.board, parseCards('Kh7s4c'));
       expect(m.active!.currentBoard, isEmpty);
       expect(find.text('Board K♥ 7♠ 4♣'), findsOneWidget);

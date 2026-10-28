@@ -253,7 +253,7 @@ List<Widget> recapCards(NightRecap r) {
       label: 'Stories',
       value: '${told.length}',
       caption: told.length == 1 ? 'hand worth retelling' : 'hands worth retelling',
-      lines: [for (final h in told.reversed.take(8)) storyLine(h)],
+      lines: [for (final h in told.reversed.take(8)) storyLine(h, hero: r.session.heroName)],
     ));
   }
   final s = r.session;

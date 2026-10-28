@@ -87,16 +87,23 @@ const _topics = {
     Icons.groups,
     'Home game',
     [
-      'Before the game: type the players in seat order going clockwise, pick your seat '
-          'and who deals the first hand, then Start.',
-      'Every hand, the fastest habit: boring hand → just tap Fold (no cards needed). '
-          'Interesting hand → tap the card slots, pick your two cards, say whether it was '
-          'folded to you or someone raised, then tap Fold, Call / limp or Raise.',
-      'Log every hand, even with a single Fold tap. If you only log the hands you play, '
-          'VPIP and PFR will make you look far looser than you are.',
-      'The dealer moves one seat each time you log a hand, so your position is predicted. '
-          'If it\'s wrong (you skipped hands, a re-deal), tap your real position or tap '
-          '"Dealer" and pick who is dealing.',
+      'Before the game: type who is playing (any order), pick yourself, then Start. '
+          'Leave "Learn the seats from the deal" on and you never type the seat order.',
+      'First orbit, organizer only: tap the name of whoever is dealing, each hand, as the '
+          'deal goes round. That tap order becomes the seating. After one orbit the button '
+          'moves by itself and you get one big Next hand button.',
+      'Every hand, the fastest habit: do nothing on hands you fold. An untouched hand '
+          'counts as a fold when Next hand is tapped. Played it? Use the big pad at the '
+          'bottom without looking: tap = call / limp, swipe up = raise, swipe down = undo, '
+          'swipe sideways = Next hand. Each one buzzes differently.',
+      'The buttons in the hand card do the same, and also record whether it was folded '
+          'to you or someone raised (needed for the GTO grade). Cards are optional: tap the '
+          'card slots; they are saved with the hand at Next hand.',
+      '"Didn\'t see this hand" saves it as unknown instead of a fold, so it does not '
+          'count for VPIP or PFR.',
+      'Your position is predicted from the button. If it\'s wrong (a re-deal), tap your '
+          'real position or tap "Dealer" and pick who is dealing. Someone new deals? Pick '
+          '"Someone new" there and they are seated where they dealt.',
       'Someone joins or leaves: the menu at the top right → Players & seats.',
       'Raise or fold mistakes in unopened pots pop up with a "Why?" link.',
       'The TV icon opens the dashboard. Mirror (cast) your phone screen to the TV to show it. '
@@ -115,8 +122,10 @@ const _topics = {
       'Remembered your cards late? Enter them, tap "That was hand…" and pick the hand by its '
           'board: they go on that hand instead of the one being played now.',
       'With boards the Night Recap adds flops seen and your best made hand.',
-      'Blind clock: from the setup screen or the menu at the top right. Big countdown for the TV, levels and '
-          'breaks you can edit, or Cash game mode. It keeps time even if the phone sleeps.',
+      'Blind clock: from the setup screen or the menu at the top right. It starts as a '
+          'cash game (stakes on the TV, no timer). For a tournament pick Tournament clock in '
+          'its menu: a big countdown, levels and breaks you can edit. It keeps time even if '
+          'the phone sleeps.',
       'End game night shows the Night Recap: best hand, cold streaks, card luck, awards and '
           '"Dealer of Doom" (who dealt you the worst cards). Copy it for the group chat.',
       'Crew & season (setup screen): everyone who has played, attendance streaks and your '

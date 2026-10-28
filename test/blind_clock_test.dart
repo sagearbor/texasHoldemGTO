@@ -268,6 +268,7 @@ void main() {
       var now = t0;
       final a = BlindClockController(now: () => now);
       await a.ensureLoaded();
+      a.setMode(ClockMode.tournament);
       a.start();
       now += 2 * min;
       a.next();
@@ -281,11 +282,26 @@ void main() {
       expect(b.position.elapsedMs, 4 * min);
     });
 
+    test('a fresh install defaults to cash; a saved tournament stays one', () async {
+      SharedPreferences.setMockInitialValues({});
+      final c = BlindClockController(now: () => t0);
+      await c.ensureLoaded();
+      expect(c.clock.mode, ClockMode.cash);
+      c.setMode(ClockMode.tournament);
+      await Future<void>.delayed(Duration.zero);
+      final d = BlindClockController(now: () => t0);
+      await d.ensureLoaded();
+      expect(d.clock.mode, ClockMode.tournament);
+      await d.reload();
+      expect(d.clock.mode, ClockMode.tournament);
+    });
+
     test('level-change alert fires once per automatic rollover', () async {
       SharedPreferences.setMockInitialValues({});
       var now = t0;
       final c = BlindClockController(now: () => now);
       await c.ensureLoaded();
+      c.setMode(ClockMode.tournament);
       c.start();
       expect(c.takeLevelChange(), isFalse);
       now += 15 * min;
@@ -309,6 +325,7 @@ void main() {
     var now = t0;
     final c = BlindClockController(now: () => now);
     await c.ensureLoaded();
+    c.setMode(ClockMode.tournament);
     await tester.pumpWidget(MaterialApp(home: BlindClockScreen(controller: c)));
     await tester.pump();
     expect(find.text('LEVEL 1'), findsOneWidget);
@@ -340,7 +357,7 @@ void main() {
         final c = BlindClockController(now: () => t0 + 61 * min); // on the break
         await c.ensureLoaded();
         c.clock.schedule[0] = const BlindLevel(1000, 2000, ante: 2000);
-        if (cash) c.setMode(ClockMode.cash);
+        c.setMode(cash ? ClockMode.cash : ClockMode.tournament);
         await tester.pumpWidget(MaterialApp(home: BlindClockScreen(controller: c)));
         await tester.pump();
         c.start();

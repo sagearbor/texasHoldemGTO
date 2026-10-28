@@ -238,10 +238,12 @@ void main() {
       expect(ms['Last 10 hands']!.headline, startsWith('-')); // mostly 72o
       expect(ms.containsKey('Golden Arm'), isTrue);
       expect(ms["Tonight's drama"]!.headline, 'Suckout');
-      expect(ms["Tonight's drama"]!.detail, 'Hand #6 · 72o');
+      expect(ms["Tonight's drama"]!.detail, 'Me 72o · ${clockLabel(30 * minute)}');
       // 12 hands over 55 minutes.
       expect(ms['Hands per hour']!.headline, '13');
-      expect(dramaLine(hands), 'Suckout (#6) · Bad beat (#4)');
+      expect(dramaLine(hands, hero: 'Sage'),
+          'Suckout · Sage 72o · ${clockLabel(30 * minute)}  |  '
+          'Bad beat · Sage 72o · ${clockLabel(20 * minute)}');
     });
 
     test('fold streak ignores unrecorded hands and stops at a non-fold', () {
@@ -258,8 +260,10 @@ void main() {
 
     test('drama line caps at three, newest first', () {
       final hands = [for (var i = 1; i <= 5; i++) hand(i, null, tag: StoryTag.values[i])];
-      expect(dramaLine(hands), 'Big pot (#5) · Hero fold (#4) · Suckout (#3)');
-      expect(storyLine(hand(9, 'AsAh', tag: StoryTag.cooler)), 'Cooler · hand #9 · AA');
+      expect(dramaLine(hands)!.split('  |  ').map((l) => l.split(' · ').first),
+          ['Big pot', 'Hero fold', 'Suckout']);
+      expect(storyLine(hand(9, 'AsAh', tag: StoryTag.cooler)),
+          'Cooler · Me AA · ${clockLabel(18 * minute)}');
     });
   });
 
@@ -346,6 +350,14 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Fold'));
       await tester.pump();
+      expect(m.active!.pendingAction, PreAction.fold);
+      await tester.scrollUntilVisible(find.text('Next hand'), -200, scrollable: list);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next hand'));
+      await tester.pump();
+      expect(m.active!.hands.last.assumed, isFalse);
+      await tester.scrollUntilVisible(find.text('Hand #100 a story? (optional)'), 200,
+          scrollable: list);
       expect(find.text('Hand #100 a story? (optional)'), findsOneWidget);
       expect(find.text('Badge unlocked: Century'), findsOneWidget);
       await tester.ensureVisible(find.text('Cooler'));
@@ -463,7 +475,8 @@ void main() {
       ], closed: false);
       final m = HomeGameModel(lib)..sessions.add(live);
       await pump(tester, DashboardScreen(model: m));
-      expect(find.textContaining('Bluff got through (#3)', findRichText: true), findsOneWidget);
+      expect(find.textContaining('Bluff got through · Me 72o · ', findRichText: true),
+          findsOneWidget);
       expect(find.textContaining('Cooler', findRichText: true), findsNothing);
       expect(find.text('AA'), findsNothing);
       expect(find.byType(MomentsCarousel), findsOneWidget);
