@@ -27,9 +27,9 @@ of the hand (folding a posted blind = minus the blind).
 
 | Spot | id | Hero plays | Nash gap (bb/hand) | Flop expl. (% pot) | Passed |
 |---|---|---|---|---|---|
-| BB vs UTG limp: raise 5bb / check | `cash-limp1-BB` | Raise 5bb 12%, Check 88% | 0.000019 | 2.823 | yes |
+| BB vs UTG limp: raise 5bb / check | `cash-limp1-BB` | Raise 5bb 12%, Check 88% | 0.000019 | 2.823 | **no** |
 | CO vs UTG limp: iso 4bb / overlimp / fold | `cash-limp1-CO` | Iso 4bb 27%, Overlimp 44%, Fold 29% | 0.000017 | 1.959 | **no** |
-| BTN vs UTG limp: iso 4bb / overlimp / fold | `cash-limp1-BTN` | Iso 4bb 27%, Overlimp 44%, Fold 29% | 0.000017 | 1.959 | yes |
+| BTN vs UTG limp: iso 4bb / overlimp / fold | `cash-limp1-BTN` | Iso 4bb 27%, Overlimp 44%, Fold 29% | 0.000017 | 1.959 | **no** |
 | SB vs UTG limp: iso 5bb / complete / fold | `cash-limp1-SB` | Iso 5bb 16%, Complete 44%, Fold 40% | 0.000018 | 2.247 | **no** |
 | UTG open, BTN 3-bets 7.5bb | `cash-3b-UTG-ip` | 4-bet 25bb 19%, Call 46%, Fold 35% | 0.000018 | 3.307 | **no** |
 | UTG open, BB 3-bets 10bb | `cash-3b-UTG-blinds` | 4-bet 22bb 18%, Call 36%, Fold 47% | 0.000018 | 1.899 | **no** |
@@ -60,21 +60,27 @@ file by `test/solved_data_test.dart`:
 * SB facing a limper: 86s is not a 100% complete, and at least two suited
   connectors mix.
 * CO facing a limper plays tighter than the BTN (someone is still behind it).
+* Facing a limper, nobody may still be to act behind the hero: the model
+  folds those seats (the blinds never raise an overlimp or 3-bet an iso),
+  so only the BB spot is solved in the real game.
+* Pairs: the aggressive action's EV never drops by more than 0.1bb from a
+  smaller pair to the next bigger one (a bigger pair dominates; an
+  inversion is sampling noise from the flop subset).
 * Facing a 3-bet, AA and KK 4-bet (together at least one full combo-weight).
 * Flop benchmark (reported, see below): BTN vs BB single-raised pot on an
   A-high dry flop should c-bet often and mostly small.
 
 | Spot | Failed gates |
 |---|---|
-| `cash-limp1-BB` | none |
-| `cash-limp1-CO` | CO plays tighter than BTN vs a limper (players behind) (CO 0.710 BTN 0.710) |
-| `cash-limp1-BTN` | none |
-| `cash-limp1-SB` | SB: 86s not 100% complete (86s complete 1.000); SB: suited connectors mix (mixed: []) |
-| `cash-3b-UTG-ip` | fixed point: under 5% of hero's hands move in the last round (0.1993) |
+| `cash-limp1-BB` | pairs: aggressive EV never drops more than 0.1bb with a bigger pair (66 +0.715 vs 77 +0.109) |
+| `cash-limp1-CO` | pairs: aggressive EV never drops more than 0.1bb with a bigger pair (66 +1.624 vs 77 +1.459); no seat left to act behind the hero (model folds them) (seats behind are not modelled); CO plays tighter than BTN vs a limper (players behind) (CO 0.710 BTN 0.710) |
+| `cash-limp1-BTN` | pairs: aggressive EV never drops more than 0.1bb with a bigger pair (66 +1.624 vs 77 +1.459); no seat left to act behind the hero (model folds them) (seats behind are not modelled) |
+| `cash-limp1-SB` | pairs: aggressive EV never drops more than 0.1bb with a bigger pair (66 +0.993 vs 77 +0.261); no seat left to act behind the hero (model folds them) (seats behind are not modelled); SB: 86s not 100% complete (86s complete 1.000); SB: suited connectors mix (mixed: []) |
+| `cash-3b-UTG-ip` | fixed point: under 5% of hero's hands move in the last round (0.1993); pairs: aggressive EV never drops more than 0.1bb with a bigger pair (66 -4.819 vs 77 -5.063) |
 | `cash-3b-UTG-blinds` | fixed point: under 5% of hero's hands move in the last round (0.2288) |
 | `cash-3b-CO-BTN` | fixed point: under 5% of hero's hands move in the last round (0.0821) |
 | `cash-3b-CO-blinds` | fixed point: under 5% of hero's hands move in the last round (0.2978) |
-| `cash-3b-BTN-SB` | fixed point: under 5% of hero's hands move in the last round (0.1836) |
+| `cash-3b-BTN-SB` | fixed point: under 5% of hero's hands move in the last round (0.1836); pairs: aggressive EV never drops more than 0.1bb with a bigger pair (44 -2.103 vs 55 -2.428) |
 | `cash-3b-BTN-BB` | fixed point: under 5% of hero's hands move in the last round (0.2019) |
 | `cash-3b-SB-BB` | fixed point: under 5% of hero's hands move in the last round (0.18) |
 
@@ -214,12 +220,21 @@ are each stratum's share of all flops:
 
 ## Limitations
 
+* **No spot passes every gate, so the app ships none of them** and keeps
+  its hand-authored charts. The BB-vs-limper game is the closest: it
+  settled, but its per-class EVs are noisy (raise 66 +0.72bb, raise 77
+  +0.11bb), which would teach "raise 66, check 77". More flops per pot
+  type, so each class's realisation is measured rather than sampled, is
+  the fix.
 * **The facing-a-3-bet games did not reach a fixed point** in the rounds
   run (18-30% of the opener's hands still changed strategy in the last
   round, against a 5% gate), so all seven are published with
   `passed: false` and the app keeps its hand-authored charts for them. The
   limp games settled (2-4% in the last round). More rounds, heavier damping
   and more flops per round are the obvious next step.
+* Facing a limper, only the BB passes: for the CO, BTN and SB the model
+  folds the seats behind, which overrates overlimping (the BTN solution
+  overlimps hands like K3o and Q5o), so they fail the seats-behind gate.
 * The CO-facing-a-limper game is identical to the BTN game in this model
   (players behind fold), so it fails its gate. The SB-facing-a-limper
   solution is pure (every suited connector completes 100%), so it fails the

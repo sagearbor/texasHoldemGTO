@@ -48,6 +48,12 @@ file by `test/solved_data_test.dart`:
 * SB facing a limper: 86s is not a 100% complete, and at least two suited
   connectors mix.
 * CO facing a limper plays tighter than the BTN (someone is still behind it).
+* Facing a limper, nobody may still be to act behind the hero: the model
+  folds those seats (the blinds never raise an overlimp or 3-bet an iso),
+  so only the BB spot is solved in the real game.
+* Pairs: the aggressive action's EV never drops by more than 0.1bb from a
+  smaller pair to the next bigger one (a bigger pair dominates; an
+  inversion is sampling noise from the flop subset).
 * Facing a 3-bet, AA and KK 4-bet (together at least one full combo-weight).
 * Flop benchmark (reported, see below): BTN vs BB single-raised pot on an
   A-high dry flop should c-bet often and mostly small.
@@ -139,12 +145,21 @@ are each stratum's share of all flops:
 
 ## Limitations
 
+* **No spot passes every gate, so the app ships none of them** and keeps
+  its hand-authored charts. The BB-vs-limper game is the closest: it
+  settled, but its per-class EVs are noisy (raise 66 +0.72bb, raise 77
+  +0.11bb), which would teach "raise 66, check 77". More flops per pot
+  type, so each class's realisation is measured rather than sampled, is
+  the fix.
 * **The facing-a-3-bet games did not reach a fixed point** in the rounds
   run (18-30% of the opener's hands still changed strategy in the last
   round, against a 5% gate), so all seven are published with
   `passed: false` and the app keeps its hand-authored charts for them. The
   limp games settled (2-4% in the last round). More rounds, heavier damping
   and more flops per round are the obvious next step.
+* Facing a limper, only the BB passes: for the CO, BTN and SB the model
+  folds the seats behind, which overrates overlimping (the BTN solution
+  overlimps hands like K3o and Q5o), so they fail the seats-behind gate.
 * The CO-facing-a-limper game is identical to the BTN game in this model
   (players behind fold), so it fails its gate. The SB-facing-a-limper
   solution is pure (every suited connector completes 100%), so it fails the

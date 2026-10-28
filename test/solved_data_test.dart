@@ -40,7 +40,15 @@ void main() {
       expect(s.solved, passed.containsKey(s.id), reason: s.id);
       if (!passed.containsKey(s.id)) expect(identical(s, base[i]), isTrue);
     }
-    expect(passed, isNotEmpty);
+  });
+
+  test('a passing entry swaps in the solved strategy', () {
+    final bb = raw['cash-limp1-BB'] as Map<String, dynamic>;
+    final s = applySolvedSpots(
+            base, {'spots': {'cash-limp1-BB': {...bb, 'passed': true}}})
+        .firstWhere((s) => s.id == 'cash-limp1-BB');
+    expect(s.solved, isTrue);
+    expect(s.exploitabilityBb, isNotNull);
   });
 
   test('rows are distributions; solved notes carry exploitability', () {

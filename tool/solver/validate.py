@@ -34,9 +34,28 @@ def gates(sid, spot, all_spots):
     d = spot.get("fixedPointDelta")
     out.append((f"fixed point: under {MAX_FP_DELTA:.0%} of hero's hands move in the last round",
                 d is not None and d <= MAX_FP_DELTA, f"{d}"))
+    ev = spot.get("ev")
+    if ev is not None:
+        # A bigger pair dominates a smaller one, so its EV for the aggressive
+        # action can't be clearly lower; a big inversion is model noise
+        # (per-class realisation from a small flop subset), not strategy.
+        pairs = [r * 2 for r in reversed(rg.RANKS)]  # AA first
+        worst, at = 0.0, ""
+        for hi, lo in zip(pairs, pairs[1:]):
+            a, b = ev[IDX[hi]][0], ev[IDX[lo]][0]
+            if a is not None and b is not None and b - a > worst:
+                worst, at = b - a, f"{lo} {b:+.3f} vs {hi} {a:+.3f}"
+        out.append(("pairs: aggressive EV never drops more than 0.1bb with a bigger pair",
+                    worst <= 0.1, at or "monotone"))
     if sid.startswith("cash-limp"):
         worst = max(_f(spot, h, 0) for h in TRASH)
         out.append(("trash never iso-raises", worst <= 0.01, f"max raise {worst:.3f}"))
+        if not sid.endswith("-BB"):
+            # The limp model folds every seat behind the hero (the blinds never
+            # raise an overlimp or 3-bet an iso), so only the BB, last to act,
+            # is solved in the real game.
+            out.append(("no seat left to act behind the hero (model folds them)",
+                        False, "seats behind are not modelled"))
         if "SB" in sid:
             c86 = _f(spot, "86s", 1)
             mixed = [h for h in CONNECTORS if max(spot["strategy"][IDX[h]]) <= 0.9]
