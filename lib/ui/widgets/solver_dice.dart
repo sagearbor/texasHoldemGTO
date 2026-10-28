@@ -42,7 +42,9 @@ String diceText(Spot spot, HandClass hand, int roll) {
     for (final (i, s, e) in bands) '${spot.actions[i]} ${e - s}%'
   ];
   final two = bands.length <= 2;
-  return 'The solver plays this hand ${two ? 'both ways' : 'several ways'}: '
+  // Hand-authored charts are not solver output: say so.
+  final who = spot.handAuthored ? 'This approximate chart' : 'The solver';
+  return '$who plays this hand ${two ? 'both ways' : 'several ways'}: '
       '${parts.join(', ')}. Rolling $roll → '
       '${spot.actions[actionForRoll(f, roll)]}. '
       '${two ? 'Either choice is fine' : 'Any of these is fine'}; '

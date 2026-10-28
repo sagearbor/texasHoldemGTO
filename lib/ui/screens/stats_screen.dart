@@ -43,6 +43,8 @@ class StatsScreen extends StatelessWidget {
           );
         }
         final byHand = model.byHand();
+        // Hand-authored spots are drilled but never scored.
+        final scored = model.scoredHistory;
         final week = DateTime.now()
             .subtract(const Duration(days: 7))
             .millisecondsSinceEpoch;
@@ -96,9 +98,9 @@ class StatsScreen extends StatelessWidget {
             children: [
               Row(children: [
                 _Tile('Hands drilled', '${h.length}'),
-                _Tile('All-time', pct(model.accuracy(h))),
+                _Tile('All-time', pct(model.accuracy(scored))),
                 _Tile('Last 7 days',
-                    pct(model.accuracy(h.where((a) => a.ts >= week)))),
+                    pct(model.accuracy(scored.where((a) => a.ts >= week)))),
               ]),
               Row(children: [
                 _Tile('Due for review', '${model.dueCount}'),

@@ -193,6 +193,11 @@ class _DrillCard extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
               ),
             ]),
+            if (spot.handAuthored) ...[
+              const SizedBox(height: 4),
+              const Align(
+                  alignment: Alignment.centerLeft, child: ApproximateChip()),
+            ],
             const SizedBox(height: 4),
             Text(spot.situation, style: t.bodyMedium),
             const SizedBox(height: 12),

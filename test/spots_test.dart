@@ -192,8 +192,11 @@ void main() {
         expect(s.playPercent,
             lessThan(byId('cash-rfi-${s.hero}').playPercent * 0.5));
       }
-      // In position, suited connectors call; UTG OOP folds them.
-      expect(byId('cash-3b-BTN-BB').freqs(HandClass.parse('87s'))[1], 1);
+      // In position, suited connectors call; UTG OOP folds them (as
+      // authored; 87s sits at a range edge, so it is shown softened).
+      final c87 = HandClass.parse('87s').index;
+      expect(byId('cash-3b-BTN-BB').authoredStrategy![c87][1], 1);
+      expect(byId('cash-3b-BTN-BB').strategy[c87], [0, 0.75, 0.25]);
       expect(byId('cash-3b-UTG-ip').freqs(HandClass.parse('87s'))[2], 1);
     });
 

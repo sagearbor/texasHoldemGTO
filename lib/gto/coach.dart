@@ -27,6 +27,22 @@ Grade gradeFor(double freq) {
 Grade beginnerGradeFor(double freq) =>
     freq >= 0.5 ? Grade.correct : Grade.mistake;
 
+/// Grade for picking an action played [freq] of the time in [spot].
+/// Hand-authored spots ([Spot.handAuthored]) never call a borderline choice
+/// a mistake: their charts are softened so a borderline hand's runner-up
+/// shows at least 25% (see [softenAuthored]), and beginners get "mixed"
+/// for it too instead of the usual right-or-wrong.
+Grade gradeChoice(Spot spot, double freq, {bool beginner = false}) {
+  if (!beginner) return gradeFor(freq);
+  if (spot.handAuthored && freq < 0.5 && freq >= authoredRunnerUpFloor) {
+    return Grade.mixed;
+  }
+  return beginnerGradeFor(freq);
+}
+
+/// Label for the hand-authored spots, on the spot header and coach sheet.
+const approximateLabel = 'Approximate · not solver-backed';
+
 /// True when no single action is taken at least 90% of the time.
 bool isMixedHand(Spot spot, HandClass h) => spot.freqs(h).every((f) => f < 0.9);
 
@@ -36,7 +52,12 @@ List<String> simpleCoachNotes(Spot spot, HandClass h, int chosen) {
   final best = _argmax(f);
   final a = spot.actions[best];
   return [
-    if (f[chosen] < 0.5)
+    if (spot.handAuthored &&
+        f[chosen] < 0.5 &&
+        f[chosen] >= authoredRunnerUpFloor)
+      '$a is the more common play (${pct(f[best])}), but '
+          '${spot.actions[chosen]} is fine too: this chart is approximate.'
+    else if (f[chosen] < 0.5)
       'The right play is $a (${pct(f[best])}), not ${spot.actions[chosen]}.'
     else
       '${spot.actions[chosen]} is right with ${h.name} here.',
@@ -93,7 +114,9 @@ List<String> coachNotes(Spot spot, HandClass h, int chosen) {
     if (always.isNotEmpty || mixed.isNotEmpty) {
       final b = StringBuffer('Among $famName: ');
       if (always.isNotEmpty) {
-        b.write('${_spanName(always)} always play');
+        // Hand-authored charts make no absolute claims.
+        b.write('${_spanName(always)} '
+            '${spot.handAuthored ? 'usually play' : 'always play'}');
       }
       if (mixed.isNotEmpty) {
         if (always.isNotEmpty) b.write('; ');
@@ -138,29 +161,7 @@ List<String> coachNotes(Spot spot, HandClass h, int chosen) {
     notes.add('The big blind already has 1bb invested and closes the action, '
         'so it gets a discount to call and defends wide.');
   }
-  if (spot.group == limperGroup) {
-    final passive = spot.actions[1];
-    if (f[0] >= 0.5) {
-      notes.add(spot.hero == 'BB'
-          ? 'Raise for value: a limper\'s range is capped (strong hands '
-              'usually raise first), and ${h.name} is ahead of it.'
-          : 'Iso-raise for value: ${h.name} is ahead of a limping range, '
-              'and the raise thins the field so you play heads-up with the '
-              'initiative.');
-    } else if (spot.hero == 'BB' && f[1] >= 0.5) {
-      notes.add('The big blind sees the flop for free: with no fold option, '
-          'check everything that is not a clear value raise.');
-    } else if (spot.hero == 'SB' && f[1] >= 0.5) {
-      notes.add('Completing costs only half a big blind with limpers already '
-          'in, so the small blind can see a cheap flop with many hands.');
-    } else if (passive == 'Overlimp' && f[1] >= 0.5) {
-      notes.add('Overlimp small pairs and suited connectors: they want a '
-          'cheap multiway flop to hit a set or a big draw, and they gain '
-          'little from an iso-raise.');
-    }
-    notes.add('Facing-limper charts are hand-authored approximations: '
-        'limped pots are not in standard solver trees.');
-  }
+  if (spot.group == limperGroup) notes.addAll(_limperNotes(spot, h));
   if (spot.group == threeBetGroup) notes.addAll(_threeBetNotes(spot, h));
   if (spot.format == SpotFormat.rejam) notes.addAll(_rejamNotes(spot, h));
   if (spot.hero == 'BTN' &&
@@ -203,7 +204,10 @@ List<String> coachNotes(Spot spot, HandClass h, int chosen) {
   notes.add(_rangeSizeNote(spot));
 
   if (chosen != best && f[chosen] < 0.25) {
-    notes.insert(0, 'GTO prefers ${spot.actions[best]} (${pct(f[best])}).');
+    notes.insert(
+        0,
+        '${spot.handAuthored ? 'The chart' : 'GTO'} prefers '
+        '${spot.actions[best]} (${pct(f[best])}).');
   }
   return notes;
 }
@@ -230,6 +234,48 @@ List<HandClass> _family(HandClass h) {
 String _spanName(List<HandClass> hands) {
   if (hands.length == 1) return hands.first.name;
   return '${hands.first.name}–${hands.last.name}';
+}
+
+/// Template notes for the hand-authored facing-limpers spots. No absolute
+/// claims ("always play"): these charts are approximations.
+List<String> _limperNotes(Spot spot, HandClass h) {
+  final f = spot.freqs(h);
+  final notes = <String>[];
+  final passive = spot.actions[1];
+  final sb = spot.hero == 'SB';
+  if (f[0] >= 0.5) {
+    notes.add(spot.hero == 'BB'
+        ? 'Raise for value: a limper\'s range is capped (strong hands '
+            'usually raise first), and ${h.name} is ahead of it.'
+        : sb
+            ? 'Iso-raise for value: ${h.name} is ahead of a limping range. '
+                'From the small blind the big blind still acts behind you and '
+                'can re-raise, and you play the rest of the hand out of '
+                'position, so the iso range stays tighter than in position.'
+            : 'Iso-raise for value: ${h.name} is ahead of a limping range, '
+                'and the raise thins the field so you play heads-up with the '
+                'initiative.');
+  } else if (spot.hero == 'BB' && f[1] >= 0.5) {
+    notes.add('The big blind sees the flop for free: with no fold option, '
+        'check most hands that are not a clear value raise.');
+  } else if (sb && f[1] >= 0.5) {
+    notes.add('Completing costs only half a big blind, but the big blind '
+        'still acts behind you and can raise, and you play the hand out of '
+        'position on every street. With ${h.name} completing and folding are '
+        'both reasonable.');
+  } else if (sb && f[spot.passiveIndex] >= 0.5) {
+    notes.add('The big blind can still raise behind you and you would play '
+        'out of position after the flop, so weak hands lose more than the '
+        'half big blind a cheap look saves.');
+  } else if (passive == 'Overlimp' && f[1] >= 0.5) {
+    notes.add('Overlimp small pairs and suited connectors: they want a '
+        'cheap multiway flop to hit a set or a big draw, and they gain '
+        'little from an iso-raise.');
+  }
+  notes.add('Facing-limper charts are hand-authored approximations: '
+      'limped pots are not in standard solver trees, so borderline hands '
+      'are shown as a mix and either choice counts as fine.');
+  return notes;
 }
 
 /// Template notes for the hand-authored facing-a-3-bet spots.
@@ -271,7 +317,8 @@ List<String> _threeBetNotes(Spot spot, HandClass h) {
         'flush potential to make up for it.');
   }
   notes.add('Facing-a-3-bet charts are hand-authored approximations (4-bet '
-      '22bb in position, 25bb out of position), not solver output.');
+      '22bb in position, 25bb out of position), not solver output, so '
+      'borderline hands are shown as a mix and either choice counts as fine.');
   return notes;
 }
 

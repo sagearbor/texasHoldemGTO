@@ -373,8 +373,30 @@ class TrainerModel extends ChangeNotifier {
 
   /// Grade shown for [a] at the current difficulty. The stored answer keeps
   /// the true frequency, so history and the deck are unaffected.
-  Grade gradeOf(Answer a) =>
-      difficulty == Difficulty.beginner ? beginnerGradeFor(a.freq) : a.grade;
+  Grade gradeOf(Answer a) {
+    final spot = _spotOrNull(a.spotId);
+    if (spot == null) {
+      return difficulty == Difficulty.beginner
+          ? beginnerGradeFor(a.freq)
+          : a.grade;
+    }
+    return gradeChoice(spot, a.freq,
+        beginner: difficulty == Difficulty.beginner);
+  }
+
+  /// Ids of the hand-authored spots ([Spot.handAuthored]).
+  late final Set<String> handAuthoredIds = {
+    for (final s in library.all)
+      if (s.handAuthored) s.id
+  };
+
+  /// [history] without hand-authored spots: what every score counts (GTO
+  /// score tiles, report card, progress chart, mistake heatmap). Those
+  /// spots are approximations, so they can be drilled but never scored.
+  List<Answer> get scoredHistory => [
+        for (final a in history)
+          if (!handAuthoredIds.contains(a.spotId)) a
+      ];
 
   void focus(String? spotId) {
     focusSpotId = spotId;
@@ -533,7 +555,7 @@ class TrainerModel extends ChangeNotifier {
     lastRoll = isMixedHand(d.spot, d.hand) ? _rng.nextInt(100) : null;
     sessionCount++;
     final good = difficulty == Difficulty.beginner
-        ? gradeOf(a) == Grade.correct
+        ? gradeOf(a) != Grade.mistake
         : !a.isMiss;
     if (good) {
       sessionGood++;
@@ -555,18 +577,19 @@ class TrainerModel extends ChangeNotifier {
     return l.fold<double>(0, (a, b) => a + (b.isMiss ? 0 : 1)) / l.length;
   }
 
+  /// Scored answers ([scoredHistory]) grouped by spot.
   Map<String, List<Answer>> bySpot() {
     final m = <String, List<Answer>>{};
-    for (final a in history) {
+    for (final a in scoredHistory) {
       (m[a.spotId] ??= []).add(a);
     }
     return m;
   }
 
-  /// Per hand-class (count, misses) across all spots.
+  /// Per hand-class (count, misses) across all scored spots.
   Map<int, (int, int)> byHand() {
     final m = <int, (int, int)>{};
-    for (final a in history) {
+    for (final a in scoredHistory) {
       final (n, miss) = m[a.hand] ?? (0, 0);
       m[a.hand] = (n + 1, miss + (a.isMiss ? 1 : 0));
     }
@@ -575,9 +598,10 @@ class TrainerModel extends ChangeNotifier {
 
   /// Most teachable mistakes: misses, worst first, de-duplicated by
   /// (spot, hand), favouring hands that come up often in that spot.
+  /// Hand-authored spots are left out (never scored as mistakes).
   List<Answer> teachable({int limit = 10}) {
     final seen = <String>{};
-    final misses = history.reversed.where((a) => a.isMiss).where((a) {
+    final misses = scoredHistory.reversed.where((a) => a.isMiss).where((a) {
       final k = '${a.spotId}:${a.hand}';
       return seen.add(k);
     }).toList();

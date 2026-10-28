@@ -210,6 +210,11 @@ class _ChartsScreenState extends State<ChartsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(s.title, style: t.titleMedium),
+                  if (s.handAuthored) ...[
+                    const SizedBox(height: 4),
+                    const ApproximateChip(),
+                    const SizedBox(height: 4),
+                  ],
                   Text(s.situation, style: t.bodySmall),
                   const SizedBox(height: 10),
                   if (widget.model != null) ...[
@@ -330,8 +335,10 @@ class _MistakesView extends StatelessWidget {
               }
             : {spot.id};
         final now = model.now.millisecondsSinceEpoch;
-        final scores = cellScores(model.history, ids, now);
-        final weak = weakTargets(model.history, ids, now);
+        // Hand-authored spots are drilled but never scored as leaks.
+        final scored = model.scoredHistory;
+        final scores = cellScores(scored, ids, now);
+        final weak = weakTargets(scored, ids, now);
         final tries = scores.values.fold<int>(0, (a, b) => a + b.attempts);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -363,7 +370,11 @@ class _MistakesView extends StatelessWidget {
             const MistakeLegend(),
             const SizedBox(height: 6),
             Text(
-              tries == 0
+              spot.handAuthored
+                  ? '$approximateLabel: this spot is a hand-authored '
+                      'approximation, so it is not scored as leaks here. You '
+                      'can still drill it.'
+                  : tries == 0
                   ? 'No drills here yet. Play this spot in the trainer and your '
                       'mistakes show up on the grid.'
                   : '$tries ${tries == 1 ? 'answer' : 'answers'}. Recent answers '

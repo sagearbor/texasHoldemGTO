@@ -387,7 +387,8 @@ class TrainerReport {
   static const minSpotDrills = 5;
 
   factory TrainerReport.from(TrainerModel m, {DateTime? now}) {
-    final h = m.history;
+    // Hand-authored spots are drilled but never scored.
+    final h = m.scoredHistory;
     final week = (now ?? DateTime.now()).subtract(const Duration(days: 7)).millisecondsSinceEpoch;
     final recent = h.where((a) => a.ts >= week).toList();
     final spots = [
@@ -401,7 +402,7 @@ class TrainerReport {
       if (run > best) best = run;
     }
     return TrainerReport(
-      drilled: h.length,
+      drilled: m.history.length,
       accuracy: m.accuracy(h),
       last7: recent.isEmpty ? null : m.accuracy(recent),
       bestSpot: spots.isEmpty ? null : spots.last,
