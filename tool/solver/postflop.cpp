@@ -37,6 +37,7 @@ struct Config {
   std::vector<double> bets[3][2];  // [street][player]
   double raiseMult = 3.0;
   int maxBets = 2;               // bet + one raise
+  int maxBetsFlop = -1;          // flop override (-1: maxBets)
   bool allinReraise[3] = {false, false, true};
   bool riverAllin = true;        // all-in as an extra river bet option
   int iters = 400;
@@ -213,10 +214,11 @@ static int buildStreet(int street, double inv0, double inv1, int actor, int nBet
       // nobody has raised yet (nBets == 1) — the actor still has street-start.
       double level = inv[opp] - base;
       double raiseTo = -1;
-      if (nBets < cfg.maxBets) {
+      int mb = (street == 0 && cfg.maxBetsFlop > 0) ? cfg.maxBetsFlop : cfg.maxBets;
+      if (nBets < mb) {
         raiseTo = base + cfg.raiseMult * level;
         if (raiseTo - inv[actor] >= remain * 0.8 || raiseTo >= cfg.stack) raiseTo = cfg.stack;
-      } else if (cfg.allinReraise[street] && nBets < cfg.maxBets + 1) {
+      } else if (cfg.allinReraise[street] && nBets < mb + 1) {
         raiseTo = cfg.stack;
       }
       if (raiseTo > inv[opp] + 1e-9) {
@@ -575,6 +577,7 @@ int main(int argc, char** argv) {
     else if (k == "--threads") cfg.threads = atoi(v.c_str());
     else if (k == "--raise") cfg.raiseMult = atof(v.c_str());
     else if (k == "--maxbets") cfg.maxBets = atoi(v.c_str());
+    else if (k == "--maxbets-flop") cfg.maxBetsFlop = atoi(v.c_str());
     else if (k == "--mem") cfg.memLimitGb = atof(v.c_str());
     else if (k == "--river-allin") cfg.riverAllin = atoi(v.c_str()) != 0;
     else if (k == "--reraise-allin") { for (int st = 0; st < 3; st++) cfg.allinReraise[st] = v.size() > size_t(st) && v[st] == '1'; }

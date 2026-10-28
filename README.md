@@ -27,6 +27,8 @@ flutter run -d chrome
 dart run tool/solve_pushfold.dart 6000   # regenerate assets/data/pushfold.json
 # 3-handed: AOT-compile first (equity cache goes to tool/.cache, gitignored)
 dart compile exe tool/solve_pushfold3.dart -o tool/.cache/pf3 && tool/.cache/pf3
+# solved limper / 3-bet spots + flop EV tables (open data, CC BY 4.0):
+tool/solve_all.sh                         # ~4.5 h; see data/solved/README.md
 ```
 
 Engine code (`lib/poker`, `lib/gto`) is pure Dart with no Flutter imports

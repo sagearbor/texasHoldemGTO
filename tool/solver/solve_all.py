@@ -38,7 +38,8 @@ POST_ITERS = int(os.environ.get("POST_ITERS", "80"))
 POST_TARGET = float(os.environ.get("POST_TARGET", "1.0"))
 BENCH_ITERS = int(os.environ.get("BENCH_ITERS", "300"))
 MEM_GB = float(os.environ.get("MEM_GB", "6.5"))
-POST2_FLOPS = int(os.environ.get("POST2_FLOPS", "0"))
+FP_ROUNDS = int(os.environ.get("FP_ROUNDS", "2"))
+FP_FLOPS = int(os.environ.get("FP_FLOPS", "3"))
 STOP_FREE_GB = 15.0
 
 STACK = 100.0
@@ -138,6 +139,8 @@ def R_of(Rt, name, player):
     t = Rt.get(name)
     if t is not None:
         return t[player]
+    if name.startswith("4BP"):
+        return None  # plain equity until solved (round 0; SPR under 2)
     P = POT_TYPES[name]
     return prior_R(TAB, ip=(player != P.oop))
 
@@ -156,11 +159,12 @@ def game_3bet(spot, tab, Rt):
     oop = 1 if hero_ip else 0
     srp = pot_type(f"SRP:{O}-{V}", 2 * o + dead, STACK - o, oop, 0)
     tbp = pot_type(f"3BP:{O}-{V}", 2 * t + dead, STACK - t, oop, 1)
+    fbp = pot_type(f"4BP:{O}-{V}", 2 * f + dead, STACK - f, oop, 0)
     jam_node = pf.Node(0, ["Call", "Fold"], [pf.allin(tab, STACK, dead),
                                              pf.fold(1, f, STACK, dead)], "openerVsJam")
     v4 = pf.Node(1, ["Fold", "Call", "All-in"], [
         pf.fold(0, f, t, dead),
-        pf.allin(tab, f, dead, kind="post4", info={"potType": "4BP"}),
+        pf.post(tab, fbp, f, dead, R_of(Rt, fbp, 0), R_of(Rt, fbp, 1)),
         jam_node], "threeBettorVs4bet")
     hero = pf.Node(0, [f"4-bet {int(f)}bb", "Call", "Fold"], [
         v4,
@@ -438,18 +442,42 @@ def main():
     drift = {pt: max(range_dist(jobs1[pt][0], jobs_r1[pt][0]), range_dist(jobs1[pt][1], jobs_r1[pt][1]))
              for pt in jobs1 if pt in jobs_r1}
     log("range drift round0 -> round1: " + ", ".join(f"{k} {v:.3f}" for k, v in sorted(drift.items())))
-    fixed_point = None
-    if POST2_FLOPS > 0:
-        sub = sorted(flops, key=lambda f: -f["weight"])[:POST2_FLOPS]
-        Rt2, _, _, _ = solve_postflop(games1, tab, sub, POST_ITERS, POST_TARGET, "post 2")
-        # compare R tables (weighted by flop mass) between post 1 and post 2
-        Rt1sub, _, _, _ = solve_postflop(games0, tab, sub, POST_ITERS, POST_TARGET, "post 1 (subset)")
-        fixed_point = {}
-        for pt in Rt2:
-            if pt in Rt1sub:
-                d = max(float(np.abs(Rt2[pt][p] - Rt1sub[pt][p]).mean()) for p in (0, 1))
-                fixed_point[pt] = d
-        log("R drift post1 -> post2 (mean |dR|): " + ", ".join(f"{k} {v:.3f}" for k, v in sorted(fixed_point.items())))
+    # Further fixed-point rounds on a small flop subset: each round re-solves
+    # every pot type on the FP_FLOPS heaviest flops with the current ranges
+    # and corrects the full-subset tables by the change seen there:
+    #   R = R_full(round-0 ranges) + R_sub(current) - R_sub(round-0 ranges),
+    # damped 50/50 with the previous round's tables.
+    fixed_point = {"rounds": []}
+    games, Rt = games1, Rt1
+    games_prev = games0
+    sub = sorted(flops, key=lambda f: -f["weight"])[:FP_FLOPS]
+    Rbase = {}
+    if FP_ROUNDS > 0:
+        Rbase, _, _, _ = solve_postflop(games0, tab, sub, POST_ITERS, POST_TARGET, "fp base (subset)")
+    prev_jobs = leaf_jobs(games1)
+    for rnd in range(2, 2 + FP_ROUNDS):
+        Rsub, _, _, _ = solve_postflop(games, tab, sub, POST_ITERS, POST_TARGET, f"fp {rnd} (subset)")
+        Rnew = {}
+        for pt in Rt1:
+            Rnew[pt] = {}
+            for p in (0, 1):
+                corr = Rsub[pt][p] - Rbase[pt][p] if pt in Rsub and pt in Rbase else 0
+                target = np.clip(Rt1[pt][p] + corr, 0.2, 2.0)
+                Rnew[pt][p] = 0.5 * target + 0.5 * Rt[pt][p]
+        dR = {pt: max(float(np.abs(Rnew[pt][p] - Rt[pt][p]).mean()) for p in (0, 1)) for pt in Rnew}
+        Rt = Rnew
+        games_prev = games
+        games = solve_round(tab, Rt, f"round {rnd}")
+        jobs_now = leaf_jobs(games)
+        dr = {pt: max(range_dist(prev_jobs[pt][0], jobs_now[pt][0]),
+                      range_dist(prev_jobs[pt][1], jobs_now[pt][1]))
+              for pt in prev_jobs if pt in jobs_now}
+        prev_jobs = jobs_now
+        fixed_point["rounds"].append(dict(round=rnd, meanAbsDeltaR=dR, rangeDrift=dr))
+        log(f"round {rnd}: max mean |dR| {max(dR.values()):.3f}; range drift "
+            + ", ".join(f"{k} {v:.3f}" for k, v in sorted(dr.items())))
+    games1, Rt1 = games, Rt
+    jobs_r1 = leaf_jobs(games1)
     # benchmark: A-high dry SRP, BTN vs BB, converged further
     bench = []
     pt = "SRP:BTN-BB"
@@ -465,6 +493,7 @@ def main():
                               exploitPctPot=d["exploitPctPot"], iters=d["iters"]))
             log(f"benchmark {flop}: {fr}  expl {d['exploitPctPot']:.3f}%")
     import export  # noqa: E402
+    fixed_point["prevGames"] = games_prev
     export.write(OUT, games1, Rt1, aggs1, stats1, flops, bench, drift, fixed_point, tab,
                  dict(POST_ITERS=POST_ITERS, POST_TARGET=POST_TARGET, BENCH_ITERS=BENCH_ITERS,
                       RFI=RFI, LIMP=LIMP, THREE_BET=THREE_BET, POT_TYPES={k: vars(v) | {"bets": v.bets()} for k, v in POT_TYPES.items()}))

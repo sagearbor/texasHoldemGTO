@@ -83,6 +83,14 @@ void main() {
     }
   });
 
+  test('gate: the preflop/postflop iteration has settled', () {
+    for (final e in passed.entries) {
+      final d = e.value['fixedPointDelta'] as num?;
+      expect(d, isNotNull, reason: e.key);
+      expect(d!, lessThanOrEqualTo(0.05), reason: e.key);
+    }
+  });
+
   test('gate: trash never iso-raises a limper', () {
     for (final id in passed.keys.where((k) => k.startsWith('cash-limp'))) {
       for (final h in ['72o', '82o', '92o', '32o', '42o', '83o', 'T2o', 'J3o']) {
@@ -101,20 +109,21 @@ void main() {
     expect(mixed.length, greaterThanOrEqualTo(2));
   });
 
-  test('gate: BTN plays at least as wide as CO vs a limper', () {
-    if (!passed.containsKey('cash-limp1-BTN') ||
-        !passed.containsKey('cash-limp1-CO')) {
-      return;
-    }
+  test('gate: a solved CO vs a limper plays tighter than the BTN', () {
+    if (!passed.containsKey('cash-limp1-CO')) return; // chart kept
     double share(Spot s, int a, {bool not = false}) =>
         allHandClasses.fold(
             0.0,
             (x, h) =>
                 x + h.comboCount * (not ? 1 - s.freqs(h)[a] : s.freqs(h)[a])) /
         1326;
-    final co = byId('cash-limp1-CO'), btn = byId('cash-limp1-BTN');
-    expect(share(btn, 2, not: true), greaterThanOrEqualTo(share(co, 2, not: true) - 0.005));
-    expect(share(btn, 0), greaterThanOrEqualTo(share(co, 0) - 0.005));
+    final co = byId('cash-limp1-CO');
+    final btnRaw = raw['cash-limp1-BTN'] as Map<String, dynamic>;
+    final btn = applySolvedSpots(
+        base, {'spots': {'cash-limp1-BTN': {...btnRaw, 'passed': true}}})
+        .firstWhere((s) => s.id == 'cash-limp1-BTN');
+    expect(share(co, 2, not: true), lessThan(share(btn, 2, not: true) - 0.002));
+    expect(share(co, 0), lessThanOrEqualTo(share(btn, 0) + 0.002));
   });
 
   test('gate: AA and KK 4-bet facing a 3-bet', () {
@@ -123,6 +132,16 @@ void main() {
       expect(f(s, 'AA', 0) + f(s, 'KK', 0), greaterThanOrEqualTo(1.0),
           reason: id);
     }
+  });
+
+  test('the bundled asset reaches SpotLibrary.load()', () async {
+    final lib = await SpotLibrary.load();
+    for (final id in passed.keys) {
+      final s = lib.byId(id);
+      expect(s.solved, isTrue, reason: id);
+      expect(s.solverNote, contains('Solved by Felt Notes'), reason: id);
+    }
+    expect(lib.byId('cash-limp2-BTN').solved, isFalse);
   });
 
   test('solved groups stay out of the Daily 10', () {
