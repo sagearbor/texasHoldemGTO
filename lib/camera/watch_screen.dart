@@ -55,10 +55,10 @@ abstract class WatchHost {
   void watchSetCards(List<int> cards);
 
   /// Close the hand being played the normal way (default fold), then put
-  /// [cards] on the next one. Returns false when the logger cannot move on
-  /// by itself (first orbit: the organizer taps the dealer); the cards are
-  /// then only put in the slots.
-  bool watchNewHand(List<int> cards);
+  /// [cards] on the next one, logged in the tracker with [episode]. Returns
+  /// false when the logger cannot move on by itself (first orbit: the
+  /// organizer taps the dealer); the cards are then only put in the slots.
+  bool watchNewHand(List<int> cards, {int? episode});
 
   /// Next hand, from the black screen.
   void watchNextHand();
@@ -284,7 +284,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     _setStatus(_pipe.status(t));
     if (job == null) return;
     final sw = Stopwatch()..start();
-    _worker!.read(job.rgba, job.width, job.height, tta: _pipe.cfg.tta, scaleShortSide: job.scaleShortSide).then((r) {
+    _worker!.read(job.rgba, job.width, job.height, tta: _pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: _pipe.cfg.warmLight)
+        .then((r) {
       if (!mounted || !_watching) return;
       final pair = _pipe.onRead(job, r, readMs: sw.elapsedMilliseconds);
       _setStatus(_pipe.status(_clock.elapsedMilliseconds));
@@ -302,7 +303,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   void _onPair(List<int> pair) {
     final h = widget.host;
     // The tracker runs on wall-clock ms (the logger's manual picks use it).
-    final d = h.watchTracker.onRead(pair, DateTime.now().millisecondsSinceEpoch);
+    final episode = _pipe.cardEpisode;
+    final d = h.watchTracker.onRead(pair, DateTime.now().millisecondsSinceEpoch, episode: episode);
     _pipe.noteDecision(d);
     switch (d.action) {
       case WatchAction.fill:
@@ -310,7 +312,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         h.watchSetCards(d.cards);
       case WatchAction.newHand:
         _pipe.resetVotes();
-        _waitDealer = !h.watchNewHand(d.cards);
+        _waitDealer = !h.watchNewHand(d.cards, episode: episode);
       case WatchAction.confirm:
       case WatchAction.ignore:
         return;

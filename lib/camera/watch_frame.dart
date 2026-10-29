@@ -159,3 +159,69 @@ class WatchFrame {
   // Android chroma planes can be one byte shorter than rows * stride.
   static int _at(Uint8List b, int i) => i < b.length ? b[i] : 128;
 }
+
+/// White balance on the card stock, in place. Warm tungsten light at a
+/// home game tints white cards orange (HSV saturation 70-95, and red ink
+/// drifts to orange), while the glyph reader treats only low-saturation
+/// pixels as paper and only near-pure red as red ink. Reference "white":
+/// among the brighter pixels ([brightFrac] by value), the least saturated
+/// [paperFrac] of them: paper, not skin (skin is bright but more orange).
+/// Each channel is then scaled so that reference reaches [target]; gains
+/// are capped at [maxGain] and never darken.
+void whiteBalance(Uint8List rgba,
+    {int target = 225, double maxGain = 3.0, double brightFrac = 0.3, double paperFrac = 0.25}) {
+  final n = rgba.length ~/ 4;
+  if (n == 0) return;
+  final vHist = Int32List(256);
+  for (var i = 0; i < n; i++) {
+    final o = i * 4;
+    vHist[math.max(rgba[o], math.max(rgba[o + 1], rgba[o + 2]))]++;
+  }
+  var vThr = 255, acc = 0;
+  while (vThr > 0 && acc + vHist[vThr] < n * brightFrac) {
+    acc += vHist[vThr--];
+  }
+  // Saturation histogram (0..255) of the bright pixels.
+  final sHist = Int32List(256);
+  var bright = 0;
+  int sat(int o) {
+    final mx = math.max(rgba[o], math.max(rgba[o + 1], rgba[o + 2]));
+    final mn = math.min(rgba[o], math.min(rgba[o + 1], rgba[o + 2]));
+    return mx == 0 ? 0 : 255 * (mx - mn) ~/ mx;
+  }
+
+  for (var i = 0; i < n; i++) {
+    final o = i * 4;
+    if (math.max(rgba[o], math.max(rgba[o + 1], rgba[o + 2])) < vThr) continue;
+    sHist[sat(o)]++;
+    bright++;
+  }
+  if (bright == 0) return;
+  var sThr = 0;
+  acc = sHist[0];
+  while (sThr < 255 && acc < bright * paperFrac) {
+    acc += sHist[++sThr];
+  }
+  var sr = 0, sg = 0, sb = 0, cnt = 0;
+  for (var i = 0; i < n; i++) {
+    final o = i * 4;
+    if (math.max(rgba[o], math.max(rgba[o + 1], rgba[o + 2])) < vThr || sat(o) > sThr) continue;
+    sr += rgba[o];
+    sg += rgba[o + 1];
+    sb += rgba[o + 2];
+    cnt++;
+  }
+  if (cnt == 0) return;
+  final means = [sr / cnt, sg / cnt, sb / cnt];
+  final luts = [
+    for (final m in means)
+      Uint8List.fromList(
+          List.generate(256, (v) => (v * math.min(maxGain, math.max(1.0, target / math.max(m, 1)))).round().clamp(0, 255)))
+  ];
+  for (var i = 0; i < n; i++) {
+    final o = i * 4;
+    rgba[o] = luts[0][rgba[o]];
+    rgba[o + 1] = luts[1][rgba[o + 1]];
+    rgba[o + 2] = luts[2][rgba[o + 2]];
+  }
+}

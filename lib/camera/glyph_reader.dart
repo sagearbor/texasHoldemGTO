@@ -42,7 +42,17 @@ import 'glyph_cnn.dart';
 
 // ---------------------------------------------------------------- constants
 
-const int _paperSMax = 62;
+const int _paperSMaxDefault = 62;
+
+/// Colour gates for the hero glyph finder. [readGlyphs] sets them per call:
+/// the defaults (tuned on daylight photos) or, with warmLight, looser ones
+/// for tungsten-lit live frames where white card stock reads orange.
+int _paperSMax = _paperSMaxDefault;
+int _redHueMax = 8; // OpenCV hue (0..179): red ink is <= this or >= 166
+int _redInkSMin = _redSMin; // red-ink pixel mask
+int _redPureSMin = _redSMin + 30; // a red glyph's median saturation
+int _redInkVMax = 256; // warm light: lit skin is as orange as red ink, but brighter
+
 const int _paperVMin = 90;
 const int _redSMin = 110;
 const double _boardSolidity = 0.75;
@@ -248,12 +258,27 @@ GlyphReadResult readGlyphsMessage(GlyphReadRequest r) => readGlyphs(r.rgba, r.wi
 /// [scaleShortSide]: [rgba] is a crop of a frame with this short side;
 /// glyph-size limits use it instead of the crop's own size.
 ///
+/// [warmLight]: live frames under warm room light (Watch my cards): card
+/// stock may be orange-tinted (paper saturation up to 100) and red ink
+/// orange and paler (hue up to 14, saturation from 90-100). The board
+/// finder keeps the daylight gates.
+///
 /// [tta] = false classifies each glyph once instead of at three rotations
 /// (about half the time). Watch my cards uses it: agreement over several
 /// frames replaces the rotation voting.
 GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
-    {GlyphTemplates? templates, GlyphCnn? cnn, int targetShortSide = 1500, bool tta = true, int? scaleShortSide}) {
+    {GlyphTemplates? templates,
+    GlyphCnn? cnn,
+    int targetShortSide = 1500,
+    bool tta = true,
+    int? scaleShortSide,
+    bool warmLight = false}) {
   if (templates == null && cnn == null) throw ArgumentError('templates or cnn required');
+  _paperSMax = warmLight ? 100 : _paperSMaxDefault;
+  _redHueMax = warmLight ? 14 : 8;
+  _redInkSMin = warmLight ? 90 : _redSMin;
+  _redPureSMin = warmLight ? 100 : _redSMin + 30;
+  _redInkVMax = warmLight ? 165 : 256;
   final sw = Stopwatch()..start();
   final timing = <String, int>{};
   final img = _Planes.fromRgba(rgba, width, height, targetShortSide);
@@ -663,7 +688,7 @@ List<_Rect> _findBoard(_Planes img, _Hsv hsv) {
   final w = img.w, h = img.h, n = w * h;
   final paper0 = Uint8List(n);
   for (var i = 0; i < n; i++) {
-    if (hsv.s[i] < _paperSMax && hsv.v[i] > _paperVMin) paper0[i] = 1;
+    if (hsv.s[i] < _paperSMaxDefault && hsv.v[i] > _paperVMin) paper0[i] = 1;
   }
   final paper = _open3(paper0, w, h);
   final nonPaper = Uint8List(n);
@@ -820,7 +845,9 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
   final redInk = Uint8List(n);
   for (var i = 0; i < n; i++) {
     final hh = hsv.h[i];
-    if ((hh <= 8 || hh >= 166) && hsv.s[i] > _redSMin && hsv.v[i] > 60) redInk[i] = 1;
+    if ((hh <= _redHueMax || hh >= 166) && hsv.s[i] > _redInkSMin && hsv.v[i] > 60 && hsv.v[i] < _redInkVMax) {
+      redInk[i] = 1;
+    }
   }
   // Adaptive mean threshold (block x block, C = 18, inverted) on min(R,G,B).
   final ii = Int32List((w + 1) * (h + 1));
@@ -894,7 +921,7 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
     final paperV = ringV.isEmpty ? 255.0 : _median(ringV);
     final hue = _median(hs), sat = _median(ss), val = _median(vs);
     // Ink purity: clearly dark (black) or saturated pure red.
-    final isRed = (hue <= 7 || hue >= 168) && sat > _redSMin + 30;
+    final isRed = (hue <= _redHueMax - 1 || hue >= 168) && sat > _redPureSMin;
     final isBlack = val < 0.5 * paperV && !isRed;
     if (!(isRed || isBlack)) continue;
     blobs.add(_Blob(c.minX, c.minY, bw, bh, c.cx, c.cy, md.toDouble(), isRed, mask));

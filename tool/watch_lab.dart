@@ -61,11 +61,14 @@ Future<void> main(List<String> argv) async {
   final labelsPath = opt('--labels');
   final maxSec = double.tryParse(opt('--max', '') ?? '');
   final startSec = double.tryParse(opt('--start', '') ?? '') ?? 0;
+  final sat = double.tryParse(opt('--sat', '') ?? '');
   // Synthetic clips made of separate stills: re-learn the background at each
   // cut (seconds), as if each segment were filmed on its own.
   final resetEvery = double.tryParse(opt('--reset-every', '') ?? '');
   final pipe = WatchPipeline(WatchConfig(
     tta: args.remove('--tta'),
+    whiteBalance: !args.remove('--no-wb'),
+    warmLight: !args.remove('--no-warm'),
     minAgree: int.parse(opt('--agree', '2')!),
     readMaxShort: int.parse(opt('--read-short', '720')!),
     minCropFrac: double.parse(opt('--crop', '0.5')!),
@@ -73,7 +76,7 @@ Future<void> main(List<String> argv) async {
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_lab.dart VIDEO [--short 720] [--fps 15] '
         '[--phone 2.0] [--labels L.json] [--start S] [--max S] [--tta] [--agree 2] '
-        '[--read-short 720] [--crop 0.5] [--dump DIR] [-v]');
+        '[--read-short 720] [--crop 0.5] [--no-wb] [--no-warm] [--dump DIR] [-v]');
     exit(2);
   }
   final cnn = GlyphCnn.parse(File('assets/data/glyph_cnn.bin').readAsBytesSync());
@@ -86,7 +89,10 @@ Future<void> main(List<String> argv) async {
     // Always video range + BT.709, like the iPhone stream, whatever the
     // file is tagged (a clip made from JPEGs is full range).
     '-vf', "fps=$fps,scale='if(gt(iw,ih),-2,$short)':'if(gt(iw,ih),$short,-2)':flags=area"
-        "${android ? ':out_range=pc:out_color_matrix=bt601' : ':out_range=tv:out_color_matrix=bt709'}",
+        "${android ? ':out_range=pc:out_color_matrix=bt601' : ':out_range=tv:out_color_matrix=bt709'}"
+        // Rough stand-in for HDR tone-mapping (no zscale here): HLG / BT.2020
+        // shown as SDR looks flat and desaturated; --sat 1.35 undoes part.
+        "${sat == null ? '' : ',eq=saturation=$sat'}",
     '-pix_fmt', 'nv12', '-f', 'rawvideo', '-',
   ]);
   // Output size from ffmpeg's stream description.
@@ -125,7 +131,7 @@ Future<void> main(List<String> argv) async {
           '${f.$4}ms ${f.$2.timingMs}: ${f.$2.hero.join(', ')}');
     }
     if (pair == null) return;
-    final d = tracker.onRead(pair, f.$1.tMs);
+    final d = tracker.onRead(pair, f.$1.tMs, episode: pipe.cardEpisode);
     pipe.noteDecision(d);
     if (d.action == WatchAction.newHand) pipe.resetVotes();
     decisions.add((f.$1.tMs, d));
@@ -148,7 +154,7 @@ Future<void> main(List<String> argv) async {
     if (dumpDir != null) _dumpPpm('$dumpDir/crop_${job.tMs.toString().padLeft(7, '0')}.ppm', job);
     final sw = Stopwatch()..start();
     final r = readGlyphs(job.rgba, job.width, job.height,
-        cnn: cnn, tta: pipe.cfg.tta, scaleShortSide: job.scaleShortSide);
+        cnn: cnn, tta: pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: pipe.cfg.warmLight);
     final ms = sw.elapsedMilliseconds;
     maxReadMs = ms > maxReadMs ? ms : maxReadMs;
     sumReadMs += ms;
@@ -195,40 +201,77 @@ Future<void> main(List<String> argv) async {
 
   if (labelsPath != null) {
     final labels = (jsonDecode(File(labelsPath).readAsStringSync()) as List).cast<Map<String, dynamic>>();
-    var hit = 0, wrong = 0, missed = 0;
-    final used = <int>{};
     stdout.writeln('\n--- vs labels');
-    for (final l in labels) {
-      final t = ((l['t'] as num) * 1000).round();
-      final truth = canonicalPair(parseCards(l['cards'] as String));
-      // Cards logged for this peek: the latest decision within 4 s.
-      final near = [
-        for (var i = 0; i < decisions.length; i++)
-          if ((decisions[i].$1 - t).abs() <= 4000) i
-      ];
-      List<int>? got;
-      for (final i in near) {
-        used.add(i);
-        got = decisions[i].$2.cards;
-      }
-      final ok = got != null && _same(got, truth);
-      if (ok) {
-        hit++;
-      } else if (got == null) {
-        missed++;
-      } else {
-        wrong++;
-      }
-      stdout.writeln('${(t / 1000).toStringAsFixed(1)}s truth ${prettyCards(truth)}  '
-          'logged ${got == null ? '-' : prettyCards(got)}  ${ok ? 'OK' : got == null ? 'MISSED' : 'WRONG'}');
-    }
-    var stray = 0;
-    for (var i = 0; i < decisions.length; i++) {
-      if (!used.contains(i) && decisions[i].$2.action != WatchAction.confirm) stray++;
-    }
-    stdout.writeln('labels ${labels.length}: right $hit, missed $missed, wrong $wrong; '
-        'false logs (wrong + decisions away from any label) ${wrong + stray}');
+    stdout.writeln(scoreAgainstLabels(decisions, [
+      for (final l in labels) (((l['t'] as num) * 1000).round(), canonicalPair(parseCards(l['cards'] as String)))
+    ]));
   }
+}
+
+/// The hand log the decisions produce: (start ms, final cards) per hand.
+/// fill / newHand start a hand, correct replaces its cards.
+List<(int, List<int>)> handLog(List<(int, WatchDecision)> decisions) {
+  final hands = <(int, List<int>)>[];
+  for (final (t, d) in decisions) {
+    switch (d.action) {
+      case WatchAction.fill || WatchAction.newHand:
+        hands.add((t, d.cards));
+      case WatchAction.correct:
+        if (hands.isNotEmpty) hands[hands.length - 1] = (hands.last.$1, d.cards);
+      case _:
+    }
+  }
+  return hands;
+}
+
+/// Scores the hand log against labelled hands ((ms mid-peek, cards), one
+/// per hand, in order). Each logged hand is matched to the nearest label
+/// within 6 s of its start (each label at most once). Reports right /
+/// wrong / missed hands, spurious logged hands, and hand boundaries found
+/// (two consecutive labelled hands that became two different logged
+/// hands).
+String scoreAgainstLabels(List<(int, WatchDecision)> decisions, List<(int, List<int>)> labels) {
+  final hands = handLog(decisions);
+  final labelOf = List<int?>.filled(hands.length, null);
+  final handOf = List<int?>.filled(labels.length, null);
+  for (var h = 0; h < hands.length; h++) {
+    var best = -1, bestD = 6001;
+    for (var l = 0; l < labels.length; l++) {
+      if (handOf[l] != null) continue;
+      final d = (hands[h].$1 - labels[l].$1).abs();
+      if (d < bestD) {
+        best = l;
+        bestD = d;
+      }
+    }
+    if (best >= 0) {
+      labelOf[h] = best;
+      handOf[best] = h;
+    }
+  }
+  var right = 0, wrong = 0, missed = 0, bounds = 0;
+  final out = StringBuffer();
+  for (var l = 0; l < labels.length; l++) {
+    final h = handOf[l];
+    final got = h == null ? null : hands[h].$2;
+    final ok = got != null && _same(got, labels[l].$2);
+    if (ok) {
+      right++;
+    } else if (got == null) {
+      missed++;
+    } else {
+      wrong++;
+    }
+    if (l > 0 && h != null && handOf[l - 1] != null && handOf[l - 1] != h) bounds++;
+    out.writeln('${(labels[l].$1 / 1000).toStringAsFixed(1)}s truth ${prettyCards(labels[l].$2)}  '
+        'logged ${got == null ? '-' : prettyCards(got)}  ${ok ? 'OK' : got == null ? 'MISSED' : 'WRONG'}');
+  }
+  final spurious = labelOf.where((l) => l == null).length;
+  out.writeln('hands ${labels.length}: right $right, wrong $wrong, missed $missed; '
+      'spurious logged hands $spurious; false logs ${wrong + spurious}');
+  out.write('hand boundaries: ${labels.length - 1} true, $bounds found between logged hands, '
+      '${hands.length} hands logged');
+  return out.toString();
 }
 
 void _dumpPpm(String path, ReadJob j) {

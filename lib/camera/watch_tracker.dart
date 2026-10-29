@@ -8,18 +8,26 @@
 ///  * no cards yet this hand        -> [WatchAction.fill]
 ///  * the same two cards again      -> [WatchAction.confirm] (silent: players
 ///                                     look at their cards many times a hand)
-///  * different cards, within
-///    [WatchHandTracker.correctionMs] of when the current cards were set
-///                                  -> [WatchAction.correct] (a re-peek fixes
-///                                     a misread)
-///  * different cards, later        -> [WatchAction.newHand] (the caller closes
+///  * different cards before the cards
+///    were put down (same card episode, see WatchPipeline.cardEpisode)
+///                                  -> [WatchAction.correct] (a misread fixed
+///                                     by more frames)
+///  * different cards in a later episode
+///                                  -> [WatchAction.newHand] (the caller closes
 ///                                     the hand the normal way, as Next hand
 ///                                     would, then logs these cards)
+/// Time alone was the first design (a 12 s correction window,
+/// [WatchHandTracker.correctionMs], still used when no episode is given);
+/// the owner's test footage deals a new hand every ~5 s, so the cards going
+/// down is the hand boundary now.
 ///
 /// Known limits, by design:
 ///  * The same two cards in two hands in a row (about 1 in 1326 hands)
 ///    look like a re-peek and merge into one hand unless Next hand is
 ///    tapped in between.
+///  * A misread agreed on in one peek and fixed only on a later peek splits
+///    the hand in two (the fix looks like a new hand). Agreement voting
+///    makes such misreads rare; the chip on the black screen fixes it.
 ///  * A misread that repeats on every peek is not fixed by re-peeking; the
 ///    player fixes it once by hand, and that misread is then ignored for the
 ///    rest of the hand ([manualCards] vetoes it). Different reads within
@@ -65,6 +73,10 @@ class WatchHandTracker {
   List<int>? _cards;
   int _setAtMs = 0;
 
+  /// Card episode (cards up .. put down) in which [_cards] were set, when
+  /// the caller tracks episodes.
+  int? _setEpisode;
+
   /// The current cards were picked by hand at this time (null: by camera).
   int? _manualAtMs;
 
@@ -74,13 +86,17 @@ class WatchHandTracker {
   /// The cards logged for the current hand (high card first), or null.
   List<int>? get cards => _cards;
 
-  WatchDecision onRead(List<int> pair, int tMs) {
+  /// [episode]: the camera's card episode (WatchPipeline.cardEpisode). With
+  /// it, a different pair is a correction only in the same episode (before
+  /// the cards were put down) and otherwise the next hand, whatever the
+  /// time; without it, [correctionMs] decides.
+  WatchDecision onRead(List<int> pair, int tMs, {int? episode}) {
     final p = canonicalPair(pair);
     if (p[0] == p[1]) return WatchDecision(WatchAction.ignore, p);
     if (_vetoed.any((v) => _same(v, p))) return WatchDecision(WatchAction.ignore, p);
     final cur = _cards;
     if (cur == null) {
-      _set(p, tMs);
+      _set(p, tMs, episode);
       return WatchDecision(WatchAction.fill, p);
     }
     if (_same(cur, p)) return WatchDecision(WatchAction.confirm, p);
@@ -89,12 +105,14 @@ class WatchHandTracker {
       // Never "correct" a manual pick: shortly after one, a different read
       // is far likelier a misread than a new hand.
       if (tMs - manual <= correctionMs) return WatchDecision(WatchAction.ignore, p);
-    } else if (tMs - _setAtMs <= correctionMs) {
-      _set(p, tMs);
+    } else if (episode != null && _setEpisode != null
+        ? episode == _setEpisode
+        : tMs - _setAtMs <= correctionMs) {
+      _set(p, tMs, episode);
       return WatchDecision(WatchAction.correct, p, previous: cur);
     }
     _vetoed.clear();
-    _set(p, tMs);
+    _set(p, tMs, episode);
     return WatchDecision(WatchAction.newHand, p, previous: cur);
   }
 
@@ -106,18 +124,21 @@ class WatchHandTracker {
     final next = cards == null || cards.length != 2 ? null : canonicalPair(cards);
     if (cur != null && !_same(cur, next)) _vetoed.add(cur);
     _cards = next;
+    _setEpisode = null;
     _manualAtMs = next == null ? null : tMs;
   }
 
   /// The hand was closed (Next hand, a dealer tap, or undo).
   void handClosed() {
     _cards = null;
+    _setEpisode = null;
     _manualAtMs = null;
     _vetoed.clear();
   }
 
-  void _set(List<int> p, int tMs) {
+  void _set(List<int> p, int tMs, int? episode) {
     _cards = p;
+    _setEpisode = episode;
     _manualAtMs = null;
     _setAtMs = tMs;
   }

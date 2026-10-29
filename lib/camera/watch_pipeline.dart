@@ -89,6 +89,12 @@ class WatchConfig {
   /// agreement does that job at half the cost.
   final bool tta;
 
+  /// Neutralise the crop's colour cast on its card stock (whiteBalance).
+  final bool whiteBalance;
+
+  /// Reader colour gates for warm room light (readGlyphs warmLight).
+  final bool warmLight;
+
   final int minAgree;
   final int voteWindowMs;
 
@@ -97,6 +103,17 @@ class WatchConfig {
   /// seen: a white mug or a shirt cuff must not keep the reader busy.
   final int emptyReadsBeforeBackoff;
   final int maxBackoffMs;
+
+  /// While something moves, at most this long between reads.
+  final int motionReadGapMs;
+
+  /// After an agreed pair the reader slows to one read per this long (it
+  /// keeps watching so it can see the cards go down, or change).
+  final int satisfiedReadGapMs;
+
+  /// Cards count as put down when reads find none for this long; the next
+  /// cards seen start a new card episode (see [WatchPipeline.cardEpisode]).
+  final int cardsGoneMs;
 
   const WatchConfig({
     this.idleIntervalMs = 200,
@@ -112,10 +129,15 @@ class WatchConfig {
     this.minCropFrac = 0.5,
     this.readMaxShort = 720,
     this.tta = false,
+    this.whiteBalance = true,
+    this.warmLight = true,
     this.minAgree = 2,
     this.voteWindowMs = 2500,
     this.emptyReadsBeforeBackoff = 4,
     this.maxBackoffMs = 2000,
+    this.motionReadGapMs = 300,
+    this.satisfiedReadGapMs = 600,
+    this.cardsGoneMs = 800,
   });
 }
 
@@ -130,7 +152,11 @@ class GateResult {
 
   /// Lighting / camera moved: background re-learnt.
   final bool global;
-  const GateResult(this.changed, this.card, {this.global = false});
+
+  /// Cells that changed since the previous gated frame (something moves
+  /// now, as opposed to a hand resting in view).
+  final int moving;
+  const GateResult(this.changed, this.card, {this.global = false, this.moving = 0});
   static const none = GateResult(0, null);
 }
 
@@ -140,6 +166,7 @@ class ChangeGate {
 
   int _gw = 0, _gh = 0;
   Float32List? _bg;
+  Uint8List? _prev;
   Int32List? _since; // ms a cell started being "changed", -1 = not changed
 
   void reset() => _bg = null;
@@ -162,6 +189,14 @@ class ChangeGate {
       return GateResult.none;
     }
     final since = _since!;
+    final prev = _prev;
+    var moving = 0;
+    if (prev != null && prev.length == n) {
+      for (var i = 0; i < n; i++) {
+        if ((g[i] - prev[i]).abs() > cfg.diffThreshold) moving++;
+      }
+    }
+    _prev = g;
     // Auto-exposure shifts the whole frame: compare after removing the
     // mean difference.
     var meanG = 0.0, meanB = 0.0;
@@ -198,7 +233,7 @@ class ChangeGate {
         bg[i] = g[i].toDouble();
         since[i] = -1;
       }
-      return GateResult(changed, null, global: true);
+      return GateResult(changed, null, global: true, moving: moving);
     }
     // Bounding box of every 4-connected bright cluster of [minCells] or
     // more: two cards (or a card and its corner) often split in two.
@@ -232,7 +267,7 @@ class ChangeGate {
       bx1 = math.max(bx1, x1);
       by1 = math.max(by1, y1);
     }
-    if (!any) return GateResult(changed, null);
+    if (!any) return GateResult(changed, null, moving: moving);
     // Cells -> pixels. The change is often only the brightest part of a
     // card (its face), with the corner index at the edge, so pad by a third
     // of the box (at least one cell) and grow to the minimum crop.
@@ -254,7 +289,7 @@ class ChangeGate {
     final (x0, x1) = span(bx0 * cw - padX, (bx1 + 1) * cw + padX, f.width);
     final (y0, y1) = span(by0 * ch - padY, (by1 + 1) * ch + padY, f.height);
     final r = PixRect(x0, y0, x1, y1);
-    return GateResult(changed, r);
+    return GateResult(changed, r, moving: moving);
   }
 }
 
@@ -368,8 +403,16 @@ class WatchPipeline {
   int _emptyReads = 0;
   int _nextReadMs = -1 << 40;
 
-  /// An agreed pair this peek: rest the reader until the peek ends.
-  bool _satisfied = false;
+  /// Cards are up (a read saw some, and none has missed them for
+  /// [WatchConfig.cardsGoneMs]) and since when they were last seen.
+  bool _cardsUp = false;
+  int _lastCardMs = -1 << 40;
+  bool _cardsWentDown = false;
+
+  /// Counts card episodes: cards come up, are read, are put down. The hand
+  /// tracker treats a different pair in the same episode as a correction
+  /// and one in a later episode as the next hand.
+  int cardEpisode = 0;
 
   bool get readerBusy => _busy;
   PeekRecord? get currentPeek => _peek;
@@ -398,7 +441,6 @@ class WatchPipeline {
         counts.motionEvents++;
         _peek = PeekRecord(tMs, prevGate);
         _peek!.framesSeen = 1;
-        _satisfied = false;
       } else if (_peek!.burstMs == null && burst) {
         _peek!.burstMs = tMs;
       }
@@ -407,16 +449,23 @@ class WatchPipeline {
     }
     final p = _peek;
     if (p != null) p.framesGated++;
+    // Something moves (a peek, a hand turning): read again soon even after
+    // empty reads; the backoff is for things resting in view.
+    if (g.moving >= cfg.minCells && _emptyReads > 0) {
+      _emptyReads = math.min(_emptyReads, cfg.emptyReadsBeforeBackoff - 1);
+      _nextReadMs = math.min(_nextReadMs, tMs + cfg.motionReadGapMs);
+    }
     if (g.card == null) return null;
     _lastCandidateMs = tMs;
     counts.candidate++;
     p?.framesCandidate++;
-    if (_busy || _satisfied || tMs < _nextReadMs) return null;
+    if (_busy || tMs < _nextReadMs) return null;
     _busy = true;
     counts.read++;
     p?.framesRead++;
     final box = g.card!;
     final (rgba, w, h) = f.cropRgba(box, maxShort: cfg.readMaxShort);
+    if (cfg.whiteBalance) whiteBalance(rgba);
     final scale = box.w == 0 ? 1.0 : w / box.w;
     return ReadJob(rgba, w, h, tMs, (math.min(f.width, f.height) * scale).round());
   }
@@ -437,6 +486,16 @@ class WatchPipeline {
       _emptyReads = 0;
       _nextReadMs = -1 << 40;
     }
+    if (cards.isNotEmpty) {
+      if (!_cardsUp) {
+        _cardsUp = true;
+        cardEpisode++;
+      }
+      _lastCardMs = job.tMs;
+    } else if (_cardsUp && job.tMs - _lastCardMs >= cfg.cardsGoneMs) {
+      _cardsUp = false;
+      _cardsWentDown = true;
+    }
     final p = _peek;
     if (p != null) {
       for (final c in r.hero) {
@@ -455,7 +514,7 @@ class WatchPipeline {
     final pair = voter.add(cards, job.tMs);
     if (p != null) p.agree = math.max(p.agree, voter.bestAgree);
     if (pair == null) return null;
-    _satisfied = true;
+    _nextReadMs = math.max(_nextReadMs, job.tMs + cfg.satisfiedReadGapMs);
     if (p != null && p.confidentMs == null) {
       p.confidentMs = job.tMs;
       p.cards = pair;
@@ -489,13 +548,15 @@ class WatchPipeline {
     if (p == null || _busy) return;
     final noChange = tMs - _lastChangeMs > cfg.quietMs;
     final cardGone = _lastCandidateMs >= p.startMs && tMs - _lastCandidateMs > cfg.quietMs;
-    if (noChange || cardGone) _finish(tMs);
+    // Hands stay in view at a table: the cards going down also ends a peek.
+    if (noChange || cardGone || _cardsWentDown) _finish(tMs);
   }
 
   void _finish(int tMs) {
     final p = _peek!;
     _peek = null;
-    _satisfied = false;
+    _cardsWentDown = false;
+    if (tMs - _lastCardMs >= cfg.cardsGoneMs) _cardsUp = false;
     _emptyReads = 0;
     _nextReadMs = -1 << 40;
     p.endMs = math.min(tMs, math.max(_lastCandidateMs, p.startMs) + cfg.quietMs);

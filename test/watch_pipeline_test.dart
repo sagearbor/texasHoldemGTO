@@ -213,6 +213,38 @@ void main() {
       expect(p.peeks.single.miss, isTrue);
     });
 
+    test('hands stay in view; cards going down splits hands (5 s apart)', () {
+      final p = WatchPipeline(const WatchConfig(minCropFrac: 0.3, absorbMs: 60000));
+      final tracker = WatchHandTracker();
+      final log = <String>[];
+      var t = 0;
+      // The hand (a white blob) never leaves; what the reader sees changes.
+      void run(int ms, String cards) {
+        for (final end = t + ms; t < end; t += 33) {
+          final job = p.onFrame(frame(card: true, x0: 120 + (t ~/ 33) % 3), t);
+          if (job == null) continue;
+          final pair = p.onRead(job, read(cards));
+          if (pair == null) continue;
+          final d = tracker.onRead(pair, t, episode: p.cardEpisode);
+          p.noteDecision(d);
+          if (d.action == WatchAction.newHand) p.resetVotes();
+          if (d.action != WatchAction.confirm) log.add('$d');
+        }
+      }
+
+      for (var i = 0; i < 10; i++) {
+        p.onFrame(frame(), t);
+        t += 33;
+      }
+      run(1500, '7c 2d');
+      run(2000, ''); // put down, hand still there
+      run(1500, 'Jh 6c');
+      run(1200, '');
+      run(1500, 'Jh 6c'); // re-peek, same cards: silent
+      expect(log, ['fill 7♣ 2♦', 'newHand J♥ 6♣']);
+      expect(p.cardEpisode, 3);
+    });
+
     test('a white object with no cards: the reader backs off', () {
       final p = WatchPipeline(const WatchConfig(minCropFrac: 0.3, absorbMs: 60000));
       var t = 0;

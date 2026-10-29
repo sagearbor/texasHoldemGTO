@@ -350,7 +350,7 @@ class _LoggerState extends State<_Logger> implements WatchHost {
   }
 
   @override
-  bool watchNewHand(List<int> c) {
+  bool watchNewHand(List<int> c, {int? episode}) {
     if (!mounted) return false;
     final s = widget.session;
     // First orbit: the dealer tap closes hands (it teaches the seats), so
@@ -359,7 +359,7 @@ class _LoggerState extends State<_Logger> implements WatchHost {
     if (canMove) {
       _nextHand(quiet: true);
       // _afterClose cleared the tracker; these cards start the new hand.
-      _watch.onRead(c, DateTime.now().millisecondsSinceEpoch);
+      _watch.onRead(c, DateTime.now().millisecondsSinceEpoch, episode: episode);
     }
     setState(() => cards = [c[0], c[1]]);
     return canMove;

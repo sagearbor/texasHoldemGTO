@@ -101,6 +101,40 @@ void main() {
       expect(t.onRead(p('Td 9s'), 30000).action, WatchAction.newHand);
     });
 
+    group('with card episodes (cards up .. put down)', () {
+      test('a different pair in the same episode is a correction, however late', () {
+        final t = WatchHandTracker(correctionMs: 12000);
+        t.onRead(p('As Kd'), 0, episode: 1);
+        expect(t.onRead(p('As Kh'), 30000, episode: 1).action, WatchAction.correct);
+      });
+
+      test('a different pair after the cards went down is the next hand, however soon', () {
+        // The owner's test footage: a new hand every ~5 s.
+        final t = WatchHandTracker(correctionMs: 12000);
+        t.onRead(p('7c 2d'), 0, episode: 1);
+        final d = t.onRead(p('Jh 6c'), 5000, episode: 2);
+        expect(d.action, WatchAction.newHand);
+        expect(d.previous, p('7c 2d'));
+        // The same cards again in a later episode: a re-peek, silent.
+        expect(t.onRead(p('6c Jh'), 9000, episode: 3).action, WatchAction.confirm);
+      });
+
+      test('a corrected pair keeps its episode', () {
+        final t = WatchHandTracker();
+        t.onRead(p('As Kd'), 0, episode: 4);
+        t.onRead(p('As Kh'), 500, episode: 4);
+        expect(t.onRead(p('As Kc'), 900, episode: 4).action, WatchAction.correct);
+        expect(t.onRead(p('9s 9d'), 3000, episode: 5).action, WatchAction.newHand);
+      });
+
+      test('after a manual pick, time decides again (no episode on record)', () {
+        final t = WatchHandTracker(correctionMs: 12000);
+        t.manualCards(p('Ts 9s'), 0);
+        expect(t.onRead(p('Td 9s'), 1000, episode: 7).action, WatchAction.ignore);
+        expect(t.onRead(p('Td 9s'), 20000, episode: 8).action, WatchAction.newHand);
+      });
+    });
+
     test('a pair of the same card is ignored', () {
       final t = WatchHandTracker();
       expect(t.onRead([12, 12], 0).action, WatchAction.ignore);
