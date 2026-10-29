@@ -48,7 +48,8 @@ POST_TARGET = float(os.environ.get("POST_TARGET", "0.97"))
 BENCH_ITERS = int(os.environ.get("BENCH_ITERS", "600"))
 MEM_GB = float(os.environ.get("MEM_GB", "8.5"))
 FLOPS_K = int(os.environ.get("FLOPS_K", "54"))
-SUB_N = int(os.environ.get("SUB_N", "12"))
+SUB_N = int(os.environ.get("SUB_N", "12"))    # pass A flops (heaviest per stratum)
+CORR_N = int(os.environ.get("CORR_N", "14"))  # fixed-point correction flops (calibrated)
 FP_MAX = int(os.environ.get("FP_MAX", "4"))
 FP_DAMP = float(os.environ.get("FP_DAMP", "0.5"))
 FP_STOP = float(os.environ.get("FP_STOP", "0.03"))
@@ -495,6 +496,42 @@ def subset(flops, n):
     return sorted(out, key=lambda f: -f["weight"])
 
 
+def correction_subset(flops, n):
+    """n of the flops for the fixed-point correction rounds, chosen greedily
+    so that, after a bounded calibration of their weights (0.2x-5x), the
+    subset reproduces the population margins of flops.py (strata, highest
+    card, each rank on the board) as closely as n flops can."""
+    import itertools
+    import flops as fl
+    counts = {}
+    deck = [(r, s) for r in range(13) for s in range(4)]
+    for c in itertools.combinations(deck, 3):
+        k = fl.canon(list(c))
+        counts[k] = counts.get(k, 0) + 1
+    allk = list(counts)
+    tot = sum(counts.values())
+    target = fl.margins(allk) @ (np.array([counts[k] for k in allk]) / tot)
+
+    def key(s):
+        return fl.canon([(fl.RANKS.index(s[i]), "shdc".index(s[i + 1])) for i in (0, 2, 4)])
+    X = fl.margins([key(f["flop"]) for f in flops])
+    w0 = np.array([f["weight"] for f in flops])
+    chosen = []
+    for _ in range(n):
+        best = None
+        for j in range(len(flops)):
+            if j in chosen:
+                continue
+            c = chosen + [j]
+            _, e = fl.calibrate(w0[c] / w0[c].sum(), X[:, c], target, 0.2, 5.0)
+            if best is None or e < best[0]:
+                best = (e, j)
+        chosen.append(best[1])
+    w, err = fl.calibrate(w0[chosen] / w0[chosen].sum(), X[:, chosen], target, 0.2, 5.0)
+    out = [dict(flops[j], weight=float(wi)) for j, wi in zip(chosen, w)]
+    return out, err
+
+
 def save_tables(path, Rt):
     json.dump({pt: {str(p): [float(x) for x in v[p]] for p in v} for pt, v in Rt.items()}, open(path, "w"))
 
@@ -510,21 +547,24 @@ def main():
         with open(fpath, "w") as f:
             f.write(r.stdout)
     flops = json.load(open(fpath))
-    sub = subset(flops, SUB_N)
-    log(f"flop set: {len(flops)} flops; correction subset: {len(sub)} ({' '.join(f['flop'] for f in sub)})")
+    subA = subset(flops, SUB_N)
+    sub, sub_err = correction_subset(flops, CORR_N)
+    log(f"flop set: {len(flops)} flops; pass A subset: {' '.join(f['flop'] for f in subA)}; "
+        f"correction subset ({sub_err:.3f} largest margin error): {' '.join(f['flop'] for f in sub)}")
     t_start = time.time()
 
     # round 0 -> pass A (subset) -> round 1
     R0 = load_start_R()
     games0 = solve_round(tab, R0, "round 0")
     jobsA = leaf_jobs(games0)
-    RA, _, statsA, _ = solve_postflop(jobsA, tab, sub, "pass A (subset)")
+    RA, _, statsA, _ = solve_postflop(jobsA, tab, subA, "pass A (subset)")
     games1 = solve_round(tab, RA, "round 1", warm={k: game_state(g) for k, g in games0.items()})
 
     # pass B: all flops with the round-1 ranges
     jobsB = leaf_jobs(games1)
     RB, aggsB, statsB, resB = solve_postflop(jobsB, tab, flops, "pass B (all flops)")
-    idx = [flops.index(f) for f in sub]
+    names = [f["flop"] for f in flops]
+    idx = [names.index(f["flop"]) for f in sub]
     RBsub = {}
     for pt, res in resB.items():
         P = POT_TYPES[pt]
@@ -605,7 +645,7 @@ def main():
     fixed_point = dict(rounds=rounds, check=chk, checkDelta=dchk, borrowGate=alt)
     export.write(OUT, games, Rt, aggsB, stats_all, flops, sub, bench, fixed_point, tab,
                  dict(POST_ITERS=POST_ITERS, POST_TARGET=POST_TARGET, BENCH_ITERS=BENCH_ITERS,
-                      RFI=RFI, LIMP=LIMP, THREE_BET=THREE_BET, FLOPS_K=FLOPS_K, SUB_N=SUB_N,
+                      RFI=RFI, LIMP=LIMP, THREE_BET=THREE_BET, FLOPS_K=FLOPS_K, SUB_N=CORR_N, SUB_A=SUB_N,
                       wall_hours=(time.time() - t_start) / 3600,
                       POT_TYPES={k: vars(v) | {"bets": v.bets()} for k, v in POT_TYPES.items()}))
     log("done")
