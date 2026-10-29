@@ -17,7 +17,9 @@ void main() {
   final raw = data['spots'] as Map<String, dynamic>;
   final passed = {
     for (final e in raw.entries)
-      if ((e.value as Map)['passed'] == true) e.key: e.value as Map
+      if ((e.value as Map)['passed'] == true &&
+          (e.value as Map)['accepted'] == true)
+        e.key: e.value as Map
   };
   final base = buildCashSpots();
   final solved = applySolvedSpots(base, data);
@@ -42,11 +44,23 @@ void main() {
     }
   });
 
+  test('pipeline gates alone are not enough: main must accept the spot', () {
+    final bb = raw['cash-limp1-BB'] as Map<String, dynamic>;
+    final s = applySolvedSpots(base, {
+      'spots': {
+        'cash-limp1-BB': {...bb, 'passed': true, 'accepted': false}
+      }
+    }).firstWhere((s) => s.id == 'cash-limp1-BB');
+    expect(s.solved, isFalse);
+  });
+
   test('a passing entry swaps in the solved strategy', () {
     final bb = raw['cash-limp1-BB'] as Map<String, dynamic>;
-    final s = applySolvedSpots(
-            base, {'spots': {'cash-limp1-BB': {...bb, 'passed': true}}})
-        .firstWhere((s) => s.id == 'cash-limp1-BB');
+    final s = applySolvedSpots(base, {
+      'spots': {
+        'cash-limp1-BB': {...bb, 'passed': true, 'accepted': true}
+      }
+    }).firstWhere((s) => s.id == 'cash-limp1-BB');
     expect(s.solved, isTrue);
     expect(s.exploitabilityBb, isNotNull);
   });
@@ -101,7 +115,16 @@ void main() {
 
   test('gate: trash never iso-raises a limper', () {
     for (final id in passed.keys.where((k) => k.startsWith('cash-limp'))) {
-      for (final h in ['72o', '82o', '92o', '32o', '42o', '83o', 'T2o', 'J3o']) {
+      for (final h in [
+        '72o',
+        '82o',
+        '92o',
+        '32o',
+        '42o',
+        '83o',
+        'T2o',
+        'J3o'
+      ]) {
         expect(f(byId(id), h, 0), lessThanOrEqualTo(0.01), reason: '$id $h');
       }
     }
@@ -112,8 +135,18 @@ void main() {
     if (!passed.containsKey(id)) return; // failed gate: chart kept
     final s = byId(id);
     expect(f(s, '86s', 1), lessThan(0.99));
-    final mixed = ['54s', '65s', '76s', '87s', '98s', 'T9s', '75s', '86s', '97s']
-        .where((h) => s.freqs(HandClass.parse(h)).reduce((a, b) => a > b ? a : b) <= 0.9);
+    final mixed = [
+      '54s',
+      '65s',
+      '76s',
+      '87s',
+      '98s',
+      'T9s',
+      '75s',
+      '86s',
+      '97s'
+    ].where((h) =>
+        s.freqs(HandClass.parse(h)).reduce((a, b) => a > b ? a : b) <= 0.9);
     expect(mixed.length, greaterThanOrEqualTo(2));
   });
 
@@ -127,9 +160,11 @@ void main() {
         1326;
     final co = byId('cash-limp1-CO');
     final btnRaw = raw['cash-limp1-BTN'] as Map<String, dynamic>;
-    final btn = applySolvedSpots(
-        base, {'spots': {'cash-limp1-BTN': {...btnRaw, 'passed': true}}})
-        .firstWhere((s) => s.id == 'cash-limp1-BTN');
+    final btn = applySolvedSpots(base, {
+      'spots': {
+        'cash-limp1-BTN': {...btnRaw, 'passed': true, 'accepted': true}
+      }
+    }).firstWhere((s) => s.id == 'cash-limp1-BTN');
     expect(share(co, 2, not: true), lessThan(share(btn, 2, not: true) - 0.002));
     expect(share(co, 0), lessThanOrEqualTo(share(btn, 0) + 0.002));
   });

@@ -905,7 +905,13 @@ List<Spot> applySolvedSpots(List<Spot> cash, Map<String, dynamic> data) {
 }
 
 Spot? _solved(Spot base, Object? raw) {
-  if (raw is! Map<String, dynamic> || raw['passed'] != true) return null;
+  // Needs both the pipeline's own gates (passed) and main's independent
+  // checks (accepted, set by tool/solver/acceptance.py --write at merge).
+  if (raw is! Map<String, dynamic> ||
+      raw['passed'] != true ||
+      raw['accepted'] != true) {
+    return null;
+  }
   final actions = (raw['actions'] as List).cast<String>();
   if (actions.join('|') != base.actions.join('|')) return null;
   List<double> nums(List l) =>

@@ -35,6 +35,17 @@ worst exploitability of the flop solves feeding the spot, % of the pot.
 Spots that fail a validation gate are published with `passed: false` and the
 app keeps its previous hand-authored chart for them.
 
+### Acceptance checks (independent of the pipeline)
+
+A spot reaches the app only if it passes the pipeline gates below **and**
+`tool/solver/acceptance.py`, run from the main branch at merge time
+(`--write` records `accepted` per spot). Those checks are poker facts and
+convergence tests: at least 40 flops per pot type, every flop solve under
+1% of the pot exploitable, the strategy is a best response to its own EVs,
+a bigger pair / better kicker / suited version is never worth more than
+0.05bb less, AA/KK never fold, trash never raises a limper, the CO/BTN fold
+weak offsuit hands to a limper, and the CO plays tighter than the BTN.
+
 ### Validation gates
 
 Checked in the pipeline (`tool/solver/validate.py`) and again on the shipped
