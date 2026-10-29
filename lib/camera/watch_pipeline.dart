@@ -18,6 +18,23 @@
 ///
 /// Frames are never kept: the pipeline holds only the luma grid
 /// (48 x 27 numbers) and the reads.
+///
+/// Battery budget (estimate; the diagnostics log samples the battery every
+/// 10 minutes to measure it for real). Frames per minute through each stage
+/// at 720p, from tool/watch_lab.dart on test clips:
+///   camera delivers   900/min (iOS honours fps: 15) or ~1800/min (Android
+///                     CameraX ignores the fps setting; extra frames are
+///                     dropped in Dart before any pixel is read)
+///   change gate       300/min idle, up to 900/min in a burst; ~12k pixel
+///                     reads per frame (48 x 27 cells x 9): about 1 ms
+///   card-like         ~0 at rest; ~10-15 per peek
+///   card reader       2-4 per peek (it rests once a pair is agreed, and
+///                     backs off on white non-cards): ~100-200 ms each on a
+///                     phone, so ~1-3 s of one core per minute at 2-4 peeks
+///                     a minute.
+/// The camera itself (sensor + ISP + copying each frame to Dart) then
+/// dominates: a guess of 8-15 %/hour with the screen black, i.e. a 3-4 hour
+/// night on one charge. Not measured on a phone yet.
 library;
 
 import 'dart:math' as math;
@@ -292,7 +309,11 @@ class PeekVoter {
 class ReadJob {
   final Uint8List rgba;
   final int width, height, tMs;
-  const ReadJob(this.rgba, this.width, this.height, this.tMs);
+
+  /// Short side of the whole frame at the crop's scale (readGlyphs'
+  /// scaleShortSide).
+  final int scaleShortSide;
+  const ReadJob(this.rgba, this.width, this.height, this.tMs, this.scaleShortSide);
 }
 
 enum WatchStatus { idle, burst, reading }
@@ -366,8 +387,10 @@ class WatchPipeline {
     _busy = true;
     counts.read++;
     p?.framesRead++;
-    final (rgba, w, h) = f.cropRgba(g.card!, maxShort: cfg.readMaxShort);
-    return ReadJob(rgba, w, h, tMs);
+    final box = g.card!;
+    final (rgba, w, h) = f.cropRgba(box, maxShort: cfg.readMaxShort);
+    final scale = box.w == 0 ? 1.0 : w / box.w;
+    return ReadJob(rgba, w, h, tMs, (math.min(f.width, f.height) * scale).round());
   }
 
   /// The reader finished [job]. Returns the agreed pair (high card first)

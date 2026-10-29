@@ -245,15 +245,19 @@ GlyphReadResult readGlyphsMessage(GlyphReadRequest r) => readGlyphs(r.rgba, r.wi
 /// The corner indices are classified by [cnn] when given (the better reader
 /// on real photos), else by template matching against [templates].
 ///
+/// [scaleShortSide]: [rgba] is a crop of a frame with this short side;
+/// glyph-size limits use it instead of the crop's own size.
+///
 /// [tta] = false classifies each glyph once instead of at three rotations
 /// (about half the time). Watch my cards uses it: agreement over several
 /// frames replaces the rotation voting.
 GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
-    {GlyphTemplates? templates, GlyphCnn? cnn, int targetShortSide = 1500, bool tta = true}) {
+    {GlyphTemplates? templates, GlyphCnn? cnn, int targetShortSide = 1500, bool tta = true, int? scaleShortSide}) {
   if (templates == null && cnn == null) throw ArgumentError('templates or cnn required');
   final sw = Stopwatch()..start();
   final timing = <String, int>{};
   final img = _Planes.fromRgba(rgba, width, height, targetShortSide);
+  if (scaleShortSide != null) img.sRef = (scaleShortSide * img.w / width).round();
   timing['resize'] = sw.elapsedMilliseconds;
   final hsv = _Hsv(img);
   timing['hsv'] = sw.elapsedMilliseconds - timing['resize']!;
@@ -293,8 +297,11 @@ class _Planes {
   final Uint8List r, g, b;
   _Planes(this.w, this.h, this.r, this.g, this.b);
 
-  /// Short side of the working image (all size parameters scale with it).
-  int get s => math.min(w, h);
+  /// Short side of the working image (all size parameters scale with it),
+  /// or of the frame a crop came from ([sRef]), so glyph sizes are judged
+  /// against the whole view, as the thresholds were tuned.
+  int get s => sRef ?? math.min(w, h);
+  int? sRef;
 
   factory _Planes.fromRgba(Uint8List rgba, int width, int height, int targetShort) {
     final short = math.min(width, height);

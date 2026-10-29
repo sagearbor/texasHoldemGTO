@@ -1,6 +1,4 @@
-import 'dart:typed_data';
 
-import 'package:audio_session/audio_session.dart';
 import 'package:felt_notes/camera/glyph_reader.dart';
 import 'package:felt_notes/camera/watch_diagnostics.dart';
 import 'package:felt_notes/camera/watch_frame.dart';
@@ -9,6 +7,7 @@ import 'package:felt_notes/camera/watch_pipeline.dart';
 import 'package:felt_notes/camera/watch_tracker.dart';
 import 'package:felt_notes/camera/watch_voice.dart';
 import 'package:felt_notes/poker/cards.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const w = 320, h = 180;
@@ -229,25 +228,49 @@ void main() {
   });
 
   group('voice leak guard', () {
-    test('iOS current route: only private outputs', () {
-      expect(voiceAllowed([AudioDeviceType.bluetoothA2dp], isCurrentRoute: true), isTrue);
-      expect(voiceAllowed([AudioDeviceType.wiredHeadphones], isCurrentRoute: true), isTrue);
-      expect(voiceAllowed([AudioDeviceType.builtInSpeaker], isCurrentRoute: true), isFalse);
-      expect(voiceAllowed([AudioDeviceType.builtInEarpiece], isCurrentRoute: true), isFalse);
-      expect(voiceAllowed([AudioDeviceType.airPlay], isCurrentRoute: true), isFalse);
-      expect(voiceAllowed([AudioDeviceType.bluetoothA2dp, AudioDeviceType.builtInSpeaker], isCurrentRoute: true),
-          isFalse);
+    test('current route (iOS, Android 13+): every output must be private', () {
+      expect(voiceAllowed(['bluetooth_a2dp'], isCurrentRoute: true), isTrue);
+      expect(voiceAllowed(['ble_headset'], isCurrentRoute: true), isTrue);
+      expect(voiceAllowed(['headphones'], isCurrentRoute: true), isTrue);
+      expect(voiceAllowed(['speaker'], isCurrentRoute: true), isFalse);
+      expect(voiceAllowed(['earpiece'], isCurrentRoute: true), isFalse);
+      expect(voiceAllowed(['other:AirPlay'], isCurrentRoute: true), isFalse);
+      expect(voiceAllowed(['ble_broadcast'], isCurrentRoute: true), isFalse);
+      expect(voiceAllowed(['ble_speaker'], isCurrentRoute: true), isFalse);
+      // Earbuds plus the speaker (e.g. a duplicated route): would leak.
+      expect(voiceAllowed(['bluetooth_a2dp', 'speaker'], isCurrentRoute: true), isFalse);
+      // Earbuds dropped: nothing / speaker only.
       expect(voiceAllowed([], isCurrentRoute: true), isFalse);
-      expect(voiceAllowed([AudioDeviceType.unknown], isCurrentRoute: true), isFalse);
     });
 
-    test('Android device list: the speaker is always listed; a headset decides', () {
-      expect(voiceAllowed([AudioDeviceType.builtInSpeaker, AudioDeviceType.builtInEarpiece], isCurrentRoute: false),
-          isFalse);
-      expect(voiceAllowed([AudioDeviceType.builtInSpeaker, AudioDeviceType.bluetoothA2dp], isCurrentRoute: false),
-          isTrue);
-      expect(voiceAllowed([AudioDeviceType.builtInSpeaker, AudioDeviceType.usbAudio], isCurrentRoute: false), isFalse);
+    test('Android < 13 device list: the speaker is always listed; a headset decides', () {
+      expect(voiceAllowed(['speaker', 'earpiece'], isCurrentRoute: false), isFalse);
+      expect(voiceAllowed(['speaker', 'earpiece', 'bluetooth_a2dp'], isCurrentRoute: false), isTrue);
+      expect(voiceAllowed(['speaker', 'other:13'], isCurrentRoute: false), isFalse);
       expect(voiceAllowed([], isCurrentRoute: false), isFalse);
+    });
+
+    test('the route is asked before every utterance; silence on errors', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      const ch = MethodChannel('felt_notes/audio_route');
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var calls = 0;
+      Object? reply = {'route': true, 'outputs': ['bluetooth_a2dp']};
+      messenger.setMockMethodCallHandler(ch, (call) async {
+        calls++;
+        if (reply is Exception) throw reply;
+        return reply;
+      });
+      final v = WatchVoice();
+      expect(await v.routeIsPrivate(), isTrue);
+      reply = {'route': true, 'outputs': ['speaker']};
+      // say() checks again: the earbuds just dropped, so it stays silent.
+      expect(await v.say('Ace of spades, king of diamonds'), isFalse);
+      expect(v.state.value, VoiceState.paused);
+      expect(calls, 2);
+      reply = PlatformException(code: 'x');
+      expect(await v.routeIsPrivate(), isFalse);
+      messenger.setMockMethodCallHandler(ch, null);
     });
   });
 

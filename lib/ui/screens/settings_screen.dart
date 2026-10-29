@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../app_data.dart';
+import '../../camera/watch_log_store.dart';
+import '../../camera/watch_screen.dart' show watchModeSupported;
 import '../../homegame/home_game.dart';
 import '../../homegame/my_result.dart';
 import '../../poker/cards.dart';
@@ -130,6 +132,24 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: 4),
               Text('Example: ${moneyLabel(42.5, signed: true)}',
                   style: Theme.of(context).textTheme.bodySmall),
+              if (watchModeSupported)
+                Builder(
+                  builder: (context) => ListTile(
+                    key: const Key('settings-watch-log'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.ios_share),
+                    title: const Text('Export Watch my cards diagnostics'),
+                    subtitle: const Text(
+                        'Timings and reads from the last few sessions, no images. Stays on this phone unless you share it'),
+                    onTap: () async {
+                      final ok = await WatchLogStore.export(context);
+                      if (!ok && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('No Watch diagnostics yet')));
+                      }
+                    },
+                  ),
+                ),
             ]),
             _Section(icon: Icons.save_alt, title: 'Data', children: [
               ListTile(

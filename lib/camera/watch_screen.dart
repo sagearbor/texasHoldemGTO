@@ -276,7 +276,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     _setStatus(_pipe.status(t));
     if (job == null) return;
     final sw = Stopwatch()..start();
-    _worker!.read(job.rgba, job.width, job.height, tta: _pipe.cfg.tta).then((r) {
+    _worker!.read(job.rgba, job.width, job.height, tta: _pipe.cfg.tta, scaleShortSide: job.scaleShortSide).then((r) {
       if (!mounted || !_watching) return;
       final pair = _pipe.onRead(job, r, readMs: sw.elapsedMilliseconds);
       _setStatus(_pipe.status(_clock.elapsedMilliseconds));

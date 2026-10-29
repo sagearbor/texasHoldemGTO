@@ -39,11 +39,11 @@ class GlyphWorker {
     }
   }
 
-  Future<GlyphReadResult> read(Uint8List rgba, int width, int height, {bool tta = false}) {
+  Future<GlyphReadResult> read(Uint8List rgba, int width, int height, {bool tta = false, int? scaleShortSide}) {
     final id = _nextId++;
     final c = Completer<GlyphReadResult>();
     _pending[id] = c;
-    _send!.send((id, TransferableTypedData.fromList([rgba]), width, height, tta));
+    _send!.send((id, TransferableTypedData.fromList([rgba]), width, height, tta, scaleShortSide));
     return c.future;
   }
 
@@ -62,9 +62,9 @@ class GlyphWorker {
     final inbox = ReceivePort();
     out.send(inbox.sendPort);
     inbox.listen((m) {
-      final (id, data, w, h, tta) = m as (int, TransferableTypedData, int, int, bool);
+      final (id, data, w, h, tta, ref) = m as (int, TransferableTypedData, int, int, bool, int?);
       try {
-        out.send((id, readGlyphs(data.materialize().asUint8List(), w, h, cnn: cnn, tta: tta)));
+        out.send((id, readGlyphs(data.materialize().asUint8List(), w, h, cnn: cnn, tta: tta, scaleShortSide: ref)));
       } catch (e) {
         out.send((id, '$e'));
       }

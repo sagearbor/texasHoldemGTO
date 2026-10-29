@@ -52,6 +52,9 @@ Future<void> main(List<String> argv) async {
   final short = int.parse(opt('--short', '720')!);
   final fps = int.parse(opt('--fps', '15')!);
   final phone = double.parse(opt('--phone', '2.0')!);
+  // Fixed simulated reader latency (ms) instead of measured x --phone: use
+  // it when this Mac is busy and its timings are noise.
+  final readMsFixed = int.tryParse(opt('--read-ms', '') ?? '');
   final labelsPath = opt('--labels');
   final maxSec = double.tryParse(opt('--max', '') ?? '');
   final startSec = double.tryParse(opt('--start', '') ?? '') ?? 0;
@@ -77,7 +80,10 @@ Future<void> main(List<String> argv) async {
     '-i', args.first,
     if (maxSec != null) ...['-t', '$maxSec'],
     '-an',
-    '-vf', "fps=$fps,scale='if(gt(iw,ih),-2,$short)':'if(gt(iw,ih),$short,-2)':flags=area",
+    // Always video range + BT.709, like the iPhone stream, whatever the
+    // file is tagged (a clip made from JPEGs is full range).
+    '-vf', "fps=$fps,scale='if(gt(iw,ih),-2,$short)':'if(gt(iw,ih),$short,-2)':flags=area"
+        ':out_range=tv:out_color_matrix=bt709',
     '-pix_fmt', 'nv12', '-f', 'rawvideo', '-',
   ]);
   // Output size from ffmpeg's stream description.
@@ -88,7 +94,8 @@ Future<void> main(List<String> argv) async {
   });
   final (w, h) = await sizeC.future;
   final frameBytes = w * h * 3 ~/ 2;
-  stdout.writeln('video ${args.first}: ${w}x$h NV12 @ $fps fps, reader time x$phone');
+  stdout.writeln('video ${args.first}: ${w}x$h NV12 @ $fps fps, reader latency '
+      '${readMsFixed == null ? 'measured x$phone' : '$readMsFixed ms (fixed)'}');
 
   final tracker = WatchHandTracker();
   final decisions = <(int, WatchDecision)>[];
@@ -126,12 +133,13 @@ Future<void> main(List<String> argv) async {
     if (job == null) return;
     if (dumpDir != null) _dumpPpm('$dumpDir/crop_${job.tMs.toString().padLeft(7, '0')}.ppm', job);
     final sw = Stopwatch()..start();
-    final r = readGlyphs(job.rgba, job.width, job.height, cnn: cnn, tta: pipe.cfg.tta);
+    final r = readGlyphs(job.rgba, job.width, job.height,
+        cnn: cnn, tta: pipe.cfg.tta, scaleShortSide: job.scaleShortSide);
     final ms = sw.elapsedMilliseconds;
     maxReadMs = ms > maxReadMs ? ms : maxReadMs;
     sumReadMs += ms;
     reads++;
-    inFlight = (job, r, t + (ms * phone).round(), ms);
+    inFlight = (job, r, t + (readMsFixed ?? (ms * phone).round()), ms);
   }
 
   await for (final chunk in proc.stdout) {
@@ -167,7 +175,8 @@ Future<void> main(List<String> argv) async {
   final mins = endMs / 60000;
   if (mins > 0) {
     stdout.writeln('battery proxy: ${(pipe.counts.read / mins).toStringAsFixed(1)} reader runs/min, '
-        '${(sumReadMs * phone / mins / 1000).toStringAsFixed(1)} s reader CPU/min (phone estimate)');
+        '${((readMsFixed == null ? sumReadMs * phone : reads * readMsFixed) / mins / 1000).toStringAsFixed(1)} '
+        's reader CPU/min (phone estimate)');
   }
 
   if (labelsPath != null) {

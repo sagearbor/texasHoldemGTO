@@ -44,8 +44,9 @@ class WatchFrame {
   final WatchPixelFormat format;
   final List<WatchPlane> planes;
 
-  /// Luma 16..235 (BT.601 "video range", iOS 420v and most video files)
-  /// rather than 0..255 (Android YUV_420_888).
+  /// Luma 16..235 with the BT.709 matrix ("video range": iOS 420v at HD
+  /// sizes, and the harness's ffmpeg output) rather than 0..255 BT.601
+  /// (Android YUV_420_888).
   final bool videoRange;
 
   WatchFrame(this.width, this.height, this.format, this.planes, {this.videoRange = false})
@@ -135,11 +136,11 @@ class WatchFrame {
         final cr = _at(crP.bytes, crRow + cx + crOff) - 128;
         int r, g, b;
         if (videoRange) {
-          // BT.601 limited range, fixed point (x1024).
+          // BT.709 limited range, fixed point (x1024).
           final c = 1192 * (yy - 16);
-          r = (c + 1634 * cr) >> 10;
-          g = (c - 401 * cb - 832 * cr) >> 10;
-          b = (c + 2066 * cb) >> 10;
+          r = (c + 1836 * cr) >> 10;
+          g = (c - 218 * cb - 546 * cr) >> 10;
+          b = (c + 2163 * cb) >> 10;
         } else {
           yy <<= 10;
           r = (yy + 1436 * cr) >> 10;
