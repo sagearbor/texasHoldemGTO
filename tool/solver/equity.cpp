@@ -9,7 +9,14 @@
 //     (169 weights). For each (i, j): equity of i and equity of j (pot
 //     shares, ties split).
 //
-// Output: text, one line per (i, j): "i j n eq_i [eq_j]".
+//   equity tri SAMPLES OUT
+//     Three-way, every class triple: T[a][b][c] = pot share (equity, ties
+//     split) of class a against classes b and c, Monte Carlo over SAMPLES
+//     non-conflicting combo triples + boards per unordered triple. Binary
+//     output: 169^3 float32, index (a * 169 + b) * 169 + c. Triples with no
+//     non-conflicting deal get 1/3.
+//
+// Output (hu, mw): text, one line per (i, j): "i j n eq_i [eq_j]".
 #include "common.h"
 
 using namespace fn;
@@ -22,10 +29,62 @@ static std::vector<std::pair<int, int>> combosOf(int k) {
   return out;
 }
 
+static int triMain(int S, const char* outPath) {
+  std::vector<std::vector<std::pair<int, int>>> cc(169);
+  for (int k = 0; k < 169; k++) cc[k] = combosOf(k);
+  struct T { int a, b, c; };
+  std::vector<T> ts;
+  for (int a = 0; a < 169; a++) for (int b = a; b < 169; b++) for (int c = b; c < 169; c++) ts.push_back({a, b, c});
+  std::vector<float> out(size_t(169) * 169 * 169, 1.0f / 3);
+  int threads = std::max(1u, std::thread::hardware_concurrency());
+  parallelFor(int(ts.size()), threads, [&](int r, int) {
+    const T& t = ts[r];
+    Rng rng(uint64_t(t.a) * 1000003ull + uint64_t(t.b) * 1009ull + t.c + 91);
+    const auto &A = cc[t.a], &B = cc[t.b], &C = cc[t.c];
+    double e[3] = {0, 0, 0};
+    int done = 0, tries = 0;
+    int cs[9];
+    while (done < S && tries < S * 50) {
+      tries++;
+      auto x = A[rng.below(int(A.size()))], y = B[rng.below(int(B.size()))], z = C[rng.below(int(C.size()))];
+      uint64_t mx = (1ull << x.first) | (1ull << x.second);
+      uint64_t my = (1ull << y.first) | (1ull << y.second);
+      uint64_t mz = (1ull << z.first) | (1ull << z.second);
+      if ((mx & my) || (mx & mz) || (my & mz)) continue;
+      uint64_t used = mx | my | mz;
+      int nb = 0;
+      while (nb < 5) { int c = rng.below(52); if (used & (1ull << c)) continue; used |= 1ull << c; cs[nb++] = c; }
+      cs[5] = x.first; cs[6] = x.second; uint32_t va = evalCards(cs, 7);
+      cs[5] = y.first; cs[6] = y.second; uint32_t vb = evalCards(cs, 7);
+      cs[5] = z.first; cs[6] = z.second; uint32_t vc = evalCards(cs, 7);
+      uint32_t best = std::max(va, std::max(vb, vc));
+      int nw = (va == best) + (vb == best) + (vc == best);
+      if (va == best) e[0] += 1.0 / nw;
+      if (vb == best) e[1] += 1.0 / nw;
+      if (vc == best) e[2] += 1.0 / nw;
+      done++;
+    }
+    if (done == 0) return;
+    int id[3] = {t.a, t.b, t.c};
+    float ev[3] = {float(e[0] / done), float(e[1] / done), float(e[2] / done)};
+    // every ordering: out[p][q][r] = equity of p vs q, r
+    int perm[6][3] = {{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}};
+    for (auto& pm : perm) {
+      size_t ix = (size_t(id[pm[0]]) * 169 + id[pm[1]]) * 169 + id[pm[2]];
+      out[ix] = ev[pm[0]];
+    }
+  });
+  FILE* f = fopen(outPath, "wb");
+  fwrite(out.data(), sizeof(float), out.size(), f);
+  fclose(f);
+  return 0;
+}
+
 int main(int argc, char** argv) {
   if (argc < 4) { fprintf(stderr, "usage: equity hu|mw SAMPLES [RANGE] OUT\n"); return 2; }
   std::string mode = argv[1];
   int S = atoi(argv[2]);
+  if (mode == "tri") return triMain(S, argv[3]);
   bool mw = mode == "mw";
   std::vector<double> w3(169, 0);
   if (mw) {

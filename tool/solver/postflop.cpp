@@ -622,17 +622,35 @@ int main(int argc, char** argv) {
     b0 /= tm0; b1 /= tm0;  // per hand pair
     return (b0 + b1 - cfg.pot) / 2 / cfg.pot * 100;
   };
+  // Exploitability checks: every [checkEvery] iterations until two points
+  // exist, then at the iteration where a power-law fit of the last two
+  // points (expl ~ c / t^k) predicts the target (+3%), within 5..2x
+  // checkEvery of the last check. Saves the overshoot of a fixed interval.
+  int nextCheck = cfg.checkEvery;
   for (it = 1; it <= cfg.iters; it++) {
     double ta = std::pow(double(it), alpha);
     gPosW = ta / (ta + 1);
     gStratW = std::pow(double(it), gamma);
     walk(0, 0, r0.data(), r1.data(), o0.data(), M_CFR, true);
     walk(0, 1, r1.data(), r0.data(), o1.data(), M_CFR, true);
-    if (it % cfg.checkEvery == 0 || it == cfg.iters) {
+    if (it == nextCheck || it == cfg.iters) {
       expl = exploit();
       curve.push_back({it, expl});
       fprintf(stderr, "  it %d expl %.3f%% pot  (%.1fs)\n", it, expl, nowSec() - t0);
       if (expl < cfg.target) break;
+      int step = cfg.checkEvery;
+      size_t m = curve.size();
+      if (m >= 2) {
+        double t1 = curve[m - 2].first, e1 = curve[m - 2].second, t2 = curve[m - 1].first, e2 = curve[m - 1].second;
+        if (e2 < e1 && e2 > 0) {
+          double k = std::log(e1 / e2) / std::log(t2 / t1);
+          if (k > 0.2) {
+            double ts = t2 * std::pow(e2 / cfg.target, 1.0 / k) * 1.03;
+            step = std::max(5, std::min(2 * cfg.checkEvery, int(std::ceil(ts - t2))));
+          }
+        }
+      }
+      nextCheck = it + step;
     }
   }
   if (it > cfg.iters) it = cfg.iters;

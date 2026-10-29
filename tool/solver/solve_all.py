@@ -1,21 +1,29 @@
 """Felt Notes solved preflop spots: the whole pipeline (driven by
 tool/solve_all.sh).
 
-  round 0  preflop games solved with plain-equity flops (R = 1)
-  post 1   every heads-up flop leaf of those games is solved on the flop
-           subset (tool/solver/postflop.cpp, flop + turn + river) with the
-           ranges that reach it; per-class EVs -> realisation tables R
-  round 1  preflop games re-solved with the solved R tables
-  post 2   (optional, POST2_FLOPS) the leaves are re-solved with round-1
-           ranges on a smaller subset to measure the fixed-point drift
-  output   data/solved/preflop.json, data/solved/postflop.json
+  round 0  preflop games solved with starting realisation tables
+           (START_R: a previous run's published tables, or a prior)
+  pass A   every heads-up flop leaf solved on the SUB flops (a subset of
+           the full flop set) with the round-0 ranges
+  round 1  preflop games re-solved with the pass-A tables
+  pass B   every leaf solved on ALL flops (FLOPS_K, default 54) with the
+           round-1 ranges: the published EV tables
+  round k  (k >= 2) R = R_B(all flops) + R_sub(round k-1 ranges) -
+           R_B(sub flops), damped with the previous round; repeated until
+           the hero strategies settle (or FP_MAX rounds)
+  check    one more correction from the published ranges, UNDAMPED, and a
+           preflop re-solve: fixedPointDelta = share of the hero's hands
+           whose strategy that moves (gate: at most 5%)
+  output   data/solved/preflop.json, data/solved/postflop.json, README
 
-Every postflop job is cached by a hash of its inputs under the work dir, so
-the run resumes after an interruption. Work dir default: tmp/solve.
+Every flop solve runs to POST_TARGET % of the pot (default 0.97) and is
+cached by a hash of its inputs under the work dir, so the run resumes after
+an interruption (preflop solves are deterministic and re-run in minutes).
 """
 import hashlib
 import json
 import os
+import pickle
 import subprocess
 import sys
 import time
@@ -24,6 +32,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import limp  # noqa: E402
 import preflop as pf  # noqa: E402
 import ranges as rg  # noqa: E402
 
@@ -34,13 +43,18 @@ POSTFLOP = os.path.join(CACHE, "postflop")
 EQUITY = os.path.join(CACHE, "equity")
 OUT = os.environ.get("OUT", os.path.join(ROOT, "data", "solved"))
 THREADS = int(os.environ.get("THREADS", "10"))
-POST_ITERS = int(os.environ.get("POST_ITERS", "80"))
-POST_TARGET = float(os.environ.get("POST_TARGET", "1.0"))
-BENCH_ITERS = int(os.environ.get("BENCH_ITERS", "300"))
-MEM_GB = float(os.environ.get("MEM_GB", "6.5"))
-FP_ROUNDS = int(os.environ.get("FP_ROUNDS", "2"))
-FP_FLOPS = int(os.environ.get("FP_FLOPS", "3"))
-STOP_FREE_GB = 15.0
+POST_ITERS = int(os.environ.get("POST_ITERS", "1000"))
+POST_TARGET = float(os.environ.get("POST_TARGET", "0.97"))
+BENCH_ITERS = int(os.environ.get("BENCH_ITERS", "600"))
+MEM_GB = float(os.environ.get("MEM_GB", "8.5"))
+FLOPS_K = int(os.environ.get("FLOPS_K", "54"))
+SUB_N = int(os.environ.get("SUB_N", "12"))
+FP_MAX = int(os.environ.get("FP_MAX", "4"))
+FP_DAMP = float(os.environ.get("FP_DAMP", "0.5"))
+FP_STOP = float(os.environ.get("FP_STOP", "0.03"))
+START_R = os.environ.get("START_R", os.path.join(WORK, "start_R.json"))
+STOP_FREE_GB = 12.0
+PRE_ITERS, PRE_TARGET = 12000, 2e-5
 
 STACK = 100.0
 
@@ -60,15 +74,11 @@ RFI = {
           "43s:0.4, A2o+, K8o+, K7o:0.4, Q9o+, Q8o:0.3, J9o+, T9o, 98o:0.4",
 }
 
-# A loose-passive UTG limping range (population assumption, INPUT): small and
-# medium pairs, suited aces and broadways, suited connectors, offsuit
-# broadways, and a few big hands slow-played.
+# A loose-passive UTG limping range (population assumption, INPUT).
 LIMP = ("22-TT, JJ:0.3, QQ+:0.15, A2s-AJs, AQs:0.4, AKs:0.2, K8s+, Q9s+, J9s+, "
         "T8s+, 97s+, 86s+, 75s+, 64s+, 54s, A8o-AJo, AQo:0.5, AKo:0.2, KTo+, "
         "QTo+, JTo, T9o:0.5")
 
-# Facing-a-3-bet spots (ids match the app). size = 3-bet to; 4-bet 22bb in
-# position, 25bb out of position; 5-bet = all-in.
 THREE_BET = [
     dict(id="UTG-ip", hero="UTG", villain="BTN", three=7.5),
     dict(id="UTG-blinds", hero="UTG", villain="BB", three=10.0),
@@ -117,22 +127,27 @@ def pot_type(name, pot, stack, oop, aggr):
     return name
 
 
+# the solved heads-up pots of the limp games (players: 0 = hero, 1 = UTG)
+pot_type("LIMP:BB-UTG", 2.5, STACK - 1, 0, None)
+pot_type("ISO:BB-UTG", 10.5, STACK - 5, 0, 0)
+pot_type("ISO:SB-UTG", 11.0, STACK - 5, 0, 0)
+pot_type("ISO:BTN-UTG", 9.5, STACK - 4, 1, 0)
+pot_type("ISO:CO-UTG", 9.5, STACK - 4, 1, 0)
+
+
 # ------------------------------------------------------------- games
 PRIOR = {}
-
-
-def prior_R(tab, ip):
-    """Starting point of the fixed-point iteration only (replaced by the
-    solved tables in round 1): IP realises 1.05, OOP 0.85 of its equity,
-    stronger hands a little more (slope 0.6 on equity vs a random hand)."""
-    key = ip
-    if key not in PRIOR:
-        e = (tab.N * tab.E).sum(1) / tab.N.sum(1)
-        PRIOR[key] = np.clip((1.05 if ip else 0.85) + 0.6 * (e - 0.5), 0.2, 2.0)
-    return PRIOR[key]
-
-
 TAB = None
+TRI = None
+
+
+def prior_R(ip):
+    """Only for tables that were never solved: IP realises 1.05, OOP 0.85
+    of its equity, stronger hands a little more."""
+    if ip not in PRIOR:
+        e = (TAB.N * TAB.E).sum(1) / TAB.N.sum(1)
+        PRIOR[ip] = np.clip((1.05 if ip else 0.85) + 0.6 * (e - 0.5), 0.2, 2.0)
+    return PRIOR[ip]
 
 
 def R_of(Rt, name, player):
@@ -140,9 +155,16 @@ def R_of(Rt, name, player):
     if t is not None:
         return t[player]
     if name.startswith("4BP"):
-        return None  # plain equity until solved (round 0; SPR under 2)
+        return None
     P = POT_TYPES[name]
-    return prior_R(TAB, ip=(player != P.oop))
+    return prior_R(player != P.oop)
+
+
+def R_default(name, p):
+    if name in POT_TYPES:
+        r = R_of({}, name, p)
+        return np.ones(169) if r is None else r
+    return np.ones(169)
 
 
 def game_3bet(spot, tab, Rt):
@@ -152,12 +174,10 @@ def game_3bet(spot, tab, Rt):
     pv = BLIND.get(V, 0.0)
     dead = sum(b for p, b in BLIND.items() if p not in (O, V))
     t = spot["three"]
-    # the opener is in position unless the 3-bettor sits behind it on the
-    # button, or the opener is the SB (vs the BB)
     hero_ip = V in BLIND and O != "SB"
     f = 22.0 if hero_ip else 25.0
     oop = 1 if hero_ip else 0
-    srp = pot_type(f"SRP:{O}-{V}", 2 * o + dead, STACK - o, oop, 0)
+    srp = f"SRP:{O}-{V}"
     tbp = pot_type(f"3BP:{O}-{V}", 2 * t + dead, STACK - t, oop, 1)
     fbp = pot_type(f"4BP:{O}-{V}", 2 * f + dead, STACK - f, oop, 0)
     jam_node = pf.Node(0, ["Call", "Fold"], [pf.allin(tab, STACK, dead),
@@ -178,65 +198,90 @@ def game_3bet(spot, tab, Rt):
     vkids.append(hero)
     root = pf.Node(1, vacts, vkids, "villainVsOpen")
     g = pf.Game(root, rg.parse(RFI[O]), [1.0] * 169, tab)
-    g.hero = hero
+    g.hero = root.kids[-1]
+    g.n = 2
     return g
 
 
-def limp_reraise(tab, hero_inv, lrr, dead, hero_first_blind=0.0):
-    """Hero raised to [hero_inv]; the limper re-raises to [lrr]."""
-    jam = pf.Node(1, ["Call", "Fold"], [pf.allin(tab, STACK, dead),
-                                        pf.fold(0, STACK, lrr, dead)], "limperVsJam")
-    return pf.Node(0, ["Fold", "Call", "All-in"], [
-        pf.fold(1, hero_inv, lrr, dead),
-        pf.allin(tab, lrr, dead, kind="post4", info={"potType": "LRR"}),
-        jam], "heroVsLimpReraise")
+# register the 3-bet pot types up front (the limp games borrow their tables)
+for _sp in THREE_BET:
+    _O, _V, _t = _sp["hero"], _sp["villain"], _sp["three"]
+    _o = 3.0 if _O == "SB" else 2.5
+    _dead = sum(b for p, b in BLIND.items() if p not in (_O, _V))
+    _ip = _V in BLIND and _O != "SB"
+    _f = 22.0 if _ip else 25.0
+    if _V != "SB":
+        pot_type(f"SRP:{_O}-{_V}", 2 * _o + _dead, STACK - _o, 1 if _ip else 0, 0)
+    pot_type(f"3BP:{_O}-{_V}", 2 * _t + _dead, STACK - _t, 1 if _ip else 0, 1)
+    pot_type(f"4BP:{_O}-{_V}", 2 * _f + _dead, STACK - _f, 1 if _ip else 0, 0)
 
 
-def game_limp(hero, tab, Rt, mwt):
-    """Players: 0 = hero, 1 = the UTG limper (fixed limp range). Players
-    between them fold; players behind hero fold to an iso-raise; after an
-    overlimp / complete the SB folds and the BB checks its option."""
-    L = rg.parse(LIMP)
-    if hero == "BB":
-        dead = 0.5
-        iso = 5.0
-        limped = pot_type("LIMP:BB-UTG", 2 + dead, STACK - 1, 0, None)
-        isot = pot_type("ISO:BB-UTG", 2 * iso + dead, STACK - iso, 0, 0)
-        utg = pf.Node(1, ["Fold", "Call", "Raise"], [
-            pf.fold(0, iso, 1, dead),
-            pf.post(tab, isot, iso, dead, R_of(Rt, isot, 0), R_of(Rt, isot, 1)),
-            limp_reraise(tab, iso, 4 * iso, dead)], "limperVsIso")
-        root = pf.Node(0, ["Raise 5bb", "Check"], [
-            utg, pf.post(tab, limped, 1, dead, R_of(Rt, limped, 0), R_of(Rt, limped, 1))], "hero")
-        g = pf.Game(root, [1.0] * 169, L, tab)
-        g.hero = root
-        return g
-    sb = hero == "SB"
-    iso = 5.0 if sb else 4.0
-    dead = 1.0 if sb else 1.5
-    isot = pot_type(f"ISO:{hero}-UTG", 2 * iso + dead, STACK - iso, 0 if sb else 1, 0)
-    utg = pf.Node(1, ["Fold", "Call", "Raise"], [
-        pf.fold(0, iso, 1, dead),
-        pf.post(tab, isot, iso, dead, R_of(Rt, isot, 0), R_of(Rt, isot, 1)),
-        limp_reraise(tab, iso, 4 * iso, dead)], "limperVsIso")
-    # Multiway limped pot (hero, UTG, BB): realisation from the solved
-    # heads-up limped pot by seat order: first to act uses the BB's (OOP)
-    # table, last to act the limper's (IP) table.
-    lt = Rt.get("LIMP:BB-UTG")
-    r_oop = prior_R(tab, False) if lt is None else lt[0]
-    r_ip = prior_R(tab, True) if lt is None else lt[1]
-    if sb:
-        passive = pf.mw(mwt, "MW:SB-UTG-BB", 1.0, 1.0, 3.0, r_oop, r_ip)
-        fold_term = pf.Term(np.full((169, 169), -0.5), np.zeros((169, 169)), {"kind": "fold"})
-        acts = [f"Iso {int(iso)}bb", "Complete", "Fold"]
-    else:
-        passive = pf.mw(mwt, f"MW:{hero}-UTG-BB", 1.0, 1.0, 3.5, r_ip, r_oop)
-        fold_term = pf.Term(np.zeros((169, 169)), np.zeros((169, 169)), {"kind": "fold"})
-        acts = [f"Iso {int(iso)}bb", "Overlimp", "Fold"]
-    root = pf.Node(0, acts, [utg, passive, fold_term], "hero")
-    g = pf.Game(root, [1.0] * 169, L, tab)
-    g.hero = root
+def game_limp(hero, tab, Rt, alt=False):
+    b = limp.Builder(hero, Rt, R_default, alt=alt)
+    g = b.build(tab, TRI, rg.parse(LIMP))
     return g
+
+
+def solve_game(g, label, warm=None):
+    if warm is not None:
+        load_state(g, warm)
+    g.solve(iters=PRE_ITERS, target=PRE_TARGET, check=250)
+    if g.expl is None or g.expl >= PRE_TARGET:
+        log(f"  {label}: nash gap {g.expl:.6f} after {g.iters} it (target {PRE_TARGET})")
+    return g
+
+
+def game_state(g):
+    return {nd.name: (nd.R.copy(), nd.S.copy()) for nd in g.nodes}
+
+
+def load_state(g, st):
+    """Warm start: the previous round's regrets (so the current strategy
+    starts where the last round ended); the average restarts from zero."""
+    for nd in g.nodes:
+        if nd.name in st and st[nd.name][0].shape == nd.R.shape:
+            nd.R[:] = st[nd.name][0]
+            nd.S[:] = 0
+
+
+def solve_round(tab, Rt, label, warm=None, alt=False, only=None):
+    """Solve every game; returns {id: game}. warm: {id: state} from the
+    previous round (CFR continues from it: continuity between rounds)."""
+    games = {}
+    t0 = time.time()
+    specs = [(f"limp1-{h}", lambda h=h: game_limp(h, tab, Rt, alt)) for h in ["BB", "SB", "BTN", "CO"]]
+    specs += [(f"3b-{sp['id']}", lambda sp=sp: game_3bet(sp, tab, Rt)) for sp in THREE_BET]
+    for gid, mk in specs:
+        if only is not None and gid not in only:
+            continue
+        g = mk()
+        solve_game(g, gid, (warm or {}).get(gid))
+        games[gid] = g
+    log(f"{label}: preflop solved in {time.time() - t0:.0f}s; "
+        + ", ".join(f"{k} {g.expl:.6f}" for k, g in games.items()))
+    return games
+
+
+def leaf_jobs(games):
+    """Solved heads-up flop leaves: {potType: (rangeOOP, rangeIP)}."""
+    out = {}
+    for gid, g in games.items():
+        for item in g.leaf_ranges():
+            term = item[0]
+            pt = term.info.get("potType")
+            if pt not in POT_TYPES:
+                continue
+            if len(item) == 3:
+                r0, r1 = item[1], item[2]
+            else:
+                rs = item[1]
+                if tuple(term.active) != (0, 1):
+                    continue
+                r0, r1 = rs[0], rs[1]
+            P = POT_TYPES[pt]
+            ro, ri = (r0, r1) if P.oop == 0 else (r1, r0)
+            out[pt] = (np.asarray(ro), np.asarray(ri))
+    return out
 
 
 # ------------------------------------------------------------ helpers
@@ -248,78 +293,35 @@ def run(cmd):
 
 
 def equity_tables():
-    global TAB
+    global TAB, TRI
     os.makedirs(CACHE, exist_ok=True)
     hu = os.path.join(CACHE, "eq_hu_100k.txt")
     if not os.path.exists(hu):
         log("HU equity table (100k samples per class pair)")
         run([EQUITY, "hu", "100000", hu])
+    tri = os.path.join(CACHE, "eq_tri_10k.bin")
+    if not os.path.exists(tri):
+        log("3-way equity tensor (10k samples per class triple)")
+        run([EQUITY, "tri", "10000", tri])
     TAB = pf.Tables(hu)
+    TRI = np.fromfile(tri, dtype=np.float32).reshape(169, 169, 169)
     return TAB
 
 
-def mw_table(third):
-    key = hashlib.sha1(" ".join(f"{x:.4f}" for x in third).encode()).hexdigest()[:12]
-    path = os.path.join(CACHE, f"eq_mw_{key}.txt")
-    if not os.path.exists(path):
-        rp = os.path.join(WORK, f"third_{key}.txt")
-        with open(rp, "w") as f:
-            f.write(" ".join(f"{x:.6f}" for x in third))
-        log(f"3-way equity table {key}")
-        run([EQUITY, "mw", "20000", rp, path])
-    return pf.MWTable(path)
-
-
-def solve_round(tab, Rt, label):
-    """Solve every game; returns {id: game}."""
-    games = {}
-    t0 = time.time()
-    g = game_limp("BB", tab, Rt, None)
-    g.solve(iters=6000, target=2e-5, log=log)
-    games["limp1-BB"] = g
-    # BB's checking range vs one limper -> third hand of the 3-way pots
-    s = g._avg(g.hero)
-    third = list(s[1])
-    mwt = mw_table(third)
-    for hero in ["CO", "BTN", "SB"]:
-        g = game_limp(hero, tab, Rt, mwt)
-        g.solve(iters=6000, target=2e-5, log=log)
-        games[f"limp1-{hero}"] = g
-    for sp in THREE_BET:
-        g = game_3bet(sp, tab, Rt)
-        g.solve(iters=6000, target=2e-5, log=log)
-        games[f"3b-{sp['id']}"] = g
-    log(f"{label}: preflop solved in {time.time() - t0:.0f}s; "
-        + ", ".join(f"{k} {g.expl:.6f}" for k, g in games.items()))
-    return games
-
-
-def leaf_jobs(games):
-    """Postflop leaves: {potType: (rangeOOP, rangeIP)} (absolute weights)."""
-    out = {}
-    for gid, g in games.items():
-        for term, r0, r1 in g.leaf_ranges():
-            pt = term.info["potType"]
-            if pt not in POT_TYPES:
-                continue  # multiway pots are not solved postflop
-            P = POT_TYPES[pt]
-            ro, ri = (r0, r1) if P.oop == 0 else (r1, r0)
-            out[pt] = (ro, ri)
-    return out
-
-
-def job_key(pt, flop, ro, ri, iters, target):
+def job_key(pt, flop, ro, ri, target):
     P = POT_TYPES[pt]
     h = hashlib.sha1()
-    h.update(json.dumps([pt, flop, P.pot, P.stack, P.bets(), iters, target,
-                         [round(x, 3) for x in ro], [round(x, 3) for x in ri]]).encode())
+    h.update(json.dumps([pt, flop, P.pot, P.stack, P.bets(), POST_ITERS, target,
+                         [round(float(x), 4) for x in ro], [round(float(x), 4) for x in ri]]).encode())
     return h.hexdigest()[:16]
 
 
-def run_postflop(pt, flop, ro, ri, iters, target):
+def run_postflop(pt, flop, ro, ri, target=None, iters=None):
+    target = POST_TARGET if target is None else target
+    iters = POST_ITERS if iters is None else iters
     jobs = os.path.join(WORK, "jobs")
     os.makedirs(jobs, exist_ok=True)
-    key = job_key(pt, flop, ro, ri, iters, target)
+    key = job_key(pt, flop, ro, ri, target)
     out = os.path.join(jobs, f"{pt.replace(':', '_')}_{flop}_{key}.json")
     if os.path.exists(out):
         return json.load(open(out))
@@ -343,18 +345,20 @@ def run_postflop(pt, flop, ro, ri, iters, target):
         raise RuntimeError(f"postflop {pt} {flop} failed: {r.stderr[-1500:]}")
     os.replace(out + ".part", out)
     d = json.load(open(out))
-    log(f"  {pt:14s} {flop}  expl {d['exploitPctPot']:.2f}%  {d['iters']} it  {time.time() - t0:.0f}s")
+    log(f"  {pt:14s} {flop}  expl {d['exploitPctPot']:.3f}%  {d['iters']} it  {time.time() - t0:.0f}s")
+    if d["exploitPctPot"] >= target:
+        log(f"  WARNING {pt} {flop} did not reach {target}% in {iters} iterations")
     return d
 
 
 def aggregate(pt, results, flops):
-    """results: list of postflop JSON (same order as flops). Returns
-    per preflop player p: dict(R, ev, eq, mass) over 169 classes."""
+    """Per preflop player p: dict(R, ev, eq, mass) over 169 classes,
+    weighted over [flops]."""
     P = POT_TYPES[pt]
     w = np.array([f["weight"] for f in flops])
     w = w / w.sum()
     out = {}
-    for side in (0, 1):  # postflop side: 0 OOP, 1 IP
+    for side in (0, 1):
         evm = sum(wi * np.array(r["players"][side]["evMass"]) for wi, r in zip(w, results))
         mm = sum(wi * np.array(r["players"][side]["mass"]) for wi, r in zip(w, results))
         eqm = sum(wi * np.array(r["players"][side]["eqMass"]) for wi, r in zip(w, results))
@@ -368,9 +372,12 @@ def aggregate(pt, results, flops):
 
 
 def r_table(agg, tab, ranges_by_player):
-    """Smoothed realisation by class for preflop players 0 / 1: observed R
-    (shrunk toward a linear fit of R on equity) where the class reaches the
-    flop, the fit elsewhere; clipped to [0.2, 2.0]."""
+    """Realisation by class for preflop players 0 / 1: the measured R where
+    the class reaches the flop (every class with any weight in the range is
+    in the flop solve), a weighted linear fit of R on equity vs the
+    opponent's range elsewhere; clipped to [0.2, 2.0]. Classes with a tiny
+    share of the range are shrunk toward the fit (prior weight 0.2% of the
+    mean class mass), so a class seen a handful of times can't swing."""
     res = {}
     for p in (0, 1):
         a = agg[p]
@@ -382,39 +389,39 @@ def r_table(agg, tab, ranges_by_player):
         x, y, wt = a["eq"][ok], a["R"][ok], m[ok]
         A = np.vstack([np.ones_like(x), x]).T * np.sqrt(wt)[:, None]
         coef, *_ = np.linalg.lstsq(A, y * np.sqrt(wt), rcond=None)
-        # equity of every class vs the opponent's flop range (preflop, all-in)
         opp = ranges_by_player[1 - p]
         Wm = tab.N * opp[None, :]
         e_all = (Wm * tab.E).sum(1) / np.maximum(Wm.sum(1), 1e-12)
         fit = coef[0] + coef[1] * e_all
-        m0 = 0.02 * m[ok].mean()
+        m0 = 0.002 * m[ok].mean()
         Robs = np.where(ok, a["R"], fit)
         R = np.where(ok, (m * Robs + m0 * fit) / (m + m0), fit)
         res[p] = np.clip(R, 0.2, 2.0)
     return res
 
 
-def solve_postflop(games, tab, flops, iters, target, label):
-    jobs = leaf_jobs(games)
-    Rt, aggs, stats = {}, {}, {}
+def solve_postflop(jobs, tab, flops, label):
+    """jobs: {potType: (ro, ri)}. Returns Rt, aggs, stats, results."""
+    Rt, aggs, stats, allres = {}, {}, {}, {}
     t0 = time.time()
-    order = sorted(jobs)
+    # cheap pot types first (a crash late in a pass loses less)
+    order = sorted(jobs, key=lambda pt: (-POT_TYPES[pt].pot, pt))
     for pt in order:
         ro, ri = jobs[pt]
-        res = [run_postflop(pt, f["flop"], ro, ri, iters, target) for f in flops]
+        res = [run_postflop(pt, f["flop"], ro, ri) for f in flops]
         agg = aggregate(pt, res, flops)
         P = POT_TYPES[pt]
         by_player = {P.oop: np.array(ro), 1 - P.oop: np.array(ri)}
         Rt[pt] = r_table(agg, tab, by_player)
         aggs[pt] = agg
+        allres[pt] = res
         stats[pt] = dict(
             exploitPctPot=[r["exploitPctPot"] for r in res],
             iters=[r["iters"] for r in res],
             seconds=sum(r["seconds"] for r in res),
-            evOop=float(sum(f["weight"] * r["ev"][0] for f, r in zip(flops, res)) / sum(f["weight"] for f in flops)),
             pot=P.pot)
     log(f"{label}: postflop {len(order)} pot types x {len(flops)} flops in {time.time() - t0:.0f}s")
-    return Rt, aggs, stats, jobs
+    return Rt, aggs, stats, allres
 
 
 def range_dist(a, b):
@@ -423,68 +430,164 @@ def range_dist(a, b):
     return float((np.abs(a - b) * cc).sum() / max((np.maximum(a, b) * cc).sum(), 1e-9))
 
 
+def hero_reach(g):
+    """The hero's input range at its decision (the opener's chart in the
+    3-bet games, every hand in the limp games)."""
+    return np.asarray(g.reach0) if isinstance(g, pf.Game) else np.ones(169)
+
+
+def hero_delta(g, gp):
+    """Share of the hero's hands (combo- and reach-weighted) whose strategy
+    differs between two solutions (total variation)."""
+    a, b = g._avg(g.hero), gp._avg(gp.hero)
+    w = np.array([rg.class_combos(k) for k in range(169)]) * hero_reach(g)
+    tv = 0.5 * np.abs(a - b).sum(0)
+    return float((w * tv).sum() / w.sum())
+
+
+def blend(Ra, Rb, lam):
+    return {pt: {p: lam * Ra[pt][p] + (1 - lam) * Rb[pt][p] for p in (0, 1)} for pt in Ra}
+
+
+def correct(R_full, R_sub_now, R_sub_base):
+    out = {}
+    for pt in R_full:
+        out[pt] = {}
+        for p in (0, 1):
+            c = R_sub_now[pt][p] - R_sub_base[pt][p] if pt in R_sub_now and pt in R_sub_base else 0
+            out[pt][p] = np.clip(R_full[pt][p] + c, 0.2, 2.0)
+    return out
+
+
+def load_start_R():
+    """Starting tables (round 0 only): {potType: {0: R, 1: R}}."""
+    if not os.path.exists(START_R):
+        return {}
+    d = json.load(open(START_R))
+    return {pt: {int(p): np.array([x if x is not None else 1.0 for x in v[p]]) for p in v} for pt, v in d.items()}
+
+
+def subset(flops, n):
+    """n flops of the full set for the fixed-point correction rounds: per
+    stratum in proportion to weight (at least one each), heaviest first;
+    weights renormalised. The correction is a difference of two solves on
+    the same subset, so its bias largely cancels."""
+    by = {}
+    for f in flops:
+        by.setdefault(f["stratum"], []).append(f)
+    tot = sum(f["weight"] for f in flops)
+    alloc = {s: max(1, int(n * sum(f["weight"] for f in fs) / tot)) for s, fs in by.items()}
+    while sum(alloc.values()) < n:
+        s = max(by, key=lambda s: n * sum(f["weight"] for f in by[s]) / tot - alloc[s])
+        alloc[s] += 1
+    while sum(alloc.values()) > n:
+        s = max(alloc, key=lambda s: alloc[s] - n * sum(f["weight"] for f in by[s]) / tot)
+        alloc[s] -= 1
+    out = []
+    for s, fs in by.items():
+        out += sorted(fs, key=lambda f: -f["weight"])[:alloc[s]]
+    return sorted(out, key=lambda f: -f["weight"])
+
+
+def save_tables(path, Rt):
+    json.dump({pt: {str(p): [float(x) for x in v[p]] for p in v} for pt, v in Rt.items()}, open(path, "w"))
+
+
 # -------------------------------------------------------------- main
 def main():
     os.makedirs(WORK, exist_ok=True)
     os.makedirs(OUT, exist_ok=True)
     tab = equity_tables()
-    fpath = os.path.join(WORK, "flops.json")
+    fpath = os.path.join(WORK, f"flops{FLOPS_K}.json")
     if not os.path.exists(fpath):
-        r = run([sys.executable, os.path.join(HERE, "flops.py")])
+        r = run([sys.executable, os.path.join(HERE, "flops.py"), str(FLOPS_K)])
         with open(fpath, "w") as f:
             f.write(r.stdout)
     flops = json.load(open(fpath))
-    log(f"flop subset: {len(flops)} flops")
-    games0 = solve_round(tab, {}, "round 0")
-    Rt1, aggs1, stats1, jobs1 = solve_postflop(games0, tab, flops, POST_ITERS, POST_TARGET, "post 1")
-    games1 = solve_round(tab, Rt1, "round 1")
-    jobs_r1 = leaf_jobs(games1)
-    drift = {pt: max(range_dist(jobs1[pt][0], jobs_r1[pt][0]), range_dist(jobs1[pt][1], jobs_r1[pt][1]))
-             for pt in jobs1 if pt in jobs_r1}
-    log("range drift round0 -> round1: " + ", ".join(f"{k} {v:.3f}" for k, v in sorted(drift.items())))
-    # Further fixed-point rounds on a small flop subset: each round re-solves
-    # every pot type on the FP_FLOPS heaviest flops with the current ranges
-    # and corrects the full-subset tables by the change seen there:
-    #   R = R_full(round-0 ranges) + R_sub(current) - R_sub(round-0 ranges),
-    # damped 50/50 with the previous round's tables.
-    fixed_point = {"rounds": []}
-    games, Rt = games1, Rt1
-    games_prev = games0
-    sub = sorted(flops, key=lambda f: -f["weight"])[:FP_FLOPS]
-    Rbase = {}
-    if FP_ROUNDS > 0:
-        Rbase, _, _, _ = solve_postflop(games0, tab, sub, POST_ITERS, POST_TARGET, "fp base (subset)")
-    prev_jobs = leaf_jobs(games1)
-    for rnd in range(2, 2 + FP_ROUNDS):
-        Rsub, _, _, _ = solve_postflop(games, tab, sub, POST_ITERS, POST_TARGET, f"fp {rnd} (subset)")
-        Rnew = {}
-        for pt in Rt1:
-            Rnew[pt] = {}
-            for p in (0, 1):
-                corr = Rsub[pt][p] - Rbase[pt][p] if pt in Rsub and pt in Rbase else 0
-                target = np.clip(Rt1[pt][p] + corr, 0.2, 2.0)
-                Rnew[pt][p] = 0.5 * target + 0.5 * Rt[pt][p]
-        dR = {pt: max(float(np.abs(Rnew[pt][p] - Rt[pt][p]).mean()) for p in (0, 1)) for pt in Rnew}
-        Rt = Rnew
-        games_prev = games
-        games = solve_round(tab, Rt, f"round {rnd}")
+    sub = subset(flops, SUB_N)
+    log(f"flop set: {len(flops)} flops; correction subset: {len(sub)} ({' '.join(f['flop'] for f in sub)})")
+    t_start = time.time()
+
+    # round 0 -> pass A (subset) -> round 1
+    R0 = load_start_R()
+    games0 = solve_round(tab, R0, "round 0")
+    jobsA = leaf_jobs(games0)
+    RA, _, statsA, _ = solve_postflop(jobsA, tab, sub, "pass A (subset)")
+    games1 = solve_round(tab, RA, "round 1", warm={k: game_state(g) for k, g in games0.items()})
+
+    # pass B: all flops with the round-1 ranges
+    jobsB = leaf_jobs(games1)
+    RB, aggsB, statsB, resB = solve_postflop(jobsB, tab, flops, "pass B (all flops)")
+    idx = [flops.index(f) for f in sub]
+    RBsub = {}
+    for pt, res in resB.items():
+        P = POT_TYPES[pt]
+        ro, ri = jobsB[pt]
+        RBsub[pt] = r_table(aggregate(pt, [res[i] for i in idx], sub), tab,
+                            {P.oop: np.array(ro), 1 - P.oop: np.array(ri)})
+    save_tables(os.path.join(WORK, "R_passB.json"), RB)
+
+    # fixed-point rounds
+    rounds = []
+    Rt = RB
+    games = solve_round(tab, Rt, "round 2", warm={k: game_state(g) for k, g in games1.items()})
+    d12 = {k: hero_delta(games[k], games1[k]) for k in games}
+    rounds.append(dict(round=2, damp=1.0, heroDelta=d12,
+                       rangeDrift={pt: max(range_dist(jobsB[pt][0], j[0]), range_dist(jobsB[pt][1], j[1]))
+                                   for pt, j in leaf_jobs(games).items() if pt in jobsB}))
+    log("round 2 hero delta: " + ", ".join(f"{k} {v:.3f}" for k, v in d12.items()))
+    stats_all = {pt: dict(exploitPctPot=list(sb["exploitPctPot"]), iters=list(sb["iters"]),
+                          seconds=sb["seconds"] + statsA.get(pt, {}).get("seconds", 0),
+                          subsetExploitPctPot=list(statsA.get(pt, {}).get("exploitPctPot", [])), pot=sb["pot"])
+                 for pt, sb in statsB.items()}
+    rnd = 2
+    while True:
         jobs_now = leaf_jobs(games)
-        dr = {pt: max(range_dist(prev_jobs[pt][0], jobs_now[pt][0]),
-                      range_dist(prev_jobs[pt][1], jobs_now[pt][1]))
-              for pt in prev_jobs if pt in jobs_now}
-        prev_jobs = jobs_now
-        fixed_point["rounds"].append(dict(round=rnd, meanAbsDeltaR=dR, rangeDrift=dr))
-        log(f"round {rnd}: max mean |dR| {max(dR.values()):.3f}; range drift "
-            + ", ".join(f"{k} {v:.3f}" for k, v in sorted(dr.items())))
-    games1, Rt1 = games, Rt
-    jobs_r1 = leaf_jobs(games1)
+        Rs, _, st, _ = solve_postflop(jobs_now, tab, sub, f"fp {rnd + 1} (subset)")
+        for pt, s in st.items():
+            stats_all[pt]["subsetExploitPctPot"] += s["exploitPctPot"]
+            stats_all[pt]["seconds"] += s["seconds"]
+        target = correct(RB, Rs, RBsub)
+        # undamped check: would the measured tables move the strategy?
+        chk = solve_round(tab, target, f"check {rnd}", warm={k: game_state(g) for k, g in games.items()})
+        dchk = {k: hero_delta(chk[k], games[k]) for k in games}
+        log(f"check after round {rnd}: " + ", ".join(f"{k} {v:.3f}" for k, v in dchk.items()))
+        rounds[-1]["checkDelta"] = dchk
+        if max(dchk.values()) <= FP_STOP or rnd >= FP_MAX + 1:
+            break
+        rnd += 1
+        Rt_new = blend(target, Rt, FP_DAMP)
+        dR = {pt: max(float(np.abs(Rt_new[pt][p] - Rt[pt][p]).mean()) for p in (0, 1)) for pt in Rt}
+        Rt = Rt_new
+        prev = games
+        games = solve_round(tab, Rt, f"round {rnd}", warm={k: game_state(g) for k, g in games.items()})
+        dd = {k: hero_delta(games[k], prev[k]) for k in games}
+        rounds.append(dict(round=rnd, damp=FP_DAMP, heroDelta=dd, meanAbsDeltaR=dR,
+                           rangeDrift={pt: max(range_dist(jobs_now[pt][0], j[0]), range_dist(jobs_now[pt][1], j[1]))
+                                       for pt, j in leaf_jobs(games).items() if pt in jobs_now}))
+        log(f"round {rnd}: max mean |dR| {max(dR.values()):.3f}; hero delta "
+            + ", ".join(f"{k} {v:.3f}" for k, v in dd.items()))
+    save_tables(os.path.join(WORK, "R_final.json"), Rt)
+    with open(os.path.join(WORK, "games_final.pkl"), "wb") as f:
+        pickle.dump({k: game_state(g) for k, g in games.items()}, f)
+
+    # borrowing gate: alternative donors for every borrowed table
+    alt = {}
+    for h in ["SB", "BTN", "CO"]:
+        gid = f"limp1-{h}"
+        ga = game_limp(h, tab, Rt, alt=True)
+        solve_game(ga, gid + " alt", game_state(games[gid]))
+        alt[gid] = hero_delta(ga, games[gid])
+    log("borrowing gate (alternative donors): " + ", ".join(f"{k} {v:.3f}" for k, v in alt.items()))
+
     # benchmark: A-high dry SRP, BTN vs BB, converged further
     bench = []
+    jobs_f = leaf_jobs(games)
     pt = "SRP:BTN-BB"
-    if pt in jobs_r1:
-        ro, ri = jobs_r1[pt]
+    if pt in jobs_f:
+        ro, ri = jobs_f[pt]
         for flop in ["As7d2c", "Ah8c3d"]:
-            d = run_postflop(pt, flop, ro, ri, BENCH_ITERS, 0.15)
+            d = run_postflop(pt, flop, ro, ri, target=0.15, iters=BENCH_ITERS)
             node = next(n for n in d["flop"] if n["path"] == "X")
             A = len(node["actions"])
             tot = sum(node["reach"])
@@ -493,10 +596,12 @@ def main():
                               exploitPctPot=d["exploitPctPot"], iters=d["iters"]))
             log(f"benchmark {flop}: {fr}  expl {d['exploitPctPot']:.3f}%")
     import export  # noqa: E402
-    fixed_point["prevGames"] = games_prev
-    export.write(OUT, games1, Rt1, aggs1, stats1, flops, bench, drift, fixed_point, tab,
+    fixed_point = dict(rounds=rounds, check=chk, checkDelta=dchk, borrowGate=alt)
+    export.write(OUT, games, Rt, aggsB, stats_all, flops, sub, bench, fixed_point, tab,
                  dict(POST_ITERS=POST_ITERS, POST_TARGET=POST_TARGET, BENCH_ITERS=BENCH_ITERS,
-                      RFI=RFI, LIMP=LIMP, THREE_BET=THREE_BET, POT_TYPES={k: vars(v) | {"bets": v.bets()} for k, v in POT_TYPES.items()}))
+                      RFI=RFI, LIMP=LIMP, THREE_BET=THREE_BET, FLOPS_K=FLOPS_K, SUB_N=SUB_N,
+                      wall_hours=(time.time() - t_start) / 3600,
+                      POT_TYPES={k: vars(v) | {"bets": v.bets()} for k, v in POT_TYPES.items()}))
     log("done")
 
 
