@@ -1,7 +1,11 @@
 PODS:
+  - camera_avfoundation (0.0.1):
+    - Flutter
   - file_picker (0.0.1):
     - Flutter
   - Flutter (1.0.0)
+  - flutter_tts (0.0.1):
+    - Flutter
   - google_mlkit_commons (0.11.0):
     - Flutter
     - MLKitVision
@@ -80,8 +84,10 @@ PODS:
     - Flutter
 
 DEPENDENCIES:
+  - camera_avfoundation (from `.symlinks/plugins/camera_avfoundation/ios`)
   - file_picker (from `.symlinks/plugins/file_picker/ios`)
   - Flutter (from `Flutter`)
+  - flutter_tts (from `.symlinks/plugins/flutter_tts/ios`)
   - google_mlkit_commons (from `.symlinks/plugins/google_mlkit_commons/ios`)
   - google_mlkit_text_recognition (from `.symlinks/plugins/google_mlkit_text_recognition/ios`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
@@ -109,10 +115,14 @@ SPEC REPOS:
     - Try
 
 EXTERNAL SOURCES:
+  camera_avfoundation:
+    :path: ".symlinks/plugins/camera_avfoundation/ios"
   file_picker:
     :path: ".symlinks/plugins/file_picker/ios"
   Flutter:
     :path: Flutter
+  flutter_tts:
+    :path: ".symlinks/plugins/flutter_tts/ios"
   google_mlkit_commons:
     :path: ".symlinks/plugins/google_mlkit_commons/ios"
   google_mlkit_text_recognition:
@@ -133,8 +143,10 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/wakelock_plus/ios"
 
 SPEC CHECKSUMS:
+  camera_avfoundation: be3be85408cd4126f250386828e9b1dfa40ab436
   file_picker: fb04e739ae6239a76ce1f571863a196a922c87d4
   Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
+  flutter_tts: 35ac3c7d42412733e795ea96ad2d7e05d0a75113
   google_mlkit_commons: 2abe6a70e1824e431d16a51085cb475b672c8aab
   google_mlkit_text_recognition: ec2122ec89bfe0d7200763336a6e4ef44810674c
   GoogleDataTransport: a24e58982ab3ba2f64d79613e027fe7f57e88539

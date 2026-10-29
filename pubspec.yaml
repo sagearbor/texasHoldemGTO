@@ -30,6 +30,23 @@ dependencies:
   # Restore from a backup file. 8.3.2 declares Flutter >=3.22 / Dart >=3.4
   # (compileSdk 34, AGP 7.4) and builds; 8.3.3+ was not verified on 3.22.
   file_picker: ">=8.3.2 <8.3.3"
+  # Watch my cards: live low-res frame stream. 0.11.0+2 is the last release
+  # for Flutter < 3.27 (0.11.1 needs Dart 3.6); it has MediaSettings(fps).
+  camera: 0.11.0+2
+  # Android side of camera. 0.6.8+2 uses SurfaceProducer.Callback (Flutter
+  # 3.24 embedding) and fails to compile on 3.22; 0.6.7+2 builds.
+  camera_android_camerax: 0.6.7+2
+  # Watch my cards: speaks the cards it read (OS speech engine, offline,
+  # free, follows the audio route to Bluetooth earbuds). 4.2.x: Dart >= 3.4.
+  flutter_tts: ">=4.2.0 <4.3.0"
+  # Watch my cards: speak only when the audio route is earbuds/headphones
+  # (never leak your cards to the table speaker). 0.2.x needs Dart 3.6.
+  audio_session: ">=0.1.25 <0.2.0"
+  # Watch my cards diagnostics: battery level every 10 minutes. 6.2.x
+  # declares Flutter >=3.22 / Dart >=3.4.
+  battery_plus: ">=6.2.1 <6.2.2"
+  # Watch my cards diagnostics file (already a transitive dependency).
+  path_provider: ">=2.1.0 <2.2.0"
 
 dev_dependencies:
   flutter_test:

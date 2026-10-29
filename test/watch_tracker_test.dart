@@ -1,0 +1,161 @@
+import 'package:felt_notes/camera/watch_pipeline.dart';
+import 'package:felt_notes/camera/watch_tracker.dart';
+import 'package:felt_notes/poker/cards.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+List<int> p(String s) => parseCards(s);
+
+void main() {
+  group('WatchHandTracker', () {
+    test('first read fills the hand, high card first', () {
+      final t = WatchHandTracker();
+      final d = t.onRead(p('Kd As'), 1000);
+      expect(d.action, WatchAction.fill);
+      expect(d.cards, p('As Kd'));
+      expect(d.speaks, isTrue);
+      expect(spokenDecision(d), 'Ace of spades, king of diamonds');
+    });
+
+    test('the same cards again are a silent confirmation, never a new log', () {
+      final t = WatchHandTracker();
+      t.onRead(p('As Kd'), 0);
+      for (final ms in [500, 4000, 30000, 90000, 200000]) {
+        final d = t.onRead(p('Kd As'), ms);
+        expect(d.action, WatchAction.confirm, reason: 'at $ms ms');
+        expect(d.speaks, isFalse);
+        expect(spokenDecision(d), isNull);
+      }
+      expect(t.cards, p('As Kd'));
+    });
+
+    test('different cards soon after are a correction', () {
+      final t = WatchHandTracker(correctionMs: 12000);
+      t.onRead(p('As Kd'), 0);
+      final d = t.onRead(p('As Kh'), 8000);
+      expect(d.action, WatchAction.correct);
+      expect(d.previous, p('As Kd'));
+      expect(t.cards, p('As Kh'));
+      expect(spokenDecision(d), 'Corrected. Ace of spades, king of hearts');
+      // The window restarts from the correction.
+      expect(t.onRead(p('As Kc'), 19000).action, WatchAction.correct);
+    });
+
+    test('confirmations do not extend the correction window', () {
+      final t = WatchHandTracker(correctionMs: 12000);
+      t.onRead(p('As Kd'), 0);
+      t.onRead(p('As Kd'), 10000);
+      expect(t.onRead(p('7c 2d'), 14000).action, WatchAction.newHand);
+    });
+
+    test('different cards later start a new hand', () {
+      final t = WatchHandTracker(correctionMs: 12000);
+      t.onRead(p('As Kd'), 0);
+      final d = t.onRead(p('7c 2d'), 60000);
+      expect(d.action, WatchAction.newHand);
+      expect(d.previous, p('As Kd'));
+      expect(d.cards, p('7c 2d'));
+      expect(spokenDecision(d), 'Seven of clubs, two of diamonds');
+      // ...and those are now the current hand.
+      expect(t.onRead(p('2d 7c'), 70000).action, WatchAction.confirm);
+    });
+
+    test('after Next hand the first read fills again', () {
+      final t = WatchHandTracker();
+      t.onRead(p('As Kd'), 0);
+      t.handClosed();
+      expect(t.cards, isNull);
+      expect(t.onRead(p('7c 2d'), 1000).action, WatchAction.fill);
+    });
+
+    test('identical cards in two consecutive hands merge (documented, ~1/1326)', () {
+      final t = WatchHandTracker();
+      t.onRead(p('Qh Jh'), 0);
+      // Next hand dealt the very same two cards; nobody tapped Next hand.
+      expect(t.onRead(p('Qh Jh'), 120000).action, WatchAction.confirm);
+      // With Next hand tapped in between they are logged again.
+      t.handClosed();
+      expect(t.onRead(p('Qh Jh'), 121000).action, WatchAction.fill);
+    });
+
+    test('a manual fix vetoes the misread for the rest of the hand', () {
+      final t = WatchHandTracker(correctionMs: 12000);
+      t.onRead(p('As Kd'), 0); // misread
+      t.manualCards(p('As Kh'), 3000); // player fixes it
+      // The same misread on later peeks is ignored, never a new hand.
+      expect(t.onRead(p('As Kd'), 5000).action, WatchAction.ignore);
+      expect(t.onRead(p('As Kd'), 60000).action, WatchAction.ignore);
+      expect(t.cards, p('As Kh'));
+      expect(t.onRead(p('Kh As'), 61000).action, WatchAction.confirm);
+      // A really different pair later is the next hand, and the veto ends.
+      expect(t.onRead(p('9c 9d'), 90000).action, WatchAction.newHand);
+      expect(t.onRead(p('As Kd'), 200000).action, WatchAction.newHand);
+    });
+
+    test('the camera never "corrects" a manual pick', () {
+      final t = WatchHandTracker(correctionMs: 12000);
+      t.manualCards(p('Ts 9s'), 0);
+      expect(t.onRead(p('Ts 9s'), 1000).action, WatchAction.confirm);
+      expect(t.onRead(p('Td 9s'), 2000).action, WatchAction.ignore);
+      expect(t.cards, p('Ts 9s'));
+      // Long after the pick, different cards are the next hand.
+      expect(t.onRead(p('Td 9s'), 30000).action, WatchAction.newHand);
+    });
+
+    test('a pair of the same card is ignored', () {
+      final t = WatchHandTracker();
+      expect(t.onRead([12, 12], 0).action, WatchAction.ignore);
+      expect(t.cards, isNull);
+    });
+  });
+
+  group('PeekVoter', () {
+    test('needs two agreeing frames', () {
+      final v = PeekVoter(minAgree: 2);
+      expect(v.add(p('As Kd'), 0), isNull);
+      expect(v.add(p('As Kd'), 100), p('As Kd'));
+    });
+
+    test('one card per frame is enough when they were also seen together', () {
+      final v = PeekVoter(minAgree: 2);
+      expect(v.add(p('As'), 0), isNull);
+      expect(v.add(p('Kd'), 100), isNull, reason: 'never seen together');
+      expect(v.add(p('As Kd'), 200), p('As Kd'));
+    });
+
+    test('a single conflicting misread among agreeing reads is outvoted', () {
+      final v = PeekVoter(minAgree: 2);
+      v.add(p('As Kd'), 0);
+      expect(v.add(p('As Kh'), 100), isNull);
+      expect(v.add(p('As Kd'), 200), p('As Kd'));
+      expect(v.add(p('As Kd'), 300), p('As Kd'));
+    });
+
+    test('two competing reads with equal support give nothing', () {
+      final v = PeekVoter(minAgree: 2);
+      v.add(p('As Kd'), 0);
+      v.add(p('As Kh'), 100);
+      v.add(p('As Kh'), 200);
+      expect(v.add(p('As Kd'), 300), isNull);
+      expect(v.bestAgree, 2);
+    });
+
+    test('old reads leave the window', () {
+      final v = PeekVoter(minAgree: 2, windowMs: 2500);
+      v.add(p('As Kd'), 0);
+      expect(v.add(p('As Kd'), 3000), isNull);
+      expect(v.add(p('As Kd'), 3100), p('As Kd'));
+    });
+
+    test('empty frames do not vote', () {
+      final v = PeekVoter(minAgree: 2);
+      v.add(p('As Kd'), 0);
+      expect(v.add([], 50), isNull);
+      expect(v.add(p('As Kd'), 100), p('As Kd'));
+    });
+  });
+
+  test('spoken card names', () {
+    expect(spokenPair(p('Tc 2h')), 'Ten of clubs, two of hearts');
+    expect(spokenPair(p('Jd Qs')), 'Queen of spades, jack of diamonds');
+  });
+}

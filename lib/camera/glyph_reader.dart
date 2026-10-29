@@ -244,8 +244,12 @@ GlyphReadResult readGlyphsMessage(GlyphReadRequest r) => readGlyphs(r.rgba, r.wi
 ///
 /// The corner indices are classified by [cnn] when given (the better reader
 /// on real photos), else by template matching against [templates].
+///
+/// [tta] = false classifies each glyph once instead of at three rotations
+/// (about half the time). Watch my cards uses it: agreement over several
+/// frames replaces the rotation voting.
 GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
-    {GlyphTemplates? templates, GlyphCnn? cnn, int targetShortSide = 1500}) {
+    {GlyphTemplates? templates, GlyphCnn? cnn, int targetShortSide = 1500, bool tta = true}) {
   if (templates == null && cnn == null) throw ArgumentError('templates or cnn required');
   final sw = Stopwatch()..start();
   final timing = <String, int>{};
@@ -260,7 +264,7 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
   final List<_Read> reads;
   final List<GlyphCard> hero;
   if (cnn != null) {
-    reads = _readIndicesCnn(img, hsv, cnn, board);
+    reads = _readIndicesCnn(img, hsv, cnn, board, tta ? _cnnTta : const [0]);
     hero = _heroFromCnnReads(reads);
   } else {
     reads = _readIndices(img, hsv, templates!, board);
@@ -1154,9 +1158,9 @@ Uint8List _cnnCrop(_Planes img, _Blob b, double ux, double uy, double extraDeg) 
 }
 
 /// Element-wise max of the class probabilities over the TTA rotations.
-Float32List _ttaProbs(GlyphCnn cnn, _Planes img, _Blob b, double ux, double uy) {
+Float32List _ttaProbs(GlyphCnn cnn, _Planes img, _Blob b, double ux, double uy, List<double> angles) {
   Float32List? best;
-  for (final e in _cnnTta) {
+  for (final e in angles) {
     final p = cnn.probs(_cnnCrop(img, b, ux, uy, e));
     if (best == null) {
       best = p;
@@ -1169,7 +1173,7 @@ Float32List _ttaProbs(GlyphCnn cnn, _Planes img, _Blob b, double ux, double uy) 
   return best!;
 }
 
-List<_Read> _readIndicesCnn(_Planes img, _Hsv hsv, GlyphCnn cnn, List<_Rect> board) {
+List<_Read> _readIndicesCnn(_Planes img, _Hsv hsv, GlyphCnn cnn, List<_Rect> board, List<double> tta) {
   final blobs = _heroBlobs(img, hsv, board);
   final reads = <_Read>[];
   for (var i = 0; i < blobs.length; i++) {
@@ -1185,12 +1189,15 @@ List<_Read> _readIndicesCnn(_Planes img, _Hsv hsv, GlyphCnn cnn, List<_Rect> boa
       final meanMd = (a.md + b.md) / 2;
       if (!(dist > 0.55 * meanMd && dist < 1.9 * meanMd)) continue;
       final ux = dx / dist, uy = dy / dist;
-      final pr = _ttaProbs(cnn, img, a, ux, uy);
-      final ps = _ttaProbs(cnn, img, b, ux, uy);
+      final pr = _ttaProbs(cnn, img, a, ux, uy, tta);
       var r = 0;
       for (var k = 1; k < 13; k++) {
         if (pr[k] > pr[r]) r = k;
       }
+      // score = P(rank) * P(suit) <= P(rank): skip the suit crops (half the
+      // CNN work; Watch my cards runs this several times a second).
+      if (pr[r] < _cnnScoreMin) continue;
+      final ps = _ttaProbs(cnn, img, b, ux, uy, tta);
       final allowed = a.red ? _redSuits : _blackSuits;
       final su = ps[glyphCnnSuit0 + allowed[0]] >= ps[glyphCnnSuit0 + allowed[1]] ? allowed[0] : allowed[1];
       final score = pr[r] * ps[glyphCnnSuit0 + su];
