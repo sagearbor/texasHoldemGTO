@@ -1,10 +1,12 @@
-"""Writes the published dataset (data/solved/*.json) from a finished run."""
+"""Writes the published dataset (data/solved/*.json, README.md) from a
+finished run."""
 import json
 import os
 import time
 
 import numpy as np
 
+import preflop as pf
 import ranges as rg
 import validate
 
@@ -25,47 +27,91 @@ def _rows(mat, d=3):
         if s <= 0:
             row = [round(1.0 / len(row), d)] * len(row)
             s = sum(row)
-        # push rounding residue onto the largest entry so rows sum to 1
         i = int(np.argmax(row))
         row[i] = round(row[i] + (1.0 - s), d)
         out.append(row)
     return out
 
 
-def _nodes(g):
+def _seat_names(gid, g):
+    if isinstance(g, pf.Game):
+        return None
+    return list(g.seats)
+
+
+def _node_reach(g, n):
+    if isinstance(g, pf.Game):
+        r0, r1 = g.reach_at(n)
+        return r0 if n.player == 0 else r1
+    r = g.reach_at(n)
+    return g.prior_range[n.player] * r[n.player]
+
+
+def _nodes(gid, g):
+    seats = _seat_names(gid, g)
     out = {}
     for n in g.nodes:
-        r0, r1 = g.reach_at(n)
-        reach = r0 if n.player == 0 else r1
-        out[n.name] = dict(player=n.player, actions=n.actions,
-                           strategy=_rows(g._avg(n)),
-                           reach=[_r(x) for x in reach])
+        reach = _node_reach(g, n)
+        d = dict(player=n.player, actions=n.actions, strategy=_rows(g._avg(n)),
+                 reach=[_r(x) for x in reach])
+        if seats:
+            d["seat"] = seats[n.player]
+        out[n.name] = d
     return out
 
 
-NOTE_LIMP = ("Model: UTG limps an assumed loose-passive range; players behind "
-             "fold to an iso-raise; after an overlimp or complete the BB checks "
-             "and the 3-way pot is valued with a realisation model.")
+def _share(g, n, reach):
+    s = g._avg(n)
+    w = np.array([rg.class_combos(k) for k in range(169)]) * reach
+    tot = w.sum()
+    return {a: (_r(float((w * s[i]).sum() / tot), 4) if tot > 0 else None) for i, a in enumerate(n.actions)}
+
+
+def seats_behind(g):
+    """For a limp game: every seat behind the hero, the nodes where it acts
+    over the hero's limp / complete and over the iso, and how often it
+    raises there (combo-weighted over the hands that reach the node)."""
+    out = []
+    for seat in g.seats[2:]:
+        p = g.seats.index(seat)
+        d = dict(seat=seat)
+        for n in g.nodes:
+            if n.player != p:
+                continue
+            if n.name == f"{seat}VsLimps":
+                d["vsLimps"] = dict(node=n.name, actions=n.actions, freq=_share(g, n, _node_reach(g, n)))
+            if n.name == f"{seat}VsIso":
+                d["vsIso"] = dict(node=n.name, actions=n.actions, freq=_share(g, n, _node_reach(g, n)))
+        out.append(d)
+    return out
+
+
+NOTE_LIMP = ("Model: UTG limps an assumed loose-passive range; every seat behind "
+             "the hero acts (raises over a limp, calls or 3-bets an iso); "
+             "three-way pots are valued with a realisation model.")
+NOTE_LIMP_BB = ("Model: UTG limps an assumed loose-passive range and everyone else "
+                "folds; the BB raises or checks.")
 NOTE_3B = ("Model: everyone else folds; the opening range is the approximate "
            "chart; a 5-bet is all-in.")
 
 
-def write(out_dir, games, Rt, aggs, stats, flops, bench, drift, fixed_point, tab, cfg):
-    os.makedirs(out_dir, exist_ok=True)
+def make_spots(games, stats, fixed_point):
+    """The published spot dicts (gates applied)."""
     spots = {}
-    post_expl = {pt: max(s["exploitPctPot"]) for pt, s in stats.items()}
+    post_expl = {pt: max(s["exploitPctPot"] + s.get("subsetExploitPctPot", [])) for pt, s in stats.items()}
+    check = fixed_point.get("checkDelta", {})
+    borrow = fixed_point.get("borrowGate", {})
     for gid, g in games.items():
         hero = g.hero
         evs = g.action_evs(hero)
-        if gid.startswith("3b-"):
-            sid = "cash-" + gid
+        sid = "cash-" + gid
+        if isinstance(g, pf.Game):
             reach = [_r(x) for x in g.reach0]
-            seats = None
+            leaves = sorted({t.info["potType"] for t in g.terms if t.info.get("potType") in stats})
         else:
-            sid = "cash-" + gid
             reach = None
-        leaves = sorted({t.info["potType"] for t in g.terms if t.info.get("potType")})
-        spots[sid] = dict(
+            leaves = sorted(set(g.solved_pots) | set(g.borrowed))
+        sp = dict(
             game=gid,
             actions=hero.actions,
             strategy=_rows(g._avg(hero)),
@@ -75,21 +121,29 @@ def write(out_dir, games, Rt, aggs, stats, flops, bench, drift, fixed_point, tab
             iterations=g.iters,
             flopLeaves=leaves,
             maxFlopExploitPctPot=_r(max([post_expl[p] for p in leaves if p in post_expl] or [float("nan")]), 3),
-            nodes=_nodes(g),
+            fixedPointDelta=_r(check.get(gid), 4),
+            nodes=_nodes(gid, g),
         )
-    prev = (fixed_point or {}).get("prevGames")
-    for sid, sp in spots.items():
-        sp["note"] = NOTE_LIMP if sid.startswith("cash-limp") else NOTE_3B
-        if prev and sp["game"] in prev:
-            # share of the hero's hands (combo- and reach-weighted) whose
-            # strategy moved between the last two fixed-point rounds
-            g, gp = games[sp["game"]], prev[sp["game"]]
-            a, b = g._avg(g.hero), gp._avg(gp.hero)
-            reach = np.array([x or 0 for x in (sp["reach"] or [1.0] * 169)])
-            w = np.array([rg.class_combos(k) for k in range(169)]) * reach
-            tv = 0.5 * np.abs(a - b).sum(0)
-            sp["fixedPointDelta"] = _r(float((w * tv).sum() / w.sum()), 4)
+        if not isinstance(g, pf.Game):
+            sp["players"] = list(g.seats)
+            sp["nashGapByPlayer"] = [_r(x, 7) for x in getattr(g, "br_gain", [])]
+            sp["seatsBehind"] = seats_behind(g)
+            sp["borrowedTables"] = list(g.borrowed)
+            if gid in borrow:
+                sp["borrowGateDelta"] = _r(borrow[gid], 4)
+            sp["note"] = NOTE_LIMP_BB if gid.endswith("-BB") else NOTE_LIMP
+        else:
+            sp["note"] = NOTE_3B
+        spots[sid] = sp
     validate.run(spots)
+    return spots
+
+
+def write(out_dir, games, Rt, aggs, stats, flops, sub, bench, fixed_point, tab, cfg):
+    os.makedirs(out_dir, exist_ok=True)
+    spots = make_spots(games, stats, fixed_point)
+    check = fixed_point.get("checkDelta", {})
+    borrow = fixed_point.get("borrowGate", {})
     pre = dict(
         name="Felt Notes solved preflop spots",
         license="CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)",
@@ -101,11 +155,15 @@ def write(out_dir, games, Rt, aggs, stats, flops, bench, drift, fixed_point, tab
         classes=[rg.class_name(k) for k in range(169)],
         inputs=dict(rfi=cfg["RFI"], limp=cfg["LIMP"]),
         spots=spots,
-        fixedPoint=dict(rangeDriftRound0to1={k: _r(v, 4) for k, v in (drift or {}).items()},
-                        rounds=[dict(round=r["round"],
-                                     meanAbsDeltaR={k: _r(v, 4) for k, v in r["meanAbsDeltaR"].items()},
-                                     rangeDrift={k: _r(v, 4) for k, v in r["rangeDrift"].items()})
-                                for r in (fixed_point or {}).get("rounds", [])]),
+        fixedPoint=dict(
+            rounds=[dict(round=r["round"], damp=r.get("damp"),
+                         heroDelta={k: _r(v, 4) for k, v in r.get("heroDelta", {}).items()},
+                         checkDelta={k: _r(v, 4) for k, v in r.get("checkDelta", {}).items()},
+                         meanAbsDeltaR={k: _r(v, 4) for k, v in r.get("meanAbsDeltaR", {}).items()},
+                         rangeDrift={k: _r(v, 4) for k, v in r.get("rangeDrift", {}).items()})
+                    for r in fixed_point.get("rounds", [])],
+            finalCheckDelta={k: _r(v, 4) for k, v in check.items()},
+            borrowGateDelta={k: _r(v, 4) for k, v in borrow.items()}),
     )
     with open(os.path.join(out_dir, "preflop.json"), "w") as f:
         json.dump(pre, f, separators=(",", ":"))
@@ -129,6 +187,7 @@ def write(out_dir, games, Rt, aggs, stats, flops, bench, drift, fixed_point, tab
                         aggressor=P["aggr"], bets=P["bets"],
                         flops=[f["flop"] for f in flops],
                         exploitPctPot=[_r(x, 3) for x in s["exploitPctPot"]],
+                        subsetExploitPctPot=[_r(x, 3) for x in s.get("subsetExploitPctPot", [])],
                         iterations=s["iters"], seconds=_r(s["seconds"], 0),
                         players=side)
     post = dict(
@@ -138,17 +197,19 @@ def write(out_dir, games, Rt, aggs, stats, flops, bench, drift, fixed_point, tab
         generated=time.strftime("%Y-%m-%d"),
         format=("players['0'|'1'] = preflop player 0 / 1 of the game that reaches "
                 "the pot (see preflop.json nodes); ev = bb won from the flop pot net "
-                "of own postflop bets, averaged over the weighted flop subset; "
-                "realisation = ev / (equity x pot)"),
+                "of own postflop bets, averaged over the weighted flop set; "
+                "realisation = ev / (equity x pot); exploitPctPot = the solves on "
+                "every flop, subsetExploitPctPot = the fixed-point correction solves"),
         flopSubset=flops,
+        correctionSubset=[f["flop"] for f in sub],
         potTypes=pots,
         benchmarks=bench,
         settings=dict(postIters=cfg["POST_ITERS"], postTargetPctPot=cfg["POST_TARGET"],
-                      benchIters=cfg["BENCH_ITERS"]),
+                      benchIters=cfg["BENCH_ITERS"], flops=cfg["FLOPS_K"], subset=cfg["SUB_N"]),
     )
     with open(os.path.join(out_dir, "postflop.json"), "w") as f:
         json.dump(post, f, separators=(",", ":"))
-    readme(out_dir, pre, post, stats, cfg, drift, fixed_point)
+    readme(out_dir, pre, post, stats, cfg, fixed_point)
 
 
 TITLES = {
@@ -165,42 +226,46 @@ TITLES = {
     "cash-3b-SB-BB": "SB open 3bb, BB 3-bets 9bb",
 }
 
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def _text(path):
-    """Hand-written notes about a run (benchmark context, the cross-check)."""
     return open(path).read().strip() if os.path.exists(path) else ""
 
 
 def _size(path):
-    n = os.path.getsize(path)
-    return f"{n / 1024:.0f} KB"
+    return f"{os.path.getsize(path) / 1024:.0f} KB"
 
 
-def readme(out_dir, pre, post, stats, cfg, drift, fixed_point):
-    tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.template.md")).read()
-    rows = ["| Spot | id | Hero plays | Nash gap (bb/hand) | Flop expl. (% pot) | Passed |",
-            "|---|---|---|---|---|---|"]
+def _pct(xs):
+    xs = [x for x in xs if x is not None]
+    return f"{min(xs):.2f}-{max(xs):.2f}" if xs else "-"
+
+
+def readme(out_dir, pre, post, stats, cfg, fixed_point):
+    tpl = open(os.path.join(HERE, "README.template.md")).read()
+    rows = ["| Spot | id | Hero plays | Nash gap (bb/hand) | Worst flop expl. (% pot) | Fixed-point delta | Passed |",
+            "|---|---|---|---|---|---|---|"]
     for sid, sp in pre["spots"].items():
-        strat = sp["strategy"]
-        acts = sp["actions"]
-        pas = acts.index("Fold") if "Fold" in acts else acts.index("Check")
+        strat, acts = sp["strategy"], sp["actions"]
         reach = sp["reach"] or [1.0] * 169
         w = [rg.class_combos(k) * (reach[k] or 0) for k in range(169)]
         tot = sum(w)
-        parts = []
-        for a, lab in enumerate(acts):
-            share = sum(w[k] * strat[k][a] for k in range(169)) / tot
-            parts.append(f"{lab} {share * 100:.0f}%")
+        parts = [f"{lab} {sum(w[k] * strat[k][a] for k in range(169)) / tot * 100:.0f}%"
+                 for a, lab in enumerate(acts)]
         rows.append(f"| {TITLES.get(sid, sid)} | `{sid}` | {', '.join(parts)} | "
                     f"{sp['exploitabilityBb']:.6f} | {sp['maxFlopExploitPctPot']} | "
-                    f"{'yes' if sp['passed'] else '**no**'} |")
+                    f"{sp.get('fixedPointDelta')} | {'yes' if sp['passed'] else '**no**'} |")
     gates = ["| Spot | Failed gates |", "|---|---|"]
     for sid, sp in pre["spots"].items():
         bad = [f"{g['gate']} ({g['detail']})" for g in sp["gates"] if not g["ok"]]
         gates.append(f"| `{sid}` | {'; '.join(bad) if bad else 'none'} |")
+    ex = ["| Pot type | Pot (bb) | Flops | Exploitability, % pot (min-max) | Correction solves | Iterations (median) | Compute (h) |",
+          "|---|---|---|---|---|---|---|"]
+    for pt, p in sorted(post["potTypes"].items()):
+        s = stats[pt]
+        ex.append(f"| `{pt}` | {p['pot']:g} | {len(p['flops'])} | {_pct(p['exploitPctPot'])} | "
+                  f"{_pct(p['subsetExploitPctPot'])} | {int(np.median(s['iters']))} | {s['seconds'] / 3600:.1f} |")
     bench = post.get("benchmarks") or []
     if bench:
         b = ["| Flop | Check | Bet 33% | Bet 75% | Flop expl. (% pot) | Iterations |", "|---|---|---|---|---|---|"]
@@ -213,49 +278,45 @@ def readme(out_dir, pre, post, stats, cfg, drift, fixed_point):
                      _text(os.environ.get("BENCH_NOTE_MD", os.path.join(HERE, "bench_note.md"))))
     else:
         bench_txt = "Not run."
-    cc = os.environ.get("CROSSCHECK_MD", os.path.join(HERE, "crosscheck.md"))
-    cross = open(cc).read().strip() if cc and os.path.exists(cc) else "Not run."
+    cross = _text(os.environ.get("CROSSCHECK_MD", os.path.join(HERE, "crosscheck.md"))) or "Not run."
     flops = post["flopSubset"]
-    ft = ["| Flop | Stratum | Weight |", "|---|---|---|"] + [
-        f"| {f['flop']} | {f['stratum']} | {f['weight'] * 100:.1f}% |" for f in flops]
+    ft = ["| Flop | Stratum | Weight | Medoid weight |", "|---|---|---|---|"] + [
+        f"| {f['flop']} | {f['stratum']} | {f['weight'] * 100:.2f}% | {f.get('medoidWeight', f['weight']) * 100:.2f}% |"
+        for f in flops]
+    fp = ["| Round | Damping | Hero delta vs previous round (max) | Undamped check (max) | Largest mean change in R |",
+          "|---|---|---|---|---|"]
+    for r in pre["fixedPoint"]["rounds"]:
+        hd = [v for v in r["heroDelta"].values() if v is not None]
+        cd = [v for v in r["checkDelta"].values() if v is not None]
+        dr = [v for v in r["meanAbsDeltaR"].values() if v is not None]
+        fp.append(f"| {r['round']} | {r['damp']} | {max(hd) if hd else '-'} | {max(cd) if cd else '-'} | "
+                  f"{max(dr) if dr else '-'} |")
     secs = sum(s["seconds"] for s in stats.values())
-    fp = ""
-    if drift:
-        fp += (f"Moving from the prior to the solved tables moved the flop ranges a lot "
-               f"(median share of combos that changed at a flop leaf: "
-               f"{float(np.median(list(drift.values()))):.2f}).")
-    rounds = (fixed_point or {}).get("rounds", [])
-    if rounds:
-        fp += ("\n\n   Further rounds re-solve every pot type on the "
-               f"{os.environ.get('FP_FLOPS', '3')} heaviest flops of the subset with the "
-               "current ranges and correct the full tables by the change seen there "
-               "(R = R_full + R_sub(now) - R_sub(round 0)), damped 50/50 with the "
-               "previous round:\n\n   | Round | Largest mean change in R | Median range drift | Largest range drift |\n"
-               "   |---|---|---|---|\n")
-        for r in rounds:
-            d = list(r["rangeDrift"].values())
-            fp += (f"   | {r['round']} | {max(r['meanAbsDeltaR'].values()):.3f} | "
-                   f"{float(np.median(d)):.3f} | {max(d):.3f} |\n")
-        fp += ("\n   Range drift = share of a flop leaf's combos that changed between "
-               "consecutive rounds. The published spots are the last round.")
     fill = {
         "generated": pre["generated"],
-        "compute": os.environ.get("TOTAL_COMPUTE", f"{secs / 3600:.1f} h of flop solving"),
-        "hours": os.environ.get("TOTAL_HOURS", f"{max(1, round(secs / 3600 + 0.5))}"),
+        "compute": os.environ.get("TOTAL_COMPUTE", f"{secs / 3600:.0f} h of flop solving "
+                                                   f"({cfg.get('wall_hours', secs / 3600):.0f} h wall clock)"),
+        "hours": os.environ.get("TOTAL_HOURS", f"{max(1, round(cfg.get('wall_hours', secs / 3600)))}"),
         "size_pre": _size(os.path.join(out_dir, "preflop.json")),
         "size_post": _size(os.path.join(out_dir, "postflop.json")),
         "spot_table": "\n".join(rows),
         "gate_table": "\n".join(gates),
+        "expl_table": "\n".join(ex),
         "bench": bench_txt,
         "crosscheck": cross,
         "post_iters": str(cfg["POST_ITERS"]),
         "post_target": str(cfg["POST_TARGET"]),
-        "fixed_point": fp,
+        "fixed_point": "\n".join(fp),
         "flop_table": "\n".join(ft),
         "limp": cfg["LIMP"],
         "n_flops": str(len(flops)),
+        "n_sub": str(len(post.get("correctionSubset", []))),
+        "sub_flops": ", ".join(post.get("correctionSubset", [])),
+        "borrow": ", ".join(f"`{k}` {v}" for k, v in pre["fixedPoint"]["borrowGateDelta"].items()) or "-",
     }
     for k, v in fill.items():
         tpl = tpl.replace("{{" + k + "}}", v)
+    extra = os.path.join(HERE, "limitations.md")
+    tpl = tpl.replace("{{limitations}}", _text(extra))
     with open(os.path.join(out_dir, "README.md"), "w") as f:
         f.write(tpl)

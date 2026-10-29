@@ -21,6 +21,8 @@
 //   w * EV-mass, w * mass, w * equity-mass (mass = opponent's non-blocked
 //   preflop weight) for both players, the flop decision-node strategies by
 //   class, exploitability, iterations, time.
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <map>
@@ -46,6 +48,7 @@ struct Config {
   int checkEvery = 25;
   std::string r0, r1, out;
   double memLimitGb = 5.0;
+  bool iso = true;               // turn-card suit isomorphism
 };
 
 static std::vector<double> parseList(const std::string& s) {
@@ -103,6 +106,46 @@ static int rbIndex[52][52];
 struct RiverBoard { std::vector<uint32_t> sorted[2]; std::vector<int> order[2]; };
 static std::vector<RiverBoard> rboards;
 
+// Turn-card suit isomorphism. A suit permutation that maps the flop onto
+// itself maps the game onto itself (ranges are by hand class, so they are
+// symmetric too). Turn cards in one orbit of that group give identical
+// subtrees up to relabelling: only the smallest card of each orbit is built
+// and solved; the others' values are the canonical subtree's values read
+// through the permutation (v_c'[i] = v_c[sigma(i)]). Exact up to float
+// rounding; saves about a quarter of the work on two-tone and paired flops
+// and half on monotone ones.
+static std::vector<std::array<int, 4>> symPerms;   // suit maps fixing the flop
+static int turnCanon[52], turnSigma[52];           // canonical card, perm index
+static std::vector<std::pair<int, int>> orbitOf[52];  // canonical -> (other card, perm)
+static std::vector<std::vector<int>> comboPerm[2];   // [player][perm][combo]
+
+static int permCard(const std::array<int, 4>& sg, int c) { return makeCard(rankOf(c), sg[suitOf(c)]); }
+
+static void setupSymmetry() {
+  int su[4] = {0, 1, 2, 3};
+  do {
+    std::array<int, 4> sg = {su[0], su[1], su[2], su[3]};
+    bool ok = true;
+    for (int i = 0; i < 3 && ok; i++) {
+      int m = permCard(sg, boardCards[i]);
+      ok = m == boardCards[0] || m == boardCards[1] || m == boardCards[2];
+    }
+    if (ok) symPerms.push_back(sg);
+  } while (std::next_permutation(su, su + 4));
+  for (int c = 0; c < 52; c++) {
+    turnCanon[c] = c; turnSigma[c] = -1;
+    if (!cfg.iso) continue;
+    for (size_t g = 0; g < symPerms.size(); g++) {
+      int m = permCard(symPerms[g], c);
+      if (m < turnCanon[c]) { turnCanon[c] = m; turnSigma[c] = int(g); }
+    }
+  }
+  for (int c = 0; c < 52; c++)
+    if (turnCanon[c] != c) orbitOf[turnCanon[c]].push_back({c, turnSigma[c]});
+}
+
+static bool skipTurn(int card) { return cfg.iso && turnCanon[card] != card; }
+
 static int addNode(const Node& n) { nodes.push_back(n); return int(nodes.size()) - 1; }
 
 static std::string fmtSize(double f) {
@@ -130,6 +173,7 @@ static int streetEnd(int street, double inv0, double inv1, int turn, int river,
   std::vector<int> ks;
   for (int card = 0; card < 52; card++) {
     if (card == boardCards[0] || card == boardCards[1] || card == boardCards[2] || card == turn) continue;
+    if (street == 0 && skipTurn(card)) continue;
     int t = street == 0 ? card : turn, r = street == 0 ? -1 : card;
     ks.push_back(buildStreet(street + 1, inv0, inv1, 0, 0, false, t, r, path + "/"));
   }
@@ -150,6 +194,7 @@ static int buildRunout(int street, double inv, int turn, int river) {
   std::vector<int> ks;
   for (int card = 0; card < 52; card++) {
     if (card == boardCards[0] || card == boardCards[1] || card == boardCards[2] || card == turn) continue;
+    if (street == 0 && skipTurn(card)) continue;
     int t = street == 0 ? card : turn, r = street == 0 ? -1 : card;
     ks.push_back(buildRunout(street + 1, inv, t, r));
   }
@@ -331,6 +376,16 @@ static void terminalShow(const Node& n, int p, const float* rq, float* out) {
 
 static void walk(int ni, int p, const float* rp, const float* rq, float* out, Mode mode, bool top);
 
+// The other turn cards of canonical card c's orbit: their values are the
+// canonical subtree's, read through the suit permutation.
+static void addOrbit(int p, int c, const float* o, float* out) {
+  const int np = pl[p].n();
+  for (auto& oc : orbitOf[c]) {
+    const std::vector<int>& pm = comboPerm[p][oc.second];
+    for (int i = 0; i < np; i++) { int j = pm[i]; if (j >= 0) out[i] += o[j]; }
+  }
+}
+
 static void chanceNode(const Node& n, int p, const float* rp, const float* rq, float* out, Mode mode, bool top) {
   const Player& P = pl[p]; const Player& Q = pl[1 - p];
   int nk = n.nKids;
@@ -357,6 +412,7 @@ static void chanceNode(const Node& n, int p, const float* rp, const float* rq, f
     for (int k = 0; k < nk; k++) {
       const float* o = res.data() + size_t(k) * P.n();
       for (int i = 0; i < P.n(); i++) out[i] += o[i];
+      if (n.street == 0) addOrbit(p, cardOf(k), o, out);
     }
   } else {
     Mark mk;
@@ -369,6 +425,7 @@ static void chanceNode(const Node& n, int p, const float* rp, const float* rq, f
       walk(kids[n.kid0 + k], p, rp2, rq2, o, mode, false);
       for (int i : P.byCard[c]) o[i] = 0;
       for (int i = 0; i < P.n(); i++) out[i] += o[i];
+      if (n.street == 0) addOrbit(p, c, o, out);
     }
   }
   float inv = float(1.0 / denom);
@@ -580,6 +637,7 @@ int main(int argc, char** argv) {
     else if (k == "--maxbets-flop") cfg.maxBetsFlop = atoi(v.c_str());
     else if (k == "--mem") cfg.memLimitGb = atof(v.c_str());
     else if (k == "--river-allin") cfg.riverAllin = atoi(v.c_str()) != 0;
+    else if (k == "--iso") cfg.iso = atoi(v.c_str()) != 0;
     else if (k == "--reraise-allin") { for (int st = 0; st < 3; st++) cfg.allinReraise[st] = v.size() > size_t(st) && v[st] == '1'; }
     else if (k.rfind("--bets-", 0) == 0) {
       // --bets-flop-oop 0.33,0.75
@@ -592,7 +650,24 @@ int main(int argc, char** argv) {
   if (cfg.board.size() != 6) { fprintf(stderr, "need --board\n"); return 2; }
   for (int i = 0; i < 3; i++) boardCards[i] = parseCard(cfg.board.c_str() + 2 * i);
   double t0 = nowSec();
+  setupSymmetry();
   setupPlayers(readRange(cfg.r0), readRange(cfg.r1));
+  for (int p = 0; p < 2; p++) {
+    const Player& P = pl[p];
+    std::map<int, int> at;
+    for (int i = 0; i < P.n(); i++) at[P.c1[i] * 52 + P.c2[i]] = i;
+    comboPerm[p].assign(symPerms.size(), std::vector<int>(P.n(), -1));
+    for (size_t g = 0; g < symPerms.size(); g++)
+      for (int i = 0; i < P.n(); i++) {
+        int a = permCard(symPerms[g], P.c1[i]), b = permCard(symPerms[g], P.c2[i]);
+        if (a < b) std::swap(a, b);
+        auto it = at.find(a * 52 + b);
+        if (it != at.end()) comboPerm[p][g][i] = it->second;
+        else { fprintf(stderr, "asymmetric range: no image for combo %d\n", i); return 5; }
+      }
+  }
+  fprintf(stderr, "suit symmetries %zu, turn cards solved %d of 49\n", symPerms.size(),
+          [] { int n = 0; for (int c = 0; c < 52; c++) if (c != boardCards[0] && c != boardCards[1] && c != boardCards[2] && !skipTurn(c)) n++; return n; }());
   buildStreet(0, 0, 0, 0, 0, false, -1, -1, "");
   // allocate
   size_t off = 0, decs = 0;
