@@ -266,13 +266,22 @@ class ChangeGate {
 /// frames, at least one frame saw them together, and no third card has as
 /// much support (so one misread among agreeing reads is outvoted, and two
 /// competing reads produce nothing).
+///
+/// Quick peeks often give only one frame with both cards. Such two-card
+/// frames are also remembered for [memoryMs]: the same pair seen again on a
+/// later peek of the same hand is a second, independent agreeing frame (as
+/// long as no other pair was seen as often). [reset] (a new hand) forgets.
 class PeekVoter {
-  final int minAgree, windowMs;
-  PeekVoter({this.minAgree = 2, this.windowMs = 2500});
+  final int minAgree, windowMs, memoryMs;
+  PeekVoter({this.minAgree = 2, this.windowMs = 2500, this.memoryMs = 90000});
 
   final List<(int, List<int>)> _reads = [];
+  final List<(int, List<int>)> _pairs = [];
 
-  void reset() => _reads.clear();
+  void reset() {
+    _reads.clear();
+    _pairs.clear();
+  }
 
   /// Frames that read the best pair together (diagnostics).
   int bestAgree = 0;
@@ -281,7 +290,26 @@ class PeekVoter {
   /// first) or null.
   List<int>? add(List<int> cards, int tMs) {
     _reads.removeWhere((r) => tMs - r.$1 > windowMs);
+    _pairs.removeWhere((r) => tMs - r.$1 > memoryMs);
     if (cards.isNotEmpty) _reads.add((tMs, cards));
+    final short = _shortWindow();
+    if (cards.length < 2) return short;
+    // Across peeks: this frame's pair against remembered two-card frames.
+    final p = canonicalPair([cards[0], cards[1]]);
+    final counts = <(int, int), int>{};
+    for (final (_, q) in _pairs) {
+      counts[(q[0], q[1])] = (counts[(q[0], q[1])] ?? 0) + 1;
+    }
+    _pairs.add((tMs, p));
+    if (short != null) return short;
+    final mine = (counts[(p[0], p[1])] ?? 0) + 1;
+    final rival = counts.entries.where((e) => e.key != (p[0], p[1])).fold(0, (m, e) => math.max(m, e.value));
+    bestAgree = math.max(bestAgree, mine);
+    if (mine >= minAgree && mine > rival) return p;
+    return null;
+  }
+
+  List<int>? _shortWindow() {
     final votes = <int, int>{};
     for (final (_, cs) in _reads) {
       for (final c in cs.toSet()) {

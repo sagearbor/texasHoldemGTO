@@ -140,10 +140,45 @@ void main() {
     });
 
     test('old reads leave the window', () {
+      // Single cards only: the cross-peek pair memory does not apply.
       final v = PeekVoter(minAgree: 2, windowMs: 2500);
+      v.add(p('As'), 0);
+      v.add(p('Kd'), 50);
+      // The single reads at 0 / 50 ms have left the window: one frame only.
+      expect(v.add(p('As Kd'), 3000), isNull);
+      expect(v.add(p('Kd As'), 3100), p('As Kd'));
+    });
+
+    test('without pair memory, old pair reads leave the window too', () {
+      final v = PeekVoter(minAgree: 2, windowMs: 2500, memoryMs: 0);
       v.add(p('As Kd'), 0);
       expect(v.add(p('As Kd'), 3000), isNull);
       expect(v.add(p('As Kd'), 3100), p('As Kd'));
+    });
+
+    test('a pair seen once on each of two quick peeks agrees', () {
+      final v = PeekVoter(minAgree: 2, windowMs: 2500, memoryMs: 90000);
+      expect(v.add(p('As Kd'), 0), isNull);
+      expect(v.add(p('As'), 300), isNull);
+      // Next peek, 20 s later: one more frame with both cards.
+      expect(v.add(p('Kd As'), 20000), p('As Kd'));
+    });
+
+    test('across peeks a rival pair seen as often blocks it', () {
+      final v = PeekVoter(minAgree: 2, memoryMs: 90000);
+      v.add(p('As Kd'), 0);
+      v.add(p('As Kh'), 10000);
+      v.add(p('As Kh'), 13000 + 3000);
+      // Kh now has 2 frames (window passed though): it wins as a pair.
+      expect(v.add(p('As Kd'), 30000), isNull);
+    });
+
+    test('memory is forgotten after a new hand or a long time', () {
+      final v = PeekVoter(minAgree: 2, memoryMs: 90000);
+      v.add(p('As Kd'), 0);
+      v.reset();
+      expect(v.add(p('As Kd'), 20000), isNull);
+      expect(v.add(p('As Kd'), 200000), isNull);
     });
 
     test('empty frames do not vote', () {

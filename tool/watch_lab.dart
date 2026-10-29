@@ -2,12 +2,14 @@
 // (lib/camera/watch_pipeline.dart + watch_tracker.dart) over a video.
 //
 //   ~/flutter/bin/dart run tool/watch_lab.dart camera_data/peeks.mov \
-//       [--short 720] [--fps 15] [--phone 2.0] [--labels peeks.json] [-v]
+//       [--short 720] [--fps 15] [--phone 2.0 | --read-ms 180] \
+//       [--labels peeks.json] [--android] [-v]
 //
 // ffmpeg (/opt/homebrew/bin/ffmpeg) decodes the video to NV12 at the app's
 // stream rate and resolution (short side --short, default 720 = the app's
-// ResolutionPreset.high), which is what the iPhone camera stream delivers
-// (420v, video range). Frames are fed in real time order; the glyph reader
+// ResolutionPreset.high), as the iPhone camera stream delivers it (420v:
+// video range, BT.709), or with --android as CameraX delivers it (full
+// range, BT.601). Frames are fed in real time order; the glyph reader
 // runs inline, but its answer is delivered only after its measured time x
 // --phone (a phone is slower than this Mac), and frames that arrive in the
 // meantime find the reader busy, exactly as on the device.
@@ -47,6 +49,7 @@ Future<void> main(List<String> argv) async {
   }
 
   final verbose = args.remove('-v');
+  final android = args.remove('--android');
   // Debug: write every reader crop as a PPM (your own footage, local only).
   final dumpDir = opt('--dump');
   final short = int.parse(opt('--short', '720')!);
@@ -83,7 +86,7 @@ Future<void> main(List<String> argv) async {
     // Always video range + BT.709, like the iPhone stream, whatever the
     // file is tagged (a clip made from JPEGs is full range).
     '-vf', "fps=$fps,scale='if(gt(iw,ih),-2,$short)':'if(gt(iw,ih),$short,-2)':flags=area"
-        ':out_range=tv:out_color_matrix=bt709',
+        "${android ? ':out_range=pc:out_color_matrix=bt601' : ':out_range=tv:out_color_matrix=bt709'}",
     '-pix_fmt', 'nv12', '-f', 'rawvideo', '-',
   ]);
   // Output size from ffmpeg's stream description.
@@ -93,6 +96,17 @@ Future<void> main(List<String> argv) async {
     if (m != null && !sizeC.isCompleted) sizeC.complete((int.parse(m[1]!), int.parse(m[2]!)));
   });
   final (w, h) = await sizeC.future;
+  // HDR (HLG / PQ) phone video has no tone-mapping here (this ffmpeg lacks
+  // zscale): colours come out flat and reads suffer. Record in SDR.
+  final probe = await Process.run('/opt/homebrew/bin/ffprobe', [
+    '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=color_transfer,codec_name,r_frame_rate',
+    '-of', 'default=nw=1', args.first,
+  ]);
+  final info = '${probe.stdout}'.trim().replaceAll('\n', ', ');
+  stdout.writeln('source: $info');
+  if (RegExp(r'arib-std-b67|smpte2084').hasMatch(info)) {
+    stdout.writeln('WARNING: HDR source video, not tone-mapped: colours are off, expect worse reads');
+  }
   final frameBytes = w * h * 3 ~/ 2;
   stdout.writeln('video ${args.first}: ${w}x$h NV12 @ $fps fps, reader latency '
       '${readMsFixed == null ? 'measured x$phone' : '$readMsFixed ms (fixed)'}');
@@ -128,7 +142,7 @@ Future<void> main(List<String> argv) async {
     final y = Uint8List.sublistView(data, 0, w * h);
     final uv = Uint8List.sublistView(data, w * h);
     final frame = WatchFrame(w, h, WatchPixelFormat.yuv420, [WatchPlane(y, w, 1), WatchPlane(uv, w, 2)],
-        videoRange: true);
+        videoRange: !android);
     final job = pipe.onFrame(frame, t);
     if (job == null) return;
     if (dumpDir != null) _dumpPpm('$dumpDir/crop_${job.tMs.toString().padLeft(7, '0')}.ppm', job);
