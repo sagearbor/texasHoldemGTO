@@ -311,6 +311,7 @@ def readme(out_dir, pre, post, stats, cfg, fixed_point):
         "limp": cfg["LIMP"],
         "n_flops": str(len(flops)),
         "n_sub": str(len(post.get("correctionSubset", []))),
+        "n_subA": str(cfg.get("SUB_A", "")),
         "sub_flops": ", ".join(post.get("correctionSubset", [])),
         "borrow": ", ".join(f"`{k}` {v}" for k, v in pre["fixedPoint"]["borrowGateDelta"].items()) or "-",
     }

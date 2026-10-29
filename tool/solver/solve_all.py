@@ -263,8 +263,50 @@ def solve_round(tab, Rt, label, warm=None, alt=False, only=None):
     return games
 
 
-def leaf_jobs(games):
-    """Solved heads-up flop leaves: {potType: (rangeOOP, rangeIP)}."""
+PROBE_EPS = 0.01   # probe weight, relative to the class's reach at its decision
+PROBE_POT = float(os.environ.get("PROBE_POT", "0.04"))  # probe classes within 4% of the pot of their best action
+
+
+def _abs_reach(g, node):
+    """Absolute reach (input range x strategy) of node's actor at node."""
+    if isinstance(g, pf.Game):
+        r0, r1 = g.reach_at(node)
+        return np.asarray(r0 if node.player == 0 else r1)
+    return g.prior_range[node.player] * g.reach_at(node)[node.player]
+
+
+def _probes(g, term, pot):
+    """For players 0 and 1 of a heads-up leaf: probe weights for classes
+    that reach their last decision before the leaf (only the published
+    hero's decision and the action that enters the leaf) and whose EV for the
+    action taken there is close to their best action (within PROBE_POT x the
+    flop pot). Without probes a class that never takes the action is never
+    measured, gets an extrapolated R, and a too-low guess confirms itself
+    (v2's first pass valued KJs below KTs that way)."""
+    path = g._path_to(g.root, term, [])
+    out = {}
+    cache = getattr(g, "_ev_cache", None)
+    if cache is None:
+        cache = g._ev_cache = {}
+    final = path[-1][0].player if path else None
+    for p in (0, 1):
+        last = [(nd, a) for nd, a in path if nd.player == p]
+        if not last or not (last[-1][0] is g.hero or p == final):
+            out[p] = np.zeros(169)
+            continue
+        nd, a = last[-1]
+        if id(nd) not in cache:
+            cache[id(nd)] = (np.nan_to_num(g.action_evs(nd), nan=-1e9), _abs_reach(g, nd))
+        ev, reach = cache[id(nd)]
+        gap = ev.max(0) - ev[a]
+        ok = (reach >= 0.01) & (gap < PROBE_POT * pot)
+        out[p] = np.where(ok, PROBE_EPS * reach, 0.0)
+    return out
+
+
+def leaf_jobs(games, probe=True):
+    """Solved heads-up flop leaves: {potType: (rangeOOP, rangeIP)}, with
+    probe weights (see _probes) unless probe=False."""
     out = {}
     for gid, g in games.items():
         for item in g.leaf_ranges():
@@ -279,9 +321,13 @@ def leaf_jobs(games):
                 if tuple(term.active) != (0, 1):
                     continue
                 r0, r1 = rs[0], rs[1]
+            r0, r1 = np.asarray(r0, float), np.asarray(r1, float)
+            if probe:
+                pr = _probes(g, term, POT_TYPES[pt].pot)
+                r0, r1 = np.maximum(r0, pr[0]), np.maximum(r1, pr[1])
             P = POT_TYPES[pt]
             ro, ri = (r0, r1) if P.oop == 0 else (r1, r0)
-            out[pt] = (np.asarray(ro), np.asarray(ri))
+            out[pt] = (ro, ri)
     return out
 
 
@@ -376,9 +422,10 @@ def r_table(agg, tab, ranges_by_player):
     """Realisation by class for preflop players 0 / 1: the measured R where
     the class reaches the flop (every class with any weight in the range is
     in the flop solve), a weighted linear fit of R on equity vs the
-    opponent's range elsewhere; clipped to [0.2, 2.0]. Classes with a tiny
-    share of the range are shrunk toward the fit (prior weight 0.2% of the
-    mean class mass), so a class seen a handful of times can't swing."""
+    opponent's range elsewhere; clipped to [0.2, 2.0]. Probe classes (tiny
+    weight, see _probes) are measured as accurately as the rest: CFR's
+    regrets for a combo don't depend on its own weight. A negligible prior
+    (1e-5 of the mean class mass) only guards against empty classes."""
     res = {}
     for p in (0, 1):
         a = agg[p]
@@ -394,7 +441,7 @@ def r_table(agg, tab, ranges_by_player):
         Wm = tab.N * opp[None, :]
         e_all = (Wm * tab.E).sum(1) / np.maximum(Wm.sum(1), 1e-12)
         fit = coef[0] + coef[1] * e_all
-        m0 = 0.002 * m[ok].mean()
+        m0 = 1e-5 * m[ok].mean()
         Robs = np.where(ok, a["R"], fit)
         R = np.where(ok, (m * Robs + m0 * fit) / (m + m0), fit)
         res[p] = np.clip(R, 0.2, 2.0)
@@ -556,7 +603,7 @@ def main():
     # round 0 -> pass A (subset) -> round 1
     R0 = load_start_R()
     games0 = solve_round(tab, R0, "round 0")
-    jobsA = leaf_jobs(games0)
+    jobsA = leaf_jobs(games0, probe=False)
     RA, _, statsA, _ = solve_postflop(jobsA, tab, subA, "pass A (subset)")
     games1 = solve_round(tab, RA, "round 1", warm={k: game_state(g) for k, g in games0.items()})
 

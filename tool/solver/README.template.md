@@ -175,12 +175,16 @@ One pipeline, three solvers, iterated:
 4. **Fixed point** between the preflop games and the flop tables:
    * round 0: the preflop games with starting tables (the v1 dataset's
      published tables; any table works, only the starting point changes);
-   * pass A: every pot solved on the {{n_sub}}-flop correction subset
-     ({{sub_flops}}) with the round-0 ranges; round 1 re-solves the preflop
-     games with those tables;
+   * pass A: every pot solved on {{n_subA}} flops of the set (the heaviest
+     of each stratum) with the round-0 ranges; round 1 re-solves the
+     preflop games with those tables (a cheap way to start pass B near the
+     fixed point; these tables are rank-biased and are not published);
    * pass B: every pot solved on all {{n_flops}} flops with the round-1
      ranges; these are the EV tables published in `postflop.json`;
-   * round k: the subset is re-solved with the current ranges and the
+   * round k: the {{n_sub}}-flop correction subset ({{sub_flops}}; chosen
+     greedily from the set and re-weighted so it matches the population
+     margins as closely as {{n_sub}} flops can) is re-solved with the
+     current ranges and the
      all-flop tables corrected by the change seen there,
      `R = R_B(all) + R_sub(now) - R_B(sub)`, damped with the previous
      round, and the preflop games are re-solved (continuing CFR from the
