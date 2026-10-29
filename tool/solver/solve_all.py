@@ -462,7 +462,13 @@ def correct(R_full, R_sub_now, R_sub_base):
 def load_start_R():
     """Starting tables (round 0 only): {potType: {0: R, 1: R}}."""
     if not os.path.exists(START_R):
-        return {}
+        # fall back to the published dataset's tables, if any
+        pub = os.path.join(OUT, "postflop.json")
+        if not os.path.exists(pub):
+            return {}
+        pts = json.load(open(pub))["potTypes"]
+        d = {pt: {p: v["players"][p]["realisationUsed"] for p in ("0", "1")} for pt, v in pts.items()}
+        return {pt: {int(p): np.array([x if x is not None else 1.0 for x in v[p]]) for p in v} for pt, v in d.items()}
     d = json.load(open(START_R))
     return {pt: {int(p): np.array([x if x is not None else 1.0 for x in v[p]]) for p in v} for pt, v in d.items()}
 

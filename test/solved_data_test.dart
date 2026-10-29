@@ -177,6 +177,62 @@ void main() {
     }
   });
 
+  test('gate: QQ and AKs never fold to a 3-bet', () {
+    for (final id in passed.keys.where((k) => k.startsWith('cash-3b'))) {
+      final s = byId(id);
+      for (final h in ['QQ', 'AKs']) {
+        expect(f(s, h, s.passiveIndex), lessThanOrEqualTo(0.01),
+            reason: '$id $h');
+      }
+    }
+  });
+
+  test('gate: every seat behind a limp-spot hero is solved', () {
+    const behind = {
+      'CO': ['BTN', 'SB', 'BB'],
+      'BTN': ['SB', 'BB'],
+      'SB': ['BB'],
+    };
+    for (final id in passed.keys.where((k) => k.startsWith('cash-limp'))) {
+      final hero = id.split('-').last;
+      if (hero == 'BB') continue;
+      final m = passed[id]!;
+      final seats = {
+        for (final x in (m['seatsBehind'] as List).cast<Map>()) x['seat']: x
+      };
+      for (final seat in behind[hero]!) {
+        final x = seats[seat];
+        expect(x, isNotNull, reason: '$id $seat');
+        expect((x!['vsLimps']['actions'] as List), contains('Raise'));
+        expect((x['vsIso']['actions'] as List), contains('3-bet'));
+      }
+      final bg = m['borrowGateDelta'] as num?;
+      expect(bg, isNotNull, reason: id);
+      expect(bg!, lessThanOrEqualTo(0.05), reason: id);
+    }
+  });
+
+  test('gate: a bigger pair is never worth clearly less', () {
+    const ranks = 'AKQJT98765432';
+    for (final id in passed.keys) {
+      final ev = (passed[id]!['ev'] as List).cast<List>();
+      final reach = passed[id]!['reach'] as List?;
+      double? value(String h) {
+        final k = HandClass.parse(h).index;
+        if (reach != null && ((reach[k] as num?) ?? 0) <= 0) return null;
+        final xs = ev[k].whereType<num>().map((x) => x.toDouble());
+        return xs.isEmpty ? null : xs.reduce((a, b) => a > b ? a : b);
+      }
+
+      for (var i = 0; i + 1 < ranks.length; i++) {
+        final hi = value(ranks[i] * 2), lo = value(ranks[i + 1] * 2);
+        if (hi == null || lo == null) continue;
+        expect(lo - hi, lessThanOrEqualTo(0.05),
+            reason: '$id ${ranks[i + 1] * 2} vs ${ranks[i] * 2}');
+      }
+    }
+  });
+
   test('the bundled asset reaches SpotLibrary.load()', () async {
     final lib = await SpotLibrary.load();
     for (final id in passed.keys) {
