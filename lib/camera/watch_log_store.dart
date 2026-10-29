@@ -37,31 +37,29 @@ class WatchLogStore {
 
   File? _file;
 
+  /// Writes run one after another (a session's peeks, then its summary;
+  /// the next session's pruning never races an append).
+  Future<void> _chain = Future.value();
+
+  Future<void> _serial(Future<void> Function() op) => _chain = _chain.then((_) => op()).catchError((Object e) {
+        debugPrint('watch log: $e');
+      });
+
   Future<File> _open() async =>
       _file ??= File('${(await getApplicationSupportDirectory()).path}/$watchLogName');
 
   /// Prunes old sessions and writes the session header.
-  Future<void> startSession(Map<String, Object?> header) async {
-    try {
-      final f = await _open();
-      if (await f.exists()) {
-        final kept = pruneWatchLog(await f.readAsLines(), keep: keepSessions - 1);
-        await f.writeAsString(kept.isEmpty ? '' : '${kept.join('\n')}\n');
-      }
-      await append({'type': 'session', ...header});
-    } catch (e) {
-      debugPrint('watch log: $e');
-    }
-  }
+  Future<void> startSession(Map<String, Object?> header) => _serial(() async {
+        final f = await _open();
+        final kept = await f.exists() ? pruneWatchLog(await f.readAsLines(), keep: keepSessions - 1) : <String>[];
+        kept.add(jsonEncode({'type': 'session', ...header}));
+        await f.writeAsString('${kept.join('\n')}\n');
+      });
 
-  Future<void> append(Map<String, Object?> record) async {
-    try {
-      final f = await _open();
-      await f.writeAsString('${jsonEncode(record)}\n', mode: FileMode.append, flush: false);
-    } catch (e) {
-      debugPrint('watch log: $e');
-    }
-  }
+  Future<void> append(Map<String, Object?> record) => _serial(() async {
+        final f = await _open();
+        await f.writeAsString('${jsonEncode(record)}\n', mode: FileMode.append);
+      });
 
   /// Opens the share sheet with the log file. Returns false when there is
   /// nothing to share yet.

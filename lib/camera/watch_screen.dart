@@ -164,7 +164,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     // return.
     if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
       final c = _cam;
-      if (c == null) return;
+      if (c == null || _opening) return;
       final was = _watching;
       _stopWatching();
       _watching = was; // resume into the same mode
@@ -176,7 +176,13 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// The permission prompt makes the app "inactive" while the camera is
+  /// still opening: do not open a second one on "resumed".
+  bool _opening = false;
+
   Future<void> _initCamera() async {
+    if (_opening) return;
+    _opening = true;
     try {
       final cams = await availableCameras();
       final want = WatchSettings.front.value ? CameraLensDirection.front : CameraLensDirection.back;
@@ -206,6 +212,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Camera unavailable ($e)');
+    } finally {
+      _opening = false;
     }
   }
 
