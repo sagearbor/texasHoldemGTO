@@ -1,6 +1,6 @@
 // A simulated night on the REAL project for looking at the TV page: an
-// organizer and three phones play a hand every 20 s (with a blind clock),
-// for FELT_DEMO_MIN minutes (default 5). Prints the TV link; deletes the
+// organizer and three phones play a hand every FELT_DEMO_SEC seconds
+// (default 20, with a blind clock) for FELT_DEMO_MIN minutes (default 5). Prints the TV link; deletes the
 // night at the end.
 //
 //   FELT_E2E=1 FELT_DEMO_MIN=5 flutter test tool/e2e/demo_night_test.dart
@@ -24,6 +24,7 @@ import 'rest_cloud_logs.dart';
 void main() {
   final enabled = Platform.environment['FELT_E2E'] == '1';
   final minutes = int.tryParse(Platform.environment['FELT_DEMO_MIN'] ?? '') ?? 5;
+  final gap = int.tryParse(Platform.environment['FELT_DEMO_SEC'] ?? '') ?? 20;
 
   test('demo night for the TV', () async {
     final names = ['Sage', 'John', 'Joe', 'Amy'];
@@ -64,7 +65,7 @@ void main() {
           await u.drainOnce();
         }
         stdout.writeln('hand $n up');
-        await Future<void>.delayed(const Duration(seconds: 20));
+        await Future<void>.delayed(Duration(seconds: gap));
       }
       await org.endNight();
       for (final u in ups) {
