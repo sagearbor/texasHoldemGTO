@@ -52,6 +52,7 @@ int _redHueMax = 8; // OpenCV hue (0..179): red ink is <= this or >= 166
 int _redInkSMin = _redSMin; // red-ink pixel mask
 int _redPureSMin = _redSMin + 30; // a red glyph's median saturation
 int _redInkVMax = 256; // warm light: lit skin is as orange as red ink, but brighter
+double _ringPaperMin = 0.5; // share of a glyph's surroundings that must be card stock
 
 const int _paperVMin = 90;
 const int _redSMin = 110;
@@ -263,6 +264,10 @@ GlyphReadResult readGlyphsMessage(GlyphReadRequest r) => readGlyphs(r.rgba, r.wi
 /// orange and paler (hue up to 14, saturation from 90-100). The board
 /// finder keeps the daylight gates.
 ///
+/// [ringPaperMin]: share of a glyph's surroundings that must be card stock
+/// (0.5). A standard deck's small suit index sits next to a big pip on low
+/// cards, so that share drops below half there.
+///
 /// [tta] = false classifies each glyph once instead of at three rotations
 /// (about half the time). Watch my cards uses it: agreement over several
 /// frames replaces the rotation voting.
@@ -272,13 +277,15 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
     int targetShortSide = 1500,
     bool tta = true,
     int? scaleShortSide,
-    bool warmLight = false}) {
+    bool warmLight = false,
+    double ringPaperMin = 0.5}) {
   if (templates == null && cnn == null) throw ArgumentError('templates or cnn required');
   _paperSMax = warmLight ? 100 : _paperSMaxDefault;
   _redHueMax = warmLight ? 14 : 8;
   _redInkSMin = warmLight ? 90 : _redSMin;
   _redPureSMin = warmLight ? 100 : _redSMin + 30;
   _redInkVMax = warmLight ? 165 : 256;
+  _ringPaperMin = ringPaperMin;
   final sw = Stopwatch()..start();
   final timing = <String, int>{};
   final img = _Planes.fromRgba(rgba, width, height, targetShortSide);
@@ -905,7 +912,7 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
         }
       }
     }
-    if (ringN == 0 || ringPaper / ringN < 0.5) continue;
+    if (ringN == 0 || ringPaper / ringN < _ringPaperMin) continue;
     final hs = <int>[], ss = <int>[], vs = <int>[];
     final mask = Float64List(bw * bh);
     for (var y = c.minY; y <= c.maxY; y++) {

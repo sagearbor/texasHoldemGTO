@@ -97,12 +97,18 @@ class WatchConfig {
   /// Reader colour gates for warm room light (readGlyphs warmLight).
   final bool warmLight;
 
+  /// readGlyphs ringPaperMin.
+  final double ringPaperMin;
+
   final int minAgree;
   final int voteWindowMs;
 
   /// One frame is enough when both cards score at least this (and no other
   /// card was read in the vote window): a quick peek that only gave the
-  /// reader one good frame can still log. 1.0+ turns it off.
+  /// reader one good frame can still log. 1.0+ turns it off. 0.99: the
+  /// sweep over 0.92 / 0.95 / 0.97 / 0.99 / off on all harness inputs gave
+  /// identical hand logs (the rule never fired there), so the strictest
+  /// setting that still lets a very sharp single frame count is used.
   final double singleFrameScore;
 
   /// After this many reads in a row with no card at all, the reader backs
@@ -160,9 +166,10 @@ class WatchConfig {
     this.tta = false,
     this.whiteBalance = true,
     this.warmLight = true,
+    this.ringPaperMin = 0.5,
     this.minAgree = 2,
     this.voteWindowMs = 2500,
-    this.singleFrameScore = 0.92,
+    this.singleFrameScore = 0.99,
     this.emptyReadsBeforeBackoff = 4,
     this.maxBackoffMs = 2000,
     this.motionReadGapMs = 300,
