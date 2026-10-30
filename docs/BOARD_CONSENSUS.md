@@ -102,7 +102,7 @@ do not exist).
 
 End to end the watcher does not yet produce a usable board: in 130 s of
 poker-mock1 it emitted two streets, neither matching the 8 labelled
-streets, and none in simulated portrait; poker-mock2 (no boards)
+streets; in simulated portrait two, one of them hand 2's turn with a rank, a face card and two colours right (rotation is no worse); poker-mock2 (no boards)
 correctly produced nothing in both orientations. Per frame
 (`tool/board_probe.dart`) the row is found in most labelled frames, the
 count is wrong when cards overlap or a glossy placemat edge joins the
