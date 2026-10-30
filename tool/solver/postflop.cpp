@@ -702,10 +702,19 @@ int main(int argc, char** argv) {
   // points (expl ~ c / t^k) predicts the target (+3%), within 5..2x
   // checkEvery of the last check. Saves the overshoot of a fixed interval.
   int nextCheck = cfg.checkEvery;
+  // Divergence guard. DCFR(1.5, 0, 2) occasionally runs away on a spot
+  // (seen once in about 1,700 solves: 3.7% of the pot at 50 iterations,
+  // then rising to 27%); DCFR with alpha = 1 (and CFR+) converge on the same
+  // spot. If exploitability climbs above twice its best so far, the solve
+  // restarts from zero with alpha = 1. The iteration count keeps running.
+  double alphaNow = alpha, bestExpl = 1e9;
+  int t0it = 0, restarts = 0;
+  size_t curveStart = 0;
   for (it = 1; it <= cfg.iters; it++) {
-    double ta = std::pow(double(it), alpha);
+    int t = it - t0it;
+    double ta = std::pow(double(t), alphaNow);
     gPosW = ta / (ta + 1);
-    gStratW = std::pow(double(it), gamma);
+    gStratW = std::pow(double(t), gamma);
     walk(0, 0, r0.data(), r1.data(), o0.data(), M_CFR, true);
     walk(0, 1, r1.data(), r0.data(), o1.data(), M_CFR, true);
     if (it == nextCheck || it == cfg.iters) {
@@ -713,10 +722,20 @@ int main(int argc, char** argv) {
       curve.push_back({it, expl});
       fprintf(stderr, "  it %d expl %.3f%% pot  (%.1fs)\n", it, expl, nowSec() - t0);
       if (expl < cfg.target) break;
+      bestExpl = std::min(bestExpl, expl);
+      if (restarts == 0 && expl > 2 * bestExpl && t > 50) {
+        fprintf(stderr, "  diverging (best %.3f%%): restart with alpha 1\n", bestExpl);
+        std::fill(regret.begin(), regret.end(), 0.0f);
+        std::fill(ssum.begin(), ssum.end(), 0.0f);
+        alphaNow = 1.0; t0it = it; restarts = 1; bestExpl = 1e9;
+        curveStart = curve.size();
+        nextCheck = it + cfg.checkEvery;
+        continue;
+      }
       int step = cfg.checkEvery;
       size_t m = curve.size();
-      if (m >= 2) {
-        double t1 = curve[m - 2].first, e1 = curve[m - 2].second, t2 = curve[m - 1].first, e2 = curve[m - 1].second;
+      if (m >= curveStart + 2) {
+        double t1 = curve[m - 2].first - t0it, e1 = curve[m - 2].second, t2 = curve[m - 1].first - t0it, e2 = curve[m - 1].second;
         if (e2 < e1 && e2 > 0) {
           double k = std::log(e1 / e2) / std::log(t2 / t1);
           if (k > 0.2) {
@@ -739,8 +758,8 @@ int main(int argc, char** argv) {
   ev0tot /= tm0; ev1tot /= tm0;
 
   FILE* f = cfg.out.empty() ? stdout : fopen(cfg.out.c_str(), "w");
-  fprintf(f, "{\"board\":\"%s\",\"pot\":%g,\"stack\":%g,\"iters\":%d,\"exploitPctPot\":%.5f,\"seconds\":%.1f,",
-          cfg.board.c_str(), cfg.pot, cfg.stack, it, expl, nowSec() - t0);
+  fprintf(f, "{\"board\":\"%s\",\"pot\":%g,\"stack\":%g,\"iters\":%d,\"exploitPctPot\":%.5f,\"seconds\":%.1f,\"restarts\":%d,",
+          cfg.board.c_str(), cfg.pot, cfg.stack, it, expl, nowSec() - t0, restarts);
   fprintf(f, "\"ev\":[%.6f,%.6f],\"curve\":[", ev0tot, ev1tot);
   for (size_t i = 0; i < curve.size(); i++) fprintf(f, "%s[%d,%.4f]", i ? "," : "", curve[i].first, curve[i].second);
   fprintf(f, "],\"players\":[");
