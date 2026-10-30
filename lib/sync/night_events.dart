@@ -48,14 +48,17 @@ enum EventKind {
   /// (call | raise | fold), facing (unopened | raised).
   play,
 
-  /// Your own hole cards `{e, c?}`. [c] is present only while sharing is
-  /// on at upload time; the cloud copy otherwise keeps just "had cards".
+  /// Your own hole cards `{e, c, done?}`. The cloud log only ever gets
+  /// `{e}` ("had cards"): the cards themselves go to a separate card
+  /// document after the hand is over (cloud_logs.dart). [done] = the hand
+  /// is known to be over (the organizer's own hands), so they may go now.
   cards,
 
   /// Withdraw an entry `{e}` (mis-tap).
   undo,
 
-  /// Card sharing on or off for the night `{on}`.
+  /// Sharing with the table (the TV) on or off for the night `{on}`. Off:
+  /// none of this phone's taps or cards leave it (cloud_logs.dart).
   share,
 
   /// The board as this phone's camera read it, one event per street
@@ -88,6 +91,10 @@ enum EventKind {
 
   /// Night over `{}`. Closes the last hand.
   end,
+
+  /// The blind clock as it is now `{j: BlindClock json}` (levels, anchor
+  /// on the organizer's clock), so the TV can run the same clock.
+  clock,
 }
 
 EventKind? eventKindFromName(Object? n) {

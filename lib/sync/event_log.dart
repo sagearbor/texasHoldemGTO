@@ -117,11 +117,13 @@ class EventLog {
     if (_store.get(_metaKey(nightId)) == null) await _store.set(_metaKey(nightId), jsonEncode(meta));
   }
 
-  /// Is card sharing on, per the latest share event.
+  /// Is sharing with the table on, per the latest share event. Joining
+  /// always records the player's choice; a log without one (older builds)
+  /// reads as on, the product default, the same as the merge does.
   bool get sharing {
     for (final e in _events.reversed) {
       if (e.kind == EventKind.share) return e.data['on'] == true;
     }
-    return false;
+    return true;
   }
 }

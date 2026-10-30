@@ -33,7 +33,11 @@ class DeviceLog {
   /// Server clock minus device clock, ms, if the uploader measured it.
   final int? serverSkewMs;
 
-  const DeviceLog(this.deviceId, this.events, {this.serverSkewMs});
+  /// Server time of this phone's latest upload (ms), for the TV's "last
+  /// update" line. Null for a local log.
+  final int? uploadedAtMs;
+
+  const DeviceLog(this.deviceId, this.events, {this.serverSkewMs, this.uploadedAtMs});
 }
 
 class MergeOptions {
@@ -95,9 +99,18 @@ class Timeline {
   /// Everyone the organizer ever seated, by pid (latest name wins).
   final Map<String, String> names;
 
-  const Timeline(this.hands, this.endMs, this.names);
+  /// The organizer's blind clock (BlindClock json), latest wins.
+  final Map<String, Object?>? clock;
+
+  /// The seats in force for the next hand (the latest seats event).
+  final List<Seat> seatsNow;
+
+  const Timeline(this.hands, this.endMs, this.names, {this.clock, this.seatsNow = const []});
 
   static const empty = Timeline([], null, {});
+
+  /// A later hand has started (or the night ended): [h] is over.
+  bool isOver(TimelineHand h) => endMs != null || hands.isNotEmpty && hands.last.n != h.n;
 }
 
 /// Builds the hand timeline from the organizer's events (seq order). A
@@ -110,6 +123,7 @@ Timeline buildTimeline(Iterable<NightEvent> organizerEvents, {MergeOptions opts 
   final starts = <int, (int, String?, List<Seat>)>{};
   final boards = <int, List<int>>{};
   int? end;
+  Map<String, Object?>? clock;
   for (final e in evs) {
     switch (e.kind) {
       case EventKind.seats:
@@ -127,6 +141,9 @@ Timeline buildTimeline(Iterable<NightEvent> organizerEvents, {MergeOptions opts 
         if (n is int && c is List) boards[n] = c.cast<int>();
       case EventKind.end:
         end = e.ms;
+      case EventKind.clock:
+        final j = e.data['j'];
+        if (j is Map) clock = j.cast<String, Object?>();
       default:
         break;
     }
@@ -146,7 +163,7 @@ Timeline buildTimeline(Iterable<NightEvent> organizerEvents, {MergeOptions opts 
       board: boards[order[i].key],
     ));
   }
-  return Timeline(hands, end, names);
+  return Timeline(hands, end, names, clock: clock, seatsNow: seats);
 }
 
 // ------------------------------------------------------------------ devices
@@ -170,6 +187,16 @@ class DeviceInfo {
   final List<(int, int)> present;
   final bool sharing;
 
+  /// Sharing is off and this is not the phone doing the merge: its taps
+  /// never reached us, so it is left out of every hand (the TV says
+  /// "private") instead of being counted as folding everything.
+  final bool private;
+
+  /// Left the table (latest presence interval is closed).
+  final bool left;
+
+  final int? uploadedAtMs;
+
   const DeviceInfo({
     required this.deviceId,
     required this.name,
@@ -179,6 +206,9 @@ class DeviceInfo {
     required this.offsetSource,
     required this.present,
     required this.sharing,
+    this.private = false,
+    this.left = false,
+    this.uploadedAtMs,
   });
 
   bool presentAt(TimelineHand h) => present.any((p) => p.$1 < h.endMs && p.$2 > h.startMs);
@@ -216,6 +246,9 @@ class PlayerHand {
   /// Organizer-clock time of the tap, if there was one.
   final int? tapMs;
 
+  /// The phone's entry number for this hand (the card document key).
+  final int? entryNo;
+
   const PlayerHand({
     required this.pid,
     required this.name,
@@ -227,6 +260,7 @@ class PlayerHand {
     this.cards,
     this.hadCards = false,
     this.tapMs,
+    this.entryNo,
   });
 
   bool get voluntary => action != PreAction.fold;
@@ -313,17 +347,23 @@ Map<String, Map<int, NightEvent>> _union(Iterable<DeviceLog> logs) {
 
 String _norm(String s) => s.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
+/// [selfDeviceId] is the phone doing the merge (its own log is complete
+/// whatever its sharing says); null on the TV.
 MergedNight mergeNight({
   required String organizerDeviceId,
   required Iterable<DeviceLog> logs,
   Map<String, String> links = const {},
   MergeOptions opts = const MergeOptions(),
+  String? selfDeviceId,
 }) {
   final logList = logs.toList();
   final byDevice = _union(logList);
   final skew = <String, int>{};
+  final uploaded = <String, int>{};
   for (final l in logList) {
     if (l.serverSkewMs != null) skew[l.deviceId] = l.serverSkewMs!;
+    final u = l.uploadedAtMs;
+    if (u != null && u > (uploaded[l.deviceId] ?? 0)) uploaded[l.deviceId] = u;
   }
   final warnings = <String>[];
   final orgEvents = byDevice[organizerDeviceId]?.values ?? const <NightEvent>[];
@@ -381,7 +421,8 @@ MergedNight mergeNight({
     // Presence and sharing.
     final present = <(int, int)>[];
     int? open;
-    var sharing = false;
+    // No share event at all (older logs): on, the product default.
+    var sharing = true;
     for (final e in evs) {
       final t = e.ms + offset;
       if (e.kind == EventKind.join) open ??= t;
@@ -404,6 +445,9 @@ MergedNight mergeNight({
       offsetSource: src,
       present: present,
       sharing: sharing,
+      private: !sharing && id != selfDeviceId,
+      left: open == null && present.isNotEmpty,
+      uploadedAtMs: uploaded[id],
     ));
   }
 
@@ -411,6 +455,7 @@ MergedNight mergeNight({
   final assigned = <String, Map<int, Entry>>{}; // deviceId -> hand n -> entry
   final unassigned = <Unassigned>[];
   for (final d in devices) {
+    if (d.private) continue;
     final entries = _entries(d, byDevice[d.deviceId]!.values);
     final eligible = [
       for (final h in timeline.hands)
@@ -447,7 +492,7 @@ MergedNight mergeNight({
   for (final h in timeline.hands) {
     final players = <String, PlayerHand>{};
     for (final d in devices) {
-      if (!d.presentAt(h)) continue;
+      if (d.private || !d.presentAt(h)) continue;
       final seated = h.seatOf(d.pid) >= 0;
       if (!seated && seatedEver.contains(d.pid)) continue; // sat out / gone
       final e = assigned[d.deviceId]![h.n];
@@ -462,6 +507,7 @@ MergedNight mergeNight({
         cards: e?.cards,
         hadCards: e?.hadCards ?? false,
         tapMs: e?.ms,
+        entryNo: e?.e,
       );
     }
     final held = <int>{
@@ -696,7 +742,10 @@ class LiveRow {
   final int confirmed;
   final int vpip;
   final int pfr;
-  const LiveRow(this.pid, this.name, this.hands, this.confirmed, this.vpip, this.pfr);
+
+  /// Sharing is off: show the name and "private", no numbers.
+  final bool private;
+  const LiveRow(this.pid, this.name, this.hands, this.confirmed, this.vpip, this.pfr, {this.private = false});
   double get vpipPct => hands == 0 ? 0 : vpip / hands;
   double get pfrPct => hands == 0 ? 0 : pfr / hands;
   String get style => playStyle(hands, vpipPct, pfrPct);
@@ -719,7 +768,17 @@ List<LiveRow> liveRows(MergedNight night, {required int nowMs, int delayMs = 0})
   final rows = [
     for (final d in night.devices)
       LiveRow(d.pid, night.nameOf(d.pid), acc[d.pid]?[0] ?? 0, acc[d.pid]?[1] ?? 0, acc[d.pid]?[2] ?? 0,
-          acc[d.pid]?[3] ?? 0)
+          acc[d.pid]?[3] ?? 0,
+          private: d.private)
   ]..sort((a, b) => a.name.compareTo(b.name));
   return rows;
+}
+
+/// The organizer's device among uploaded logs: the one with the hand
+/// timeline (only the organizer writes seats / hand events).
+String? organizerOf(Iterable<DeviceLog> logs) {
+  for (final l in logs) {
+    if (l.events.any((e) => e.kind == EventKind.hand || e.kind == EventKind.seats)) return l.deviceId;
+  }
+  return null;
 }

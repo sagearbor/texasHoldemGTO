@@ -362,6 +362,8 @@ void main() {
       expect(find.text("Who's playing (any order)"), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Start'), 200,
           scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Start'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Start'));
       await tester.pump();
       expect(m.active!.learning, isTrue);

@@ -13,7 +13,7 @@ const {
 } = require('@firebase/rules-unit-testing');
 const {
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs,
-  serverTimestamp, setLogLevel,
+  serverTimestamp, setLogLevel, Timestamp,
 } = require('firebase/firestore');
 
 setLogLevel('silent');
@@ -49,16 +49,24 @@ async function test(name, fn) {
   const o = db('o'), a = db('a'), b = db('b'), x = db('x');
   const anon = env.unauthenticatedContext().firestore();
 
-  const night = (over = {}) => ({ secret: SECRET, organizer: 'Sage', createdAt: serverTimestamp(), ...over });
+  const days = (d) => Timestamp.fromMillis(Date.now() + d * 86400000);
+  const night = (over = {}) => ({
+    secret: SECRET, organizer: 'Sage', createdAt: serverTimestamp(), expireAt: days(60), ...over,
+  });
   const member = (uid, over = {}) => ({
-    name: uid.toUpperCase(), deviceId: DEV[uid], secret: SECRET, joinedAt: serverTimestamp(), ...over,
+    name: uid.toUpperCase(), deviceId: DEV[uid], secret: SECRET, joinedAt: serverTimestamp(), expireAt: days(60),
+    ...over,
   });
   const ev = (n) => Array.from({ length: n }, (_, i) => JSON.stringify({ s: i + 1, k: 'play', t: 1000 + i }));
   const log = (uid, part, count, over = {}) => ({
     uid, deviceId: DEV[uid], part, count, events: ev(count), name: uid.toUpperCase(),
-    clientMs: 1793404800000, updatedAt: serverTimestamp(), ...over,
+    clientMs: 1793404800000, updatedAt: serverTimestamp(), expireAt: days(60), ...over,
   });
   const logPath = (uid, part) => `${N}/logs/${DEV[uid]}_${part}`;
+  const cards = (uid, e, c, over = {}) => ({
+    uid, deviceId: DEV[uid], e, c, at: serverTimestamp(), expireAt: days(60), ...over,
+  });
+  const cardPath = (uid, e) => `${N}/cards/${DEV[uid]}_${e}`;
 
   console.log('night');
   await test('a non-member may learn a night does not exist yet', () =>
@@ -72,6 +80,14 @@ async function test(name, fn) {
     assertFails(setDoc(doc(a, 'nights/QQQQ3333'), night({ admin: 'a' }))));
   await test('createdAt must be server time', () =>
     assertFails(setDoc(doc(a, 'nights/QQQQ4444'), night({ createdAt: 5 }))));
+  await test('expireAt is required', () => {
+    const { expireAt, ...noExpiry } = night();
+    return assertFails(setDoc(doc(a, 'nights/QQQQ5555'), noExpiry));
+  });
+  await test('expireAt must be 1 to 90 days ahead (no keeping data forever)', async () => {
+    await assertFails(setDoc(doc(a, 'nights/QQQQ6666'), night({ expireAt: days(400) })));
+    await assertFails(setDoc(doc(a, 'nights/QQQQ6666'), night({ expireAt: days(0.5) })));
+  });
   await test('the first phone online (a player, not the organizer) creates the night', () =>
     assertSucceeds(setDoc(doc(a, N), night())));
   await test('nobody can overwrite the night (secret is fixed)', () =>
@@ -147,7 +163,72 @@ async function test(name, fn) {
   });
   await test('non-members cannot read logs', () => assertFails(getDocs(collection(x, `${N}/logs`))));
   await test('not signed in cannot read logs', () => assertFails(getDocs(collection(anon, `${N}/logs`))));
-  await test('logs cannot be deleted', () => assertFails(deleteDoc(doc(a, logPath('a', 0)))));
+  await test("nobody deletes another member's log", () => assertFails(deleteDoc(doc(b, logPath('a', 1)))));
+  await test('non-members cannot delete logs', () => assertFails(deleteDoc(doc(x, logPath('a', 1)))));
+  await test('the owner takes its log back (sharing off), then writes the short one', async () => {
+    await assertSucceeds(deleteDoc(doc(a, logPath('a', 1))));
+    await assertSucceeds(deleteDoc(doc(a, logPath('a', 0))));
+    await assertSucceeds(setDoc(doc(a, logPath('a', 0)), log('a', 0, 2)));
+  });
+  await test('deleting a log that is already gone is a harmless no-op', () =>
+    assertSucceeds(deleteDoc(doc(a, logPath('a', 9)))));
+  await test('log expireAt must be 1 to 90 days ahead', () =>
+    assertFails(setDoc(doc(b, logPath('b', 0)), log('b', 0, 3, { expireAt: days(365) }))));
+
+  console.log('cards');
+  await test('a writes its cards for entry 3 once the hand is over', () =>
+    assertSucceeds(setDoc(doc(a, cardPath('a', 3)), cards('a', 3, [51, 50]))));
+  await test('nobody, not even a member, reads them for 2 minutes', async () => {
+    await assertFails(getDoc(doc(b, cardPath('a', 3))));
+    await assertFails(getDoc(doc(o, cardPath('a', 3))));
+    await assertFails(getDoc(doc(a, cardPath('a', 3))));
+  });
+  await test('cards cannot be listed (no "watch everyone\'s cards")', () =>
+    assertFails(getDocs(collection(o, `${N}/cards`))));
+  await test('after the hold, members read them one document at a time', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), cardPath('b', 4)), cards('b', 4, [0, 13], {
+        at: Timestamp.fromMillis(Date.now() - 3 * 60000),
+      }));
+    });
+    await assertSucceeds(getDoc(doc(o, cardPath('b', 4))));
+    await assertSucceeds(getDoc(doc(a, cardPath('b', 4))));
+  });
+  await test('non-members never read cards, even old ones', async () => {
+    await assertFails(getDoc(doc(x, cardPath('b', 4))));
+    await assertFails(getDoc(doc(anon, cardPath('b', 4))));
+  });
+  await test('a missing card document reads as refused (not "does not exist")', () =>
+    assertFails(getDoc(doc(o, cardPath('b', 99)))));
+  await test('at must be server time (cannot back-date to dodge the hold)', () =>
+    assertFails(setDoc(doc(a, cardPath('a', 5)), cards('a', 5, [1, 2], { at: Timestamp.fromMillis(Date.now() - 600000) }))));
+  await test('two cards, each 0..51', async () => {
+    await assertFails(setDoc(doc(a, cardPath('a', 6)), cards('a', 6, [1])));
+    await assertFails(setDoc(doc(a, cardPath('a', 6)), cards('a', 6, [1, 52])));
+    await assertFails(setDoc(doc(a, cardPath('a', 6)), cards('a', 6, [1, 'As'])));
+  });
+  await test('doc id must be deviceId_entry', () =>
+    assertFails(setDoc(doc(a, `${N}/cards/${DEV.a}_8`), cards('a', 7, [1, 2]))));
+  await test("cannot write another phone's cards", async () => {
+    await assertFails(setDoc(doc(b, cardPath('a', 7)), cards('b', 7, [1, 2], { deviceId: DEV.a })));
+    await assertFails(setDoc(doc(b, cardPath('a', 3)), cards('b', 3, [1, 2], { deviceId: DEV.a })));
+  });
+  await test('non-member cannot write cards', () =>
+    assertFails(setDoc(doc(x, cardPath('x', 1)), cards('x', 1, [1, 2]))));
+  await test('unknown fields rejected', () =>
+    assertFails(setDoc(doc(a, cardPath('a', 8)), cards('a', 8, [1, 2], { board: [3, 4, 5] }))));
+  await test('the owner may correct its cards (the hold starts again)', () =>
+    assertSucceeds(setDoc(doc(a, cardPath('a', 3)), cards('a', 3, [49, 48]))));
+  await test("nobody deletes another phone's cards", () => assertFails(deleteDoc(doc(o, cardPath('a', 3)))));
+  await test('the owner deletes its cards (sharing off)', () => assertSucceeds(deleteDoc(doc(a, cardPath('a', 3)))));
+
+  console.log('tv');
+  await test('the TV joins like a phone (it holds the code) and reads the logs', async () => {
+    const tv = db('tv');
+    await assertSucceeds(setDoc(doc(tv, `${N}/members/tv`), member('tv', { name: 'TV', deviceId: 'TVTVTVTV2345' })));
+    await assertSucceeds(getDocs(collection(tv, `${N}/logs`)));
+    await assertFails(getDocs(collection(tv, `${N}/cards`)));
+  });
 
   console.log(`\n${passed} passed`);
   await env.cleanup();
