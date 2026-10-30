@@ -82,7 +82,9 @@ class WatchConfig {
   /// corner index stays a sensible fraction of the crop.
   final double minCropFrac;
 
-  /// Reader crop is shrunk (integer step) to at most this short side.
+  /// Reader crop is shrunk (integer step) to at most this short side. 540
+  /// halves the reader's time against 720 with the same hands logged on the
+  /// owner's footage (the phone measured ~250 ms per 720 read).
   final int readMaxShort;
 
   /// Glyph rotation voting in the reader (see readGlyphs). Off: frame
@@ -154,7 +156,7 @@ class WatchConfig {
     this.globalChange = 0.5,
     this.absorbMs = 6000,
     this.minCropFrac = 0.5,
-    this.readMaxShort = 720,
+    this.readMaxShort = 540,
     this.tta = false,
     this.whiteBalance = true,
     this.warmLight = true,

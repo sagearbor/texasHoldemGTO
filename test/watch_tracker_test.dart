@@ -149,6 +149,13 @@ void main() {
         expect(t.partial, s('7c'));
       });
 
+      test('one stray card of a current rank is a suit misread, not a hand', () {
+        final t = WatchHandTracker();
+        t.onRead(p('Td 2c'), 0, episode: 1, scene: 1);
+        expect(t.onLookEnd(s('Tc'), 5000, scene: 2).action, WatchAction.ignore);
+        expect(t.onLookEnd(s('9c'), 9000, scene: 3).action, WatchAction.newHandUnread);
+      });
+
       test('a look showing only the current cards is a re-peek', () {
         final t = WatchHandTracker();
         t.onRead(p('As Kd'), 0, episode: 1, scene: 1);
