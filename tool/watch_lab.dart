@@ -82,8 +82,10 @@ Future<void> main(List<String> argv) async {
     minAgree: int.parse(opt('--agree', '2')!),
     readMaxShort: int.parse(opt('--read-short', '540')!),
     minCropFrac: double.parse(opt('--crop', '0.5')!),
-    singleFrameScore: double.parse(opt('--single', '0.99')!),
+    singleFrameScore: double.parse(opt('--single', '0.92')!),
     ringPaperMin: double.parse(opt('--ring', '0.5')!),
+    maxBlobs: int.tryParse(opt('--max-blobs', '') ?? ''),
+    findBoard: !args.remove('--no-board'),
   ));
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_lab.dart VIDEO [--short 720] [--fps 15] '
@@ -178,7 +180,8 @@ Future<void> main(List<String> argv) async {
     if (dumpDir != null) _dumpPpm('$dumpDir/crop_${job.tMs.toString().padLeft(7, '0')}.ppm', job);
     final sw = Stopwatch()..start();
     final r = readGlyphs(job.rgba, job.width, job.height,
-        cnn: cnn, tta: pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: pipe.cfg.warmLight, ringPaperMin: pipe.cfg.ringPaperMin);
+        cnn: cnn, tta: pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: pipe.cfg.warmLight, ringPaperMin: pipe.cfg.ringPaperMin,
+        maxBlobs: pipe.cfg.maxBlobs, findBoard: pipe.cfg.findBoard);
     final ms = sw.elapsedMilliseconds;
     for (final e in r.timingMs.entries) {
       if (e.key != 'total') stageMs[e.key] = (stageMs[e.key] ?? 0) + e.value;

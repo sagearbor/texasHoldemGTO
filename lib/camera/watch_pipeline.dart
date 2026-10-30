@@ -100,15 +100,18 @@ class WatchConfig {
   /// readGlyphs ringPaperMin.
   final double ringPaperMin;
 
+  /// readGlyphs maxBlobs / findBoard (reader cost).
+  final int? maxBlobs;
+  final bool findBoard;
+
   final int minAgree;
   final int voteWindowMs;
 
   /// One frame is enough when both cards score at least this (and no other
   /// card was read in the vote window): a quick peek that only gave the
-  /// reader one good frame can still log. 1.0+ turns it off. 0.99: the
-  /// sweep over 0.92 / 0.95 / 0.97 / 0.99 / off on all harness inputs gave
-  /// identical hand logs (the rule never fired there), so the strictest
-  /// setting that still lets a very sharp single frame count is used.
+  /// reader one good frame can still log. 1.0+ turns it off. 0.92: the
+  /// lowest setting with no wrong log on any harness input (0.92 / 0.95 /
+  /// 0.97 / 0.99 / off gave identical hand logs, all without wrong logs).
   final double singleFrameScore;
 
   /// After this many reads in a row with no card at all, the reader backs
@@ -167,9 +170,11 @@ class WatchConfig {
     this.whiteBalance = true,
     this.warmLight = true,
     this.ringPaperMin = 0.5,
+    this.maxBlobs,
+    this.findBoard = true,
     this.minAgree = 2,
     this.voteWindowMs = 2500,
-    this.singleFrameScore = 0.99,
+    this.singleFrameScore = 0.92,
     this.emptyReadsBeforeBackoff = 4,
     this.maxBackoffMs = 2000,
     this.motionReadGapMs = 300,
