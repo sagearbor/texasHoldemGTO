@@ -303,7 +303,9 @@ class _StatusPill extends StatelessWidget {
     final (Color color, String text) = switch (c.link) {
       TvLink.connecting => (_dim, 'connecting…'),
       TvLink.failed => (Felt.bad, c.error ?? 'no cloud'),
-      TvLink.offline => (Felt.bad, 'TV offline, retrying · showing the last update${ago == null ? '' : ' ($ago)'}'),
+      TvLink.offline when b == null && (c.error ?? '').contains('No such table night') =>
+        (Felt.mixed, "waiting for the organizer's phone to go online"),
+      TvLink.offline => (Felt.bad,'TV offline, retrying · showing the last update${ago == null ? '' : ' ($ago)'}'),
       TvLink.live when b != null && b.hasOrganizer && b.staleAt(now, opts: c.opts) =>
         (Felt.mixed, "organizer's phone quiet · last update ${ago ?? '–'}"),
       TvLink.live when b != null && !b.hasOrganizer => (Felt.mixed, "waiting for the organizer's phone"),

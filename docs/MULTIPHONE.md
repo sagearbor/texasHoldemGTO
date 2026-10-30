@@ -305,6 +305,8 @@ region or a paid plan (the owner's call: never enable billing here).
 
 ```
 TZ=UTC flutter test                                   # all unit + widget tests
+flutter test --platform chrome test/night_sync_test.dart   # the merge as the TV runs it (JS numbers)
+FELT_E2E=1 FELT_DEMO_MIN=10 FELT_DEMO_SEC=45 flutter test tool/e2e/demo_night_test.dart  # a fake night to watch on a TV
 cd tool/firestore_rules && ./run.sh                   # 67 rules tests, local emulator
 FELT_E2E=1 flutter test tool/e2e/live_night_test.dart # real project, ~3 min, cleans up
 firebase deploy --only firestore:rules,firestore:indexes --project felt-notes-poker
