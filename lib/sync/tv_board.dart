@@ -206,7 +206,9 @@ TvBoard buildTvBoard(MergedNight m, {required int nowMs, TvOptions opts = const 
       h.hand.startMs,
       h.hand.dealer == null ? null : m.nameOf(h.hand.dealer!),
       plays,
-      h.hand.board,
+      // The agreed board: called, fixed, or the cameras' vote when exact
+      // (board_consensus.dart). Public cards, so no delay applies.
+      h.board,
       open,
     ));
   }

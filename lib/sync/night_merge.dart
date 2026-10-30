@@ -22,6 +22,7 @@ import '../gto/hand_class.dart';
 import '../homegame/home_game.dart';
 import '../poker/equity.dart';
 import '../poker/evaluator.dart';
+import 'board_consensus.dart';
 import 'night_events.dart';
 
 /// Every event one device wrote (or the part of it that has arrived).
@@ -47,7 +48,12 @@ class MergeOptions {
   /// Length given to the last hand when there is no next hand or end yet.
   final int lastHandMs;
 
-  const MergeOptions({this.maxSkewMs = 120000, this.lastHandMs = 8 * 60000});
+  /// A camera board read this soon after a "next hand" tap that shows a
+  /// longer street than the new hand has yet belongs to the hand before
+  /// (the river read lands while the dealer is already shuffling).
+  final int lateBoardMs;
+
+  const MergeOptions({this.maxSkewMs = 120000, this.lastHandMs = 8 * 60000, this.lateBoardMs = 15000});
 }
 
 // ---------------------------------------------------------------- timeline
@@ -265,8 +271,15 @@ class MergedHand {
 
   /// Players with a phone at the table for this hand, by pid.
   final Map<String, PlayerHand> players;
-  const MergedHand(this.hand, this.players);
+
+  /// The community cards as agreed (lib/sync/board_consensus.dart): the
+  /// organizer's call, else a one-tap fix, else the cameras' vote.
+  final AgreedBoard agreedBoard;
+  const MergedHand(this.hand, this.players, {this.agreedBoard = AgreedBoard.none});
   int get n => hand.n;
+
+  /// The board as exact cards (every card known), or null.
+  List<int>? get board => agreedBoard.exact;
 }
 
 class Unassigned {
@@ -312,7 +325,7 @@ class MergedNight {
               action: p.action,
               facing: p.inferred ? null : p.facing,
               ts: h.hand.startMs,
-              board: h.hand.board,
+              board: h.board,
             )
       ];
 }
@@ -455,6 +468,26 @@ MergedNight mergeNight({
     }
   }
 
+  // Board reads and fixes from every phone, on the organizer's clock.
+  final reads = <int, List<BoardObservation>>{}; // hand n -> reads
+  final fixes = <int, (int, List<int>)>{}; // hand n -> (ms, cards), latest wins
+  for (final d in devices) {
+    for (final e in byDevice[d.deviceId]!.values) {
+      if (e.kind == EventKind.boardFix) {
+        final n = e.data['n'], c = e.data['c'];
+        if (n is int && c is List && c.length >= 3 && c.length <= 5) {
+          final t = e.ms + d.offsetMs;
+          if ((fixes[n]?.$1 ?? -1 << 60) < t) fixes[n] = (t, c.cast<int>());
+        }
+      } else if (e.kind == EventKind.boardRead) {
+        final obs = _observation(d.deviceId, e, d.offsetMs);
+        if (obs == null) continue;
+        final n = _handForBoard(timeline, obs, reads, opts);
+        if (n != null) reads.putIfAbsent(n, () => []).add(obs);
+      }
+    }
+  }
+
   final hands = <MergedHand>[];
   for (final h in timeline.hands) {
     final players = <String, PlayerHand>{};
@@ -477,7 +510,17 @@ MergedNight mergeNight({
         entryNo: e?.e,
       );
     }
-    hands.add(MergedHand(h, players));
+    final held = <int>{
+      for (final p in players.values)
+        if (p.cards != null) ...p.cards!
+    };
+    final agreed = agreeBoard(
+      observations: reads[h.n] ?? const [],
+      called: h.board,
+      fixed: fixes[h.n]?.$2,
+      holeCards: held,
+    );
+    hands.add(MergedHand(h, players, agreedBoard: agreed));
   }
   return MergedNight(
     timeline: timeline,
@@ -486,6 +529,44 @@ MergedNight mergeNight({
     unassigned: unassigned,
     warnings: warnings,
   );
+}
+
+/// A `boardRead` event as a [BoardObservation] on the organizer's clock,
+/// or null when malformed.
+BoardObservation? _observation(String deviceId, NightEvent e, int offsetMs) {
+  final c = e.data['c'];
+  if (c is! List || c.isEmpty || c.length > 5) return null;
+  final q = e.data['q'], u = e.data['u'];
+  final cards = <PartialCard>[];
+  for (var i = 0; i < c.length; i++) {
+    final tok = c[i];
+    if (tok is! String) return null;
+    final rc = q is List && i < q.length && q[i] is num ? (q[i] as num).toDouble() : 0.5;
+    final sc = u is List && i < u.length && u[i] is num ? (u[i] as num).toDouble() : 0.3;
+    final card = PartialCard.parse(tok, rankConf: rc, suitConf: sc);
+    if (card == null) return null;
+    cards.add(card);
+  }
+  return BoardObservation(deviceId, e.ms + offsetMs, cards);
+}
+
+/// The hand a board read belongs to: the one whose interval holds it,
+/// except a read in the first [MergeOptions.lateBoardMs] of a hand that
+/// shows more cards than that hand has been read with so far, which is
+/// the previous hand's turn or river seen late.
+int? _handForBoard(Timeline tl, BoardObservation o, Map<int, List<BoardObservation>> reads, MergeOptions opts) {
+  for (var i = 0; i < tl.hands.length; i++) {
+    final h = tl.hands[i];
+    if (o.ms < h.startMs || o.ms >= h.endMs) continue;
+    if (i > 0 && o.ms - h.startMs < opts.lateBoardMs && o.count >= 4) {
+      final prev = tl.hands[i - 1];
+      final prevMax = (reads[prev.n] ?? const []).fold(0, (m, r) => max(m, r.count));
+      final thisMax = (reads[h.n] ?? const []).fold(0, (m, r) => max(m, r.count));
+      if (prevMax >= 3 && prevMax < o.count && thisMax < o.count) return prev.n;
+    }
+    return h.n;
+  }
+  return null;
 }
 
 List<Entry> _entries(DeviceInfo d, Iterable<NightEvent> events) {
@@ -633,7 +714,7 @@ List<DramaLine> dramaLines(MergedNight night, {int samples = 4000, Random? rng})
     final ha = HandClass.fromCards(a.cards![0], a.cards![1]);
     final hb = HandClass.fromCards(b.cards![0], b.cards![1]);
     final when = clockLabel(h.hand.startMs);
-    final board = h.hand.board;
+    final board = h.board;
     if (board != null && board.length == 5 && {...a.cards!, ...b.cards!, ...board}.length == 9) {
       final eq = handsEquity([a.cards!, b.cards!], const [], samples: samples, rng: rng).equity;
       final sa = evaluate([...a.cards!, ...board]), sb = evaluate([...b.cards!, ...board]);

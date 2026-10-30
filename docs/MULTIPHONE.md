@@ -72,6 +72,8 @@ source of truth; the cloud copy can always be rebuilt from it.
 | `hand` | organizer | `n, d` | hand `n` starts now, dealer pid `d` |
 | `unhand` | organizer | `n` | that "next hand" was a mis-tap |
 | `board` | organizer | `n, c` | 3-5 community cards, if anyone called them |
+| `boardRead` | any | `c, q, u` | the board as this phone's camera read it (partial-card tokens + confidences); phones vote at merge, see docs/BOARD_CONSENSUS.md |
+| `boardFix` | any | `n, c` | one tap to confirm / fix hand `n`'s board; beats the cameras, loses to `board` |
 | `end` | organizer | | night over |
 | `clock` | organizer | `j` | the blind clock (BlindClock json) |
 
