@@ -162,6 +162,13 @@ class WatchSessionSummary {
   List<int> get _toConfident => [for (final p in peeks) if (p.msToConfident != null) p.msToConfident!];
   List<int> get _toReadable => [for (final p in peeks) if (p.msToReadable != null) p.msToReadable!];
 
+  /// First readable frame -> agreed pair: the reader's own latency (a peek
+  /// starts at the first motion, often a hand long before the cards show).
+  List<int> get _readableToConfident => [
+        for (final p in peeks)
+          if (p.confidentMs != null && p.firstReadableMs != null) p.confidentMs! - p.firstReadableMs!
+      ];
+
   double perMinute(int n) => durationMs <= 0 ? 0 : n * 60000 / durationMs;
 
   /// Battery drop per hour from the first and last sample, or null.
@@ -184,6 +191,7 @@ class WatchSessionSummary {
         'outcomes': {for (final o in PeekOutcome.values) o.name: count(o)},
         'msToReadable': {'median': _pct(_toReadable, 0.5), 'p90': _pct(_toReadable, 0.9)},
         'msToConfident': {'median': _pct(_toConfident, 0.5), 'p90': _pct(_toConfident, 0.9)},
+        'msReadableToConfident': {'median': _pct(_readableToConfident, 0.5), 'p90': _pct(_readableToConfident, 0.9)},
         'framesPerMin': {
           'seen': perMinute(frames.seen).round(),
           'gated': perMinute(frames.gated).round(),
@@ -201,12 +209,16 @@ class WatchSessionSummary {
     final j = toJson();
     final fpm = j['framesPerMin'] as Map;
     final r = j['msToReadable'] as Map, c = j['msToConfident'] as Map;
+    final rc = j['msReadableToConfident'] as Map;
     return [
       'duration ${j['durationMin']} min, motion events ${frames.motionEvents}, peeks ${peeks.length}',
       'hits $hits, near-misses $nearMisses, misses $misses, late bursts $lateBursts',
       'outcomes ${(j['outcomes'] as Map).entries.where((e) => e.value != 0).map((e) => '${e.key} ${e.value}').join(', ')}',
       'ms to first readable frame: median ${r['median']} p90 ${r['p90']}',
       'ms to confident read:       median ${c['median']} p90 ${c['p90']}',
+      'ms readable -> confident:   median ${rc['median']} p90 ${rc['p90']}',
+      'near-misses: agreeing reads when the cards vanished: '
+          '${[for (final p in peeks) if (p.nearMiss) p.agree].join(' ')}',
       'frames/min: seen ${fpm['seen']}, gated ${fpm['gated']}, card-like ${fpm['candidate']}, '
           'read ${fpm['read']} (reader ${j['readerMsPerMin']} ms/min)',
       if (battery.isNotEmpty)

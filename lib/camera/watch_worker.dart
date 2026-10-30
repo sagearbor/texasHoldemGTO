@@ -9,6 +9,7 @@ import 'dart:typed_data';
 
 import 'glyph_cnn.dart';
 import 'glyph_reader.dart';
+import 'watch_frame.dart' show whiteBalance;
 
 class GlyphWorker {
   final ReceivePort _recv = ReceivePort();
@@ -39,11 +40,11 @@ class GlyphWorker {
     }
   }
 
-  Future<GlyphReadResult> read(Uint8List rgba, int width, int height, {bool tta = false, int? scaleShortSide, bool warmLight = true}) {
+  Future<GlyphReadResult> read(Uint8List rgba, int width, int height, {bool tta = false, int? scaleShortSide, bool warmLight = true, bool balance = false}) {
     final id = _nextId++;
     final c = Completer<GlyphReadResult>();
     _pending[id] = c;
-    _send!.send((id, TransferableTypedData.fromList([rgba]), width, height, tta, scaleShortSide, warmLight));
+    _send!.send((id, TransferableTypedData.fromList([rgba]), width, height, tta, scaleShortSide, warmLight, balance));
     return c.future;
   }
 
@@ -62,9 +63,13 @@ class GlyphWorker {
     final inbox = ReceivePort();
     out.send(inbox.sendPort);
     inbox.listen((m) {
-      final (id, data, w, h, tta, ref, warm) = m as (int, TransferableTypedData, int, int, bool, int?, bool);
+      final (id, data, w, h, tta, ref, warm, balance) =
+          m as (int, TransferableTypedData, int, int, bool, int?, bool, bool);
       try {
-        out.send((id, readGlyphs(data.materialize().asUint8List(), w, h, cnn: cnn, tta: tta, scaleShortSide: ref, warmLight: warm)));
+        final px = data.materialize().asUint8List();
+        // White balance here, off the UI isolate (WatchConfig.whiteBalance).
+        if (balance) whiteBalance(px);
+        out.send((id, readGlyphs(px, w, h, cnn: cnn, tta: tta, scaleShortSide: ref, warmLight: warm)));
       } catch (e) {
         out.send((id, '$e'));
       }

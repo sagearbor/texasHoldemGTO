@@ -126,7 +126,9 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   String? _error;
   bool _watching = false;
 
-  WatchPipeline _pipe = WatchPipeline();
+  // White balance runs in the reader isolate (see _onImage), not here.
+  static const _cfg = WatchConfig(whiteBalance: false);
+  WatchPipeline _pipe = WatchPipeline(_cfg);
   final Stopwatch _clock = Stopwatch();
   WatchStatus _status = WatchStatus.idle;
 
@@ -220,7 +222,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   Future<void> _startWatching() async {
     final c = _cam;
     if (c == null || _watching) return;
-    _pipe = WatchPipeline();
+    _pipe = WatchPipeline(_cfg);
     _peeksLogged = 0;
     _battery.clear();
     _clock
@@ -284,7 +286,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     _setStatus(_pipe.status(t));
     if (job == null) return;
     final sw = Stopwatch()..start();
-    _worker!.read(job.rgba, job.width, job.height, tta: _pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: _pipe.cfg.warmLight)
+    _worker!.read(job.rgba, job.width, job.height, tta: _pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: _pipe.cfg.warmLight, balance: true)
         .then((r) {
       if (!mounted || !_watching) return;
       final pair = _pipe.onRead(job, r, readMs: sw.elapsedMilliseconds);
