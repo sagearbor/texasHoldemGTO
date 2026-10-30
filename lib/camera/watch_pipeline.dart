@@ -135,7 +135,9 @@ class WatchConfig {
   /// "Cold": no confident card in the last [hotMs]. Cold reads are at most
   /// one per [coldGapMs], unless [newBrightCells] cells of the crop got
   /// clearly brighter since the last read (cards turning up are paper-white
-  /// against the hand). Hot reads run back to back.
+  /// against the hand). Hot reads run back to back. Off (0) by default: on
+  /// the owner's footage hands always move, so it saved no reads (and lost
+  /// one hand at 1000 ms).
   final int hotMs;
   final int coldGapMs;
   final int newBrightCells;
@@ -168,7 +170,7 @@ class WatchConfig {
     this.staticDiff = 4,
     this.staticRereadMs = 0,
     this.hotMs = 1500,
-    this.coldGapMs = 1000,
+    this.coldGapMs = 0,
     this.newBrightCells = 3,
   });
 }
@@ -477,6 +479,9 @@ class WatchPipeline {
   /// and the device orientation).
   int rotation = 0;
 
+  /// Frames are mirrored (iOS front lens): flip crops back before reading.
+  bool mirror = false;
+
   /// Finished peeks (oldest first). The app drains these into its log.
   final List<PeekRecord> peeks = [];
   PeekRecord? _peek;
@@ -603,6 +608,7 @@ class WatchPipeline {
     p?.framesRead++;
     final box = g.card!;
     final (crop, cw, ch) = f.cropRgba(box, maxShort: cfg.readMaxShort);
+    if (mirror) mirrorRgba(crop, cw, ch);
     final (rgba, w, h) = rotateRgba(crop, cw, ch, rotation);
     if (cfg.whiteBalance) whiteBalance(rgba);
     final scale = box.w == 0 ? 1.0 : cw / box.w;

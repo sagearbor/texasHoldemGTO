@@ -87,6 +87,9 @@ void main() {
       expect(uprightRotation(90, 270, front: false), 180);
       expect(uprightRotation(270, 0, front: true), 270);
       expect(uprightRotation(270, 90, front: true), 0);
+      final m = Uint8List.fromList([255, 0, 0, 255, 0, 255, 0, 255]);
+      mirrorRgba(m, 2, 1);
+      expect(m.sublist(0, 4), [0, 255, 0, 255]);
     });
 
     test('crop is shrunk to maxShort by an integer step', () {

@@ -149,6 +149,10 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   final WatchLogStore _log = WatchLogStore();
   final WatchDebugCrops _crops = WatchDebugCrops();
   int _peeksLogged = 0;
+
+  /// The stream's actual format is logged once per session (frame size,
+  /// planes, rotation): the first phone test could not tell them apart.
+  bool _streamLogged = false;
   final List<(int, int)> _battery = [];
   Timer? _ticker;
 
@@ -238,6 +242,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     if (c == null || _watching) return;
     _pipe = WatchPipeline(_cfg);
     _peeksLogged = 0;
+    _streamLogged = false;
     _battery.clear();
     _clock
       ..reset()
@@ -298,11 +303,37 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     final t = _clock.elapsedMilliseconds;
     final c = _cam;
     if (c != null) {
-      // Frames come in sensor orientation; turn crops upright for however
-      // the phone is propped (portrait or landscape, either lens).
-      _pipe.rotation = uprightRotation(
-          c.description.sensorOrientation, _deviceDegrees[c.value.deviceOrientation] ?? 0,
-          front: c.description.lensDirection == CameraLensDirection.front);
+      final front = c.description.lensDirection == CameraLensDirection.front;
+      if (Platform.isIOS) {
+        // The iOS plugin turns its stream to the device orientation already
+        // and mirrors the front lens.
+        _pipe.rotation = 0;
+        _pipe.mirror = front;
+      } else {
+        // Android frames come in sensor orientation: turn crops upright
+        // for however the phone is propped (portrait or landscape).
+        _pipe.rotation = uprightRotation(
+            c.description.sensorOrientation, _deviceDegrees[c.value.deviceOrientation] ?? 0,
+            front: front);
+        _pipe.mirror = false;
+      }
+    }
+    if (!_streamLogged && c != null) {
+      _streamLogged = true;
+      _log.append({
+        'type': 'stream',
+        'width': img.width,
+        'height': img.height,
+        'format': img.format.group.name,
+        'raw': '${img.format.raw}',
+        'planes': [
+          for (final p in img.planes) {'bytesPerRow': p.bytesPerRow, 'bytesPerPixel': p.bytesPerPixel, 'len': p.bytes.length}
+        ],
+        'sensorOrientation': c.description.sensorOrientation,
+        'deviceOrientation': c.value.deviceOrientation.name,
+        'rotation': _pipe.rotation,
+        'mirror': _pipe.mirror,
+      });
     }
     final job = _pipe.onFrame(watchFrameFromCamera(img), t);
     _setStatus(_pipe.status(t));

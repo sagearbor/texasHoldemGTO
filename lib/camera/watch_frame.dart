@@ -248,11 +248,25 @@ void whiteBalance(Uint8List rgba,
   return (out, nw, nh);
 }
 
-/// Clockwise turn that makes a camera frame upright for the reader, from
-/// the sensor's mounting angle and how the phone is held (0 = portrait,
-/// 90 = landscape with the top to the left, 180, 270). Camera-stream frames
-/// (Android ImageAnalysis, iOS video data output) are never mirrored, so the
-/// front lens only turns the other way.
+/// Clockwise turn that makes an ANDROID camera frame upright for the
+/// reader, from the sensor's mounting angle and how the phone is held
+/// (0 = portrait, 90 = landscape with the top to the left, 180, 270).
+/// CameraX ImageAnalysis frames come in sensor orientation and are never
+/// mirrored, so the front lens only turns the other way. (iOS: the camera
+/// plugin already turns its stream to the device orientation and mirrors
+/// the front lens; see watch_screen.dart.)
 int uprightRotation(int sensorOrientation, int deviceDegrees, {required bool front}) => front
     ? (sensorOrientation + deviceDegrees) % 360
     : (sensorOrientation - deviceDegrees + 360) % 360;
+
+/// [rgba] mirrored left-right (in place).
+void mirrorRgba(Uint8List rgba, int w, int h) {
+  final px = Uint32List.view(rgba.buffer, rgba.offsetInBytes, w * h);
+  for (var y = 0; y < h; y++) {
+    for (var a = y * w, b = y * w + w - 1; a < b; a++, b--) {
+      final t = px[a];
+      px[a] = px[b];
+      px[b] = t;
+    }
+  }
+}
