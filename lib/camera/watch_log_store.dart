@@ -7,6 +7,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
+
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -60,6 +62,32 @@ class WatchLogStore {
         final f = await _open();
         await f.writeAsString('${jsonEncode(record)}\n', mode: FileMode.append);
       });
+
+  static Future<File> _logFile() async => File('${(await getApplicationSupportDirectory()).path}/$watchLogName');
+
+  static String _stamp() {
+    final n = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${n.year}${two(n.month)}${two(n.day)}-${two(n.hour)}${two(n.minute)}';
+  }
+
+  /// Saves the log where the player picks (Android: the system "save as"
+  /// dialog, e.g. Downloads; iOS: Files). Returns false when there is
+  /// nothing to save or it was cancelled.
+  static Future<bool> saveToDevice() async {
+    try {
+      final f = await _logFile();
+      if (!await f.exists() || await f.length() == 0) return false;
+      final path = await FilePicker.platform.saveFile(
+        fileName: 'felt-notes-watch-log-${_stamp()}.jsonl',
+        bytes: await f.readAsBytes(),
+      );
+      return path != null;
+    } catch (e) {
+      debugPrint('watch log save: $e');
+      return false;
+    }
+  }
 
   /// Opens the share sheet with the log file. Returns false when there is
   /// nothing to share yet.

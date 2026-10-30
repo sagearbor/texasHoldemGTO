@@ -98,6 +98,11 @@ class WatchConfig {
   final int minAgree;
   final int voteWindowMs;
 
+  /// One frame is enough when both cards score at least this (and no other
+  /// card was read in the vote window): a quick peek that only gave the
+  /// reader one good frame can still log. 1.0+ turns it off.
+  final double singleFrameScore;
+
   /// After this many reads in a row with no card at all, the reader backs
   /// off (doubling up to [maxBackoffMs]) until the peek ends or a card is
   /// seen: a white mug or a shirt cuff must not keep the reader busy.
@@ -121,9 +126,19 @@ class WatchConfig {
 
   /// Skip a read when the last one found no card and the crop's cells moved
   /// less than this (mean luma) since: a hand resting in view. At most
-  /// [staticRereadMs] between reads anyway.
+  /// [staticRereadMs] between reads anyway. Off (0) by default: on the
+  /// owner's footage it skipped exactly the still frames where held cards
+  /// read best and lost 3 of 25 hands; the cold rate below is used instead.
   final double staticDiff;
   final int staticRereadMs;
+
+  /// "Cold": no confident card in the last [hotMs]. Cold reads are at most
+  /// one per [coldGapMs], unless [newBrightCells] cells of the crop got
+  /// clearly brighter since the last read (cards turning up are paper-white
+  /// against the hand). Hot reads run back to back.
+  final int hotMs;
+  final int coldGapMs;
+  final int newBrightCells;
 
   const WatchConfig({
     this.idleIntervalMs = 200,
@@ -143,6 +158,7 @@ class WatchConfig {
     this.warmLight = true,
     this.minAgree = 2,
     this.voteWindowMs = 2500,
+    this.singleFrameScore = 0.92,
     this.emptyReadsBeforeBackoff = 4,
     this.maxBackoffMs = 2000,
     this.motionReadGapMs = 300,
@@ -150,7 +166,10 @@ class WatchConfig {
     this.cardsGoneMs = 800,
     this.clearMs = 1500,
     this.staticDiff = 4,
-    this.staticRereadMs = 1500,
+    this.staticRereadMs = 0,
+    this.hotMs = 1500,
+    this.coldGapMs = 1000,
+    this.newBrightCells = 3,
   });
 }
 
@@ -189,6 +208,30 @@ class ChangeGate {
   Uint8List? get grid => _prev;
   int get gridW => _gw;
   int get gridH => _gh;
+
+  /// Cells under the pixel box [r] that are clearly brighter in [a] than in
+  /// [b] and among the brightest of [a] (paper, not a shadow lifting).
+  int brighterCells(Uint8List a, Uint8List b, PixRect r, int fw, int fh) {
+    final x0 = (r.x0 * _gw ~/ fw).clamp(0, _gw - 1), x1 = ((r.x1 - 1) * _gw ~/ fw).clamp(0, _gw - 1);
+    final y0 = (r.y0 * _gh ~/ fh).clamp(0, _gh - 1), y1 = ((r.y1 - 1) * _gh ~/ fh).clamp(0, _gh - 1);
+    var mean = 0, n = 0;
+    for (var y = y0; y <= y1; y++) {
+      for (var x = x0; x <= x1; x++) {
+        mean += a[y * _gw + x];
+        n++;
+      }
+    }
+    if (n == 0) return 0;
+    mean ~/= n;
+    var c = 0;
+    for (var y = y0; y <= y1; y++) {
+      for (var x = x0; x <= x1; x++) {
+        final i = y * _gw + x;
+        if (a[i] - b[i] > cfg.diffThreshold && a[i] > mean + 20) c++;
+      }
+    }
+    return c;
+  }
 
   /// Mean absolute luma difference between [a] and [b] over the cells under
   /// the pixel box [r] of a [fw] x [fh] frame.
@@ -347,6 +390,9 @@ class PeekVoter {
   final List<(int, List<int>)> _reads = [];
   final List<(int, List<int>)> _pairs = [];
 
+  /// No card other than [cards] was read in the current window.
+  bool onlyCards(List<int> cards) => _reads.every((r) => r.$2.every(cards.contains));
+
   void reset() {
     _reads.clear();
     _pairs.clear();
@@ -424,6 +470,12 @@ class WatchPipeline {
         voter = PeekVoter(minAgree: cfg.minAgree, windowMs: cfg.voteWindowMs);
 
   final StageCounts counts = StageCounts();
+
+  /// Clockwise turn (0/90/180/270) that makes frames upright: the camera
+  /// stream comes in sensor orientation, whatever way the phone is propped.
+  /// The caller keeps it current (watch_screen.dart, from the sensor angle
+  /// and the device orientation).
+  int rotation = 0;
 
   /// Finished peeks (oldest first). The app drains these into its log.
   final List<PeekRecord> peeks = [];
@@ -522,8 +574,19 @@ class WatchPipeline {
     counts.candidate++;
     p?.framesCandidate++;
     if (_busy || tMs < _nextReadMs) return null;
-    // A hand resting in view after an empty read: same crop, same answer.
     final grid = gate.grid, last = _lastReadGrid;
+    // Cold (no card seen lately): read about once a second, or at once when
+    // something paper-bright turns up in the crop.
+    if (tMs - _lastCardMs > cfg.hotMs &&
+        tMs - _lastReadMs < cfg.coldGapMs &&
+        grid != null &&
+        last != null &&
+        last.length == grid.length &&
+        gate.brighterCells(grid, last, g.card!, f.width, f.height) < cfg.newBrightCells) {
+      counts.skippedCold++;
+      return null;
+    }
+    // A hand resting in view after an empty read: same crop, same answer.
     if (_lastReadEmpty &&
         grid != null &&
         last != null &&
@@ -539,9 +602,10 @@ class WatchPipeline {
     counts.read++;
     p?.framesRead++;
     final box = g.card!;
-    final (rgba, w, h) = f.cropRgba(box, maxShort: cfg.readMaxShort);
+    final (crop, cw, ch) = f.cropRgba(box, maxShort: cfg.readMaxShort);
+    final (rgba, w, h) = rotateRgba(crop, cw, ch, rotation);
     if (cfg.whiteBalance) whiteBalance(rgba);
-    final scale = box.w == 0 ? 1.0 : w / box.w;
+    final scale = box.w == 0 ? 1.0 : cw / box.w;
     return ReadJob(rgba, w, h, tMs, (math.min(f.width, f.height) * scale).round());
   }
 
@@ -590,8 +654,16 @@ class WatchPipeline {
         p.framesReadable++;
       }
     }
-    final pair = voter.add(cards, job.tMs);
+    var pair = voter.add(cards, job.tMs);
     if (p != null) p.agree = math.max(p.agree, voter.bestAgree);
+    if (pair == null &&
+        r.hero.length == 2 &&
+        r.hero[0].card != r.hero[1].card &&
+        r.hero.every((c) => c.score >= cfg.singleFrameScore) &&
+        voter.onlyCards(cards)) {
+      pair = canonicalPair(cards);
+      counts.singleFrame++;
+    }
     if (pair == null) return null;
     _nextReadMs = math.max(_nextReadMs, job.tMs + cfg.satisfiedReadGapMs);
     if (p != null && p.confidentMs == null) {

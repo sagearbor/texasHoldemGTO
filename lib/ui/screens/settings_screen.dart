@@ -138,7 +138,7 @@ class SettingsScreen extends StatelessWidget {
                     key: const Key('settings-watch-log'),
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.ios_share),
-                    title: const Text('Export Watch my cards diagnostics'),
+                    title: const Text('Share Watch my cards diagnostics'),
                     subtitle: const Text(
                         'Timings and reads from the last few sessions, no images. Stays on this phone unless you share it'),
                     onTap: () async {
@@ -149,6 +149,20 @@ class SettingsScreen extends StatelessWidget {
                       }
                     },
                   ),
+                ),
+              if (watchModeSupported)
+                ListTile(
+                  key: const Key('settings-watch-log-save'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.save_alt),
+                  title: const Text('Save Watch my cards diagnostics to device'),
+                  onTap: () async {
+                    final ok = await WatchLogStore.saveToDevice();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(ok ? 'Diagnostics log saved' : 'Nothing saved')));
+                    }
+                  },
                 ),
             ]),
             _Section(icon: Icons.save_alt, title: 'Data', children: [

@@ -136,6 +136,12 @@ class StageCounts {
   /// Card-like frames not read: unchanged since an empty read.
   int skippedStatic = 0;
 
+  /// Card-like frames not read: cold (no card lately, nothing new).
+  int skippedCold = 0;
+
+  /// Pairs logged from a single very confident frame.
+  int singleFrame = 0;
+
   /// Reader time, summed (ms), when the caller measures it.
   int readMs = 0;
 
@@ -206,6 +212,7 @@ class WatchSessionSummary {
         },
         'readerMsPerMin': perMinute(frames.readMs).round(),
         'skippedStaticPerMin': perMinute(frames.skippedStatic).round(),
+        'singleFramePairs': frames.singleFrame,
         'motionEvents': frames.motionEvents,
         'battery': [for (final (t, b) in battery) [t ~/ 60000, b]],
         'batteryPerHour': batteryPerHour == null ? null : double.parse(batteryPerHour!.toStringAsFixed(1)),
@@ -228,7 +235,8 @@ class WatchSessionSummary {
           '${[for (final p in peeks) if (p.nearMiss) p.agree].join(' ')}',
       'frames/min: seen ${fpm['seen']}, gated ${fpm['gated']}, card-like ${fpm['candidate']}, '
           'read ${fpm['read']} (reader ${j['readerMsPerMin']} ms/min), '
-          'skipped as unchanged ${perMinute(frames.skippedStatic).round()}',
+          'skipped as unchanged ${perMinute(frames.skippedStatic).round()}, '
+          'as cold ${perMinute(frames.skippedCold).round()}',
       if (battery.isNotEmpty)
         'battery ${battery.map((e) => '${e.$1 ~/ 60000}min:${e.$2}%').join(' ')}'
             '${batteryPerHour == null ? '' : ' (${batteryPerHour!.toStringAsFixed(1)} %/h)'}',

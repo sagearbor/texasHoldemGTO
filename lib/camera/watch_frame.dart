@@ -222,3 +222,37 @@ void whiteBalance(Uint8List rgba,
     rgba[o + 2] = luts[2][rgba[o + 2]];
   }
 }
+
+/// [rgba] ([w] x [h]) turned [deg] (0 / 90 / 180 / 270) clockwise. Returns
+/// (pixels, width, height).
+(Uint8List, int, int) rotateRgba(Uint8List rgba, int w, int h, int deg) {
+  final d = ((deg % 360) + 360) % 360;
+  if (d == 0) return (rgba, w, h);
+  final px = Uint32List.view(rgba.buffer, rgba.offsetInBytes, w * h);
+  final out = Uint8List(w * h * 4);
+  final o = Uint32List.view(out.buffer);
+  final nw = d == 180 ? w : h, nh = d == 180 ? h : w;
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final v = px[y * w + x];
+      switch (d) {
+        case 90:
+          o[x * nw + (h - 1 - y)] = v;
+        case 180:
+          o[(h - 1 - y) * nw + (w - 1 - x)] = v;
+        default: // 270
+          o[(w - 1 - x) * nw + y] = v;
+      }
+    }
+  }
+  return (out, nw, nh);
+}
+
+/// Clockwise turn that makes a camera frame upright for the reader, from
+/// the sensor's mounting angle and how the phone is held (0 = portrait,
+/// 90 = landscape with the top to the left, 180, 270). Camera-stream frames
+/// (Android ImageAnalysis, iOS video data output) are never mirrored, so the
+/// front lens only turns the other way.
+int uprightRotation(int sensorOrientation, int deviceDegrees, {required bool front}) => front
+    ? (sensorOrientation + deviceDegrees) % 360
+    : (sensorOrientation - deviceDegrees + 360) % 360;

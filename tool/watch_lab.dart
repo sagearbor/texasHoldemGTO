@@ -65,6 +65,11 @@ Future<void> main(List<String> argv) async {
   // HLG HDR clip -> SDR like the live camera stream: a 3D LUT made by
   // tool/camera_lab/make_hlg_sdr_lut.py (this ffmpeg has no zscale).
   final hlgLut = opt('--hlg');
+  // Scene rotation in the frame, as CameraX delivers a phone held the other
+  // way (sensor orientation): 90 = portrait-held phone, landscape video.
+  final rotate = int.parse(opt('--rotate', '0')!);
+  // Undo it before reading, as the app does (WatchConfig-independent).
+  final unrotate = args.remove('--unrotate');
   // Spoken "next hand" times (tool/camera_lab/next_hand_markers.py).
   final markersPath = opt('--markers');
   // Synthetic clips made of separate stills: re-learn the background at each
@@ -93,7 +98,7 @@ Future<void> main(List<String> argv) async {
     '-an',
     // Always video range + BT.709, like the iPhone stream, whatever the
     // file is tagged (a clip made from JPEGs is full range).
-    '-vf', "fps=$fps,scale='if(gt(iw,ih),-2,$short)':'if(gt(iw,ih),$short,-2)':flags=area"
+    '-vf', "fps=$fps${switch (rotate) { 90 => ',transpose=1', 180 => ',hflip,vflip', 270 => ',transpose=2', _ => '' }},scale='if(gt(iw,ih),-2,$short)':'if(gt(iw,ih),$short,-2)':flags=area"
         "${hlgLut == null ? '' : ':in_color_matrix=bt2020:in_range=tv,format=rgb48le,lut3d=file=$hlgLut,scale=in_range=pc'}"
         "${android ? ':out_range=pc:out_color_matrix=bt601' : ':out_range=tv:out_color_matrix=bt709'}"
         // Rough stand-in for HDR tone-mapping (no zscale here): HLG / BT.2020
@@ -123,6 +128,7 @@ Future<void> main(List<String> argv) async {
   stdout.writeln('video ${args.first}: ${w}x$h NV12 @ $fps fps, reader latency '
       '${readMsFixed == null ? 'measured x$phone' : '$readMsFixed ms (fixed)'}');
 
+  if (unrotate) pipe.rotation = (360 - rotate) % 360;
   final tracker = WatchHandTracker();
   final decisions = <(int, WatchDecision)>[];
   (ReadJob, GlyphReadResult, int, int)? inFlight; // job, result, deliver at, ms

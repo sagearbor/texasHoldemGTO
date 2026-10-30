@@ -30,6 +30,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../poker/cards.dart';
 import 'snap_cards_screen.dart' show BetaBadge;
+import 'watch_debug_crops.dart';
 import 'watch_diagnostics.dart';
 import 'glyph_reader.dart';
 import 'watch_frame.dart';
@@ -72,6 +73,7 @@ class WatchSettings {
   static const voiceKey = 'watch_voice_v1';
   static const frontKey = 'watch_front_camera_v1';
   static const sharpKey = 'watch_sharp_v1';
+  static const cropsKey = 'watch_debug_crops_v1';
 
   static final voice = ValueNotifier<bool>(true);
   static final front = ValueNotifier<bool>(false);
@@ -79,11 +81,15 @@ class WatchSettings {
   /// 1080p instead of 720p: smaller cards read better, more battery.
   static final sharp = ValueNotifier<bool>(false);
 
+  /// Tester tool: keep the reader's crops on the phone (off by default).
+  static final crops = ValueNotifier<bool>(false);
+
   static Future<void> load() async {
     final p = await SharedPreferences.getInstance();
     voice.value = p.getBool(voiceKey) ?? true;
     front.value = p.getBool(frontKey) ?? false;
     sharp.value = p.getBool(sharpKey) ?? false;
+    crops.value = p.getBool(cropsKey) ?? false;
   }
 
   static Future<void> set(ValueNotifier<bool> n, String key, bool v) async {
@@ -100,6 +106,13 @@ Future<void> openWatchMode(BuildContext context, WatchHost host) async {
     builder: (_) => WatchScreen(host: host),
   ));
 }
+
+const _deviceDegrees = {
+  DeviceOrientation.portraitUp: 0,
+  DeviceOrientation.landscapeLeft: 90,
+  DeviceOrientation.portraitDown: 180,
+  DeviceOrientation.landscapeRight: 270,
+};
 
 /// Camera frame -> [WatchFrame] without copying the pixels.
 WatchFrame watchFrameFromCamera(CameraImage img) {
@@ -134,6 +147,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
 
   final WatchVoice _voice = WatchVoice();
   final WatchLogStore _log = WatchLogStore();
+  final WatchDebugCrops _crops = WatchDebugCrops();
   int _peeksLogged = 0;
   final List<(int, int)> _battery = [];
   Timer? _ticker;
@@ -282,6 +296,14 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   void _onImage(CameraImage img) {
     if (!_watching) return;
     final t = _clock.elapsedMilliseconds;
+    final c = _cam;
+    if (c != null) {
+      // Frames come in sensor orientation; turn crops upright for however
+      // the phone is propped (portrait or landscape, either lens).
+      _pipe.rotation = uprightRotation(
+          c.description.sensorOrientation, _deviceDegrees[c.value.deviceOrientation] ?? 0,
+          front: c.description.lensDirection == CameraLensDirection.front);
+    }
     final job = _pipe.onFrame(watchFrameFromCamera(img), t);
     _setStatus(_pipe.status(t));
     for (final (_, seen) in _pipe.lookEnds) {
@@ -295,6 +317,10 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     _worker!.read(job.rgba, job.width, job.height, tta: _pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: _pipe.cfg.warmLight, balance: true)
         .then((r) {
       if (!mounted || !_watching) return;
+      if (WatchSettings.crops.value) {
+        final tag = r.hero.isEmpty ? 'none' : r.hero.map((c) => '${cardToString(c.card)}${(c.score * 100).round()}').join('-');
+        _crops.save(job.rgba, job.width, job.height, job.tMs, tag);
+      }
       final pair = _pipe.onRead(job, r, readMs: sw.elapsedMilliseconds);
       _setStatus(_pipe.status(_clock.elapsedMilliseconds));
       if (pair != null) _onPair(pair);
@@ -460,8 +486,62 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
               }
             },
             icon: const Icon(Icons.ios_share, size: 18),
-            label: const Text('Export diagnostics log'),
+            label: const Text('Share diagnostics log'),
           ),
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () async {
+              final ok = await WatchLogStore.saveToDevice();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(ok ? 'Diagnostics log saved' : 'Nothing saved')));
+              }
+            },
+            icon: const Icon(Icons.save_alt, size: 18),
+            label: const Text('Save diagnostics log to device'),
+          ),
+        ),
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          title: Text('Tester tools', style: t.labelLarge),
+          children: [
+            ValueListenableBuilder(
+              valueListenable: WatchSettings.crops,
+              builder: (_, v, __) => SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Keep what the reader looked at'),
+                subtitle: const Text('Saves the last 120 crops around your cards on this phone, to send '
+                    'in when cards are missed. They may show the table or other hands. Off by default; '
+                    'nothing leaves the phone unless you share it.'),
+                value: v,
+                onChanged: (x) => WatchSettings.set(WatchSettings.crops, WatchSettings.cropsKey, x),
+              ),
+            ),
+            Row(children: [
+              TextButton.icon(
+                onPressed: () async {
+                  final ok = await WatchDebugCrops.share();
+                  if (!ok && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No crops saved')));
+                  }
+                },
+                icon: const Icon(Icons.ios_share, size: 18),
+                label: const Text('Share crops'),
+              ),
+              TextButton.icon(
+                onPressed: () async {
+                  await WatchDebugCrops.deleteAll();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Crops deleted')));
+                  }
+                },
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('Delete crops'),
+              ),
+            ]),
+          ],
         ),
       ]),
     );

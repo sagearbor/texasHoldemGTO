@@ -135,7 +135,9 @@ const _topics = {
           'the same cards does nothing; a different read before you put the cards down replaces '
           'a misread ("corrected"); different cards after you put them down start the next hand '
           'as Next hand would (an untouched hand still counts as a fold). Wrong? Tap the chip on the black screen to fix it. '
-          'Unsure reads log nothing, so the card slots always work by hand. Nothing is recorded: '
+          'Unsure reads log no cards, so the card slots always work by hand; if it saw new cards '
+          'but could not read them, it still moves on to the next hand ("cards not read") so '
+          'your position stays right. Nothing is recorded: '
           'each frame is read on the phone and dropped. The same two cards two hands in a row '
           'merge into one hand unless Next hand is tapped in between. In the first orbit (seats '
           'still being learnt) keep tapping the dealer: Watch only fills the cards.',

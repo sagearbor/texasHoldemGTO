@@ -69,6 +69,26 @@ void main() {
       expect(f.lumaGrid(2, 2)[0], closeTo(0.299 * 200 + 0.587 * 20 + 0.114 * 10, 3));
     });
 
+    test('rotateRgba turns clockwise; uprightRotation for both lenses', () {
+      // 2x1 image: red, green.
+      final px = Uint8List.fromList([255, 0, 0, 255, 0, 255, 0, 255]);
+      final (r90, w90, h90) = rotateRgba(px, 2, 1, 90);
+      expect((w90, h90), (1, 2));
+      expect(r90.sublist(0, 4), [255, 0, 0, 255]); // red on top
+      final (r180, _, _) = rotateRgba(px, 2, 1, 180);
+      expect(r180.sublist(0, 4), [0, 255, 0, 255]);
+      final (r270, _, _) = rotateRgba(px, 2, 1, 270);
+      expect(r270.sublist(0, 4), [0, 255, 0, 255]); // green on top
+      expect(identical(rotateRgba(px, 2, 1, 0).$1, px), isTrue);
+      // A typical back sensor (90): portrait needs a quarter turn,
+      // landscape-left none.
+      expect(uprightRotation(90, 0, front: false), 90);
+      expect(uprightRotation(90, 90, front: false), 0);
+      expect(uprightRotation(90, 270, front: false), 180);
+      expect(uprightRotation(270, 0, front: true), 270);
+      expect(uprightRotation(270, 90, front: true), 0);
+    });
+
     test('crop is shrunk to maxShort by an integer step', () {
       final (_, cw, ch) = frame().cropRgba(const PixRect(0, 0, 320, 180), maxShort: 90);
       expect((cw, ch), (160, 90));
