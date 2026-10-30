@@ -153,7 +153,7 @@ class RestCloudLogs implements CloudLogs {
   // ------------------------------------------------------------ CloudLogs
 
   @override
-  Future<void> join(JoinTicket ticket, {required String deviceId, required String name}) async {
+  Future<void> join(JoinTicket ticket, {required String deviceId, required String name, bool create = true}) async {
     await _idToken();
     var exists = false;
     try {
@@ -162,6 +162,7 @@ class RestCloudLogs implements CloudLogs {
       if (!e.denied) rethrow;
       exists = true;
     }
+    if (!exists && !create) throw StateError('no such night');
     if (!exists) {
       try {
         await _set('nights/${ticket.nightId}',

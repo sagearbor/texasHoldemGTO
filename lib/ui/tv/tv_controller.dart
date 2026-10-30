@@ -76,7 +76,7 @@ class TvController extends ChangeNotifier {
       _cards ??= CardFetcher(c, ticket.nightId, now: now);
       final store = await SharedPrefsStore.open();
       final dev = await deviceIdFor(_TvStore(store));
-      await c.join(ticket, deviceId: dev, name: 'TV');
+      await c.join(ticket, deviceId: dev, name: 'TV', create: false);
       await store.set(lastTvCodeKey, ticket.code);
       await _sub?.cancel();
       _sub = c.watch(ticket.nightId).listen((logs) {

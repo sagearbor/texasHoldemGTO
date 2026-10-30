@@ -71,7 +71,7 @@ void main() {
 
       // ---- the TV joins with the code only.
       final tv = clouds['tv']!;
-      await tv.join(JoinTicket.parse(org.ticket.code)!, deviceId: 'TVTVTVTV2345', name: 'TV');
+      await tv.join(JoinTicket.parse(org.ticket.code)!, deviceId: 'TVTVTVTV2345', name: 'TV', create: false);
       Future<MergedNight> tvView([Map<String, List<int>> cards = const {}]) async {
         final logs = await tv.fetch(night);
         return mergeNight(organizerDeviceId: organizerOf(logs)!, logs: injectCards(logs, cards));

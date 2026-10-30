@@ -75,8 +75,10 @@ String cardDocId(String deviceId, int entry) => '${deviceId}_$entry';
 
 abstract class CloudLogs {
   /// Makes sure the night exists (the first phone online creates it; any
-  /// phone holding the ticket may) and this phone is a member.
-  Future<void> join(JoinTicket ticket, {required String deviceId, required String name});
+  /// phone holding the ticket may) and this phone is a member. With
+  /// [create] false (the TV) a missing night is an error, never created: a
+  /// TV left open must not bring back a night that expired or was deleted.
+  Future<void> join(JoinTicket ticket, {required String deviceId, required String name, bool create = true});
 
   /// Writes (overwrites) one part. When [measure] is true, also returns the
   /// server's timestamp of the write (ms) so the caller can work out its
@@ -483,9 +485,10 @@ class FakeCloudLogs implements CloudLogs {
   }
 
   @override
-  Future<void> join(JoinTicket ticket, {required String deviceId, required String name}) async {
+  Future<void> join(JoinTicket ticket, {required String deviceId, required String name, bool create = true}) async {
     _net();
     final n = nights[ticket.nightId];
+    if (n == null && !create) throw StateError('no such night');
     if (n == null) {
       nights[ticket.nightId] = (secret: ticket.secret, organizer: ticket.organizerName);
       writes++;

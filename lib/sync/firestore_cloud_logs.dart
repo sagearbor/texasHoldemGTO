@@ -60,7 +60,7 @@ class FirestoreCloudLogs implements CloudLogs {
   static String _short(String name) => name.isEmpty ? '?' : (name.length > 24 ? name.substring(0, 24) : name);
 
   @override
-  Future<void> join(JoinTicket ticket, {required String deviceId, required String name}) async {
+  Future<void> join(JoinTicket ticket, {required String deviceId, required String name, bool create = true}) async {
     final uid = await _uid();
     final night = _night(ticket.nightId);
     // The first phone online creates the night; the rules let a non-member
@@ -72,6 +72,7 @@ class FirestoreCloudLogs implements CloudLogs {
       if (e.code != 'permission-denied') rethrow;
       exists = true; // it exists and we are not in yet
     }
+    if (!exists && !create) throw StateError('No such table night (yet).');
     if (!exists) {
       try {
         await night.set({
