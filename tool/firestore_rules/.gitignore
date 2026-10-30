@@ -1,0 +1,3 @@
+node_modules/
+.firestore.rules.copy
+*.log
