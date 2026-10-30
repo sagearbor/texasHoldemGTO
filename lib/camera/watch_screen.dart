@@ -30,6 +30,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../poker/cards.dart';
 import 'snap_cards_screen.dart' show BetaBadge;
+import 'watch_buzz.dart';
 import 'watch_debug_crops.dart';
 import 'watch_diagnostics.dart';
 import 'glyph_reader.dart';
@@ -74,6 +75,7 @@ class WatchSettings {
   static const frontKey = 'watch_front_camera_v1';
   static const sharpKey = 'watch_sharp_v1';
   static const cropsKey = 'watch_debug_crops_v1';
+  static const buzzKey = 'watch_buzz_v1';
 
   static final voice = ValueNotifier<bool>(true);
   static final front = ValueNotifier<bool>(false);
@@ -84,12 +86,16 @@ class WatchSettings {
   /// Tester tool: keep the reader's crops on the phone (off by default).
   static final crops = ValueNotifier<bool>(false);
 
+  /// Buzz a paired smartwatch on a read (off by default).
+  static final buzz = ValueNotifier<bool>(false);
+
   static Future<void> load() async {
     final p = await SharedPreferences.getInstance();
     voice.value = p.getBool(voiceKey) ?? true;
     front.value = p.getBool(frontKey) ?? false;
     sharp.value = p.getBool(sharpKey) ?? false;
     crops.value = p.getBool(cropsKey) ?? false;
+    buzz.value = p.getBool(buzzKey) ?? false;
   }
 
   static Future<void> set(ValueNotifier<bool> n, String key, bool v) async {
@@ -148,6 +154,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   final WatchVoice _voice = WatchVoice();
   final WatchLogStore _log = WatchLogStore();
   final WatchDebugCrops _crops = WatchDebugCrops();
+  final WatchBuzz _buzz = WatchBuzz();
   int _peeksLogged = 0;
 
   /// The stream's actual format is logged once per session (frame size,
@@ -400,6 +407,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         _ => 'logged',
       };
     });
+    if (WatchSettings.buzz.value) _buzz.buzz(d.action);
     final text = spokenDecision(d);
     if (text != null && WatchSettings.voice.value) _voice.say(text);
   }
@@ -467,6 +475,27 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
             subtitle: const Text('Quietly, and only through earbuds or headphones: never the speaker'),
             value: v,
             onChanged: (x) => WatchSettings.set(WatchSettings.voice, WatchSettings.voiceKey, x),
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: WatchSettings.buzz,
+          builder: (_, v, __) => SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Buzz my watch'),
+            subtitle: const Text('One buzz when your cards are read, two when corrected. The '
+                'notification never shows the cards. Apple Watch: only while the iPhone is locked, '
+                'so not during Watch mode.'),
+            value: v,
+            onChanged: (x) async {
+              if (x && !await _buzz.requestPermission()) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Notifications are off for Felt Notes: allow them to buzz')));
+                }
+                return;
+              }
+              await WatchSettings.set(WatchSettings.buzz, WatchSettings.buzzKey, x);
+            },
           ),
         ),
         ValueListenableBuilder(

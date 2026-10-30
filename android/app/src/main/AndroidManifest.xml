@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Beta "Snap my cards": one still photo, read on-device by ML Kit. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Watch my cards "Buzz my watch" (off by default; asked when turned on). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Board caller: push-to-talk speech recognition by the phone's own
          engine (on-device where available). Audio is never stored. -->

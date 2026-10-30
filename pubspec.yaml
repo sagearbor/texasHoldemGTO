@@ -42,6 +42,10 @@ dependencies:
   # Watch my cards diagnostics: battery level every 10 minutes. 6.2.x
   # declares Flutter >=3.22 / Dart >=3.4.
   battery_plus: ">=6.2.1 <6.2.2"
+  # Watch my cards "Buzz my watch": a local notification the phone mirrors
+  # to a paired smartwatch. 17.2.x builds on Flutter 3.22 (apk + ios); it
+  # needs core library desugaring (android/app/build.gradle).
+  flutter_local_notifications: ">=17.2.3 <17.3.0"
   # Watch my cards diagnostics file (already a transitive dependency).
   path_provider: ">=2.1.0 <2.2.0"
 
