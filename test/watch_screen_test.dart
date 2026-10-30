@@ -12,7 +12,7 @@ class _Host implements WatchHost {
   @override
   void watchSetCards(List<int> cards) {}
   @override
-  bool watchNewHand(List<int> cards, {int? episode}) => true;
+  bool watchNewHand(List<int> cards, {int? episode, int? scene}) => true;
   @override
   void watchNextHand() {}
   @override

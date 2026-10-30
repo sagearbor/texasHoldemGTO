@@ -350,18 +350,24 @@ class _LoggerState extends State<_Logger> implements WatchHost {
   }
 
   @override
-  bool watchNewHand(List<int> c, {int? episode}) {
+  bool watchNewHand(List<int> c, {int? episode, int? scene}) {
     if (!mounted) return false;
     final s = widget.session;
     // First orbit: the dealer tap closes hands (it teaches the seats), so
     // only swap the cards in.
     final canMove = !s.learning && s.handInProgress;
+    final now = DateTime.now().millisecondsSinceEpoch;
     if (canMove) {
       _nextHand(quiet: true);
-      // _afterClose cleared the tracker; these cards start the new hand.
-      _watch.onRead(c, DateTime.now().millisecondsSinceEpoch, episode: episode);
+      // _afterClose cleared the tracker; these cards start the new hand
+      // (fewer than two: the hand's cards were not read).
+      if (c.length == 2) {
+        _watch.onRead(c, now, episode: episode, scene: scene);
+      } else {
+        _watch.onLookEnd(c.toSet(), now);
+      }
     }
-    setState(() => cards = [c[0], c[1]]);
+    setState(() => cards = c.length == 2 ? [c[0], c[1]] : [null, null]);
     return canMove;
   }
 

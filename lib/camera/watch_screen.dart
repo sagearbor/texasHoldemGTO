@@ -58,7 +58,7 @@ abstract class WatchHost {
   /// [cards] on the next one, logged in the tracker with [episode]. Returns
   /// false when the logger cannot move on by itself (first orbit: the
   /// organizer taps the dealer); the cards are then only put in the slots.
-  bool watchNewHand(List<int> cards, {int? episode});
+  bool watchNewHand(List<int> cards, {int? episode, int? scene});
 
   /// Next hand, from the black screen.
   void watchNextHand();
@@ -284,6 +284,12 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     final t = _clock.elapsedMilliseconds;
     final job = _pipe.onFrame(watchFrameFromCamera(img), t);
     _setStatus(_pipe.status(t));
+    for (final (_, seen) in _pipe.lookEnds) {
+      final d = widget.host.watchTracker
+          .onLookEnd(seen, DateTime.now().millisecondsSinceEpoch, scene: _pipe.sceneEpoch);
+      if (d.action == WatchAction.newHandUnread) _apply(d, _pipe.cardEpisode);
+    }
+    _pipe.lookEnds.clear();
     if (job == null) return;
     final sw = Stopwatch()..start();
     _worker!.read(job.rgba, job.width, job.height, tta: _pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: _pipe.cfg.warmLight, balance: true)
@@ -306,25 +312,33 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     final h = widget.host;
     // The tracker runs on wall-clock ms (the logger's manual picks use it).
     final episode = _pipe.cardEpisode;
-    final d = h.watchTracker.onRead(pair, DateTime.now().millisecondsSinceEpoch, episode: episode);
+    _apply(
+        h.watchTracker.onRead(pair, DateTime.now().millisecondsSinceEpoch, episode: episode, scene: _pipe.sceneEpoch),
+        episode);
+  }
+
+  void _apply(WatchDecision d, int episode) {
+    final h = widget.host;
     _pipe.noteDecision(d);
     switch (d.action) {
       case WatchAction.fill:
       case WatchAction.correct:
         h.watchSetCards(d.cards);
       case WatchAction.newHand:
+      case WatchAction.newHandUnread:
         _pipe.resetVotes();
-        _waitDealer = !h.watchNewHand(d.cards, episode: episode);
+        _waitDealer = !h.watchNewHand(d.cards, episode: episode, scene: _pipe.sceneEpoch);
       case WatchAction.confirm:
       case WatchAction.ignore:
         return;
     }
     HapticFeedback.lightImpact();
     setState(() {
-      _lastCards = d.cards;
+      _lastCards = d.action == WatchAction.newHandUnread ? null : d.cards;
       _lastWhat = switch (d.action) {
         WatchAction.correct => 'corrected',
         WatchAction.newHand => 'new hand',
+        WatchAction.newHandUnread => 'new hand, cards not read',
         _ => 'logged',
       };
     });

@@ -28,6 +28,9 @@ enum PeekOutcome {
   /// A pair was agreed but the hand tracker ignored it (vetoed / a pair).
   ignored,
 
+  /// No pair agreed, but the cards seen were new: the next hand, unread.
+  newHandUnread,
+
   /// The peek ended without an agreed pair.
   abandoned,
 }
@@ -130,6 +133,9 @@ class StageCounts {
   /// Frames sent to the expensive card reader.
   int read = 0;
 
+  /// Card-like frames not read: unchanged since an empty read.
+  int skippedStatic = 0;
+
   /// Reader time, summed (ms), when the caller measures it.
   int readMs = 0;
 
@@ -199,6 +205,7 @@ class WatchSessionSummary {
           'read': perMinute(frames.read).round(),
         },
         'readerMsPerMin': perMinute(frames.readMs).round(),
+        'skippedStaticPerMin': perMinute(frames.skippedStatic).round(),
         'motionEvents': frames.motionEvents,
         'battery': [for (final (t, b) in battery) [t ~/ 60000, b]],
         'batteryPerHour': batteryPerHour == null ? null : double.parse(batteryPerHour!.toStringAsFixed(1)),
@@ -220,7 +227,8 @@ class WatchSessionSummary {
       'near-misses: agreeing reads when the cards vanished: '
           '${[for (final p in peeks) if (p.nearMiss) p.agree].join(' ')}',
       'frames/min: seen ${fpm['seen']}, gated ${fpm['gated']}, card-like ${fpm['candidate']}, '
-          'read ${fpm['read']} (reader ${j['readerMsPerMin']} ms/min)',
+          'read ${fpm['read']} (reader ${j['readerMsPerMin']} ms/min), '
+          'skipped as unchanged ${perMinute(frames.skippedStatic).round()}',
       if (battery.isNotEmpty)
         'battery ${battery.map((e) => '${e.$1 ~/ 60000}min:${e.$2}%').join(' ')}'
             '${batteryPerHour == null ? '' : ' (${batteryPerHour!.toStringAsFixed(1)} %/h)'}',

@@ -135,6 +135,89 @@ void main() {
       });
     });
 
+    group('missed hands still count (no hand drift)', () {
+      Set<int> s(String c) => p(c).toSet();
+
+      test('a look with a card not in the hand starts an unread hand', () {
+        final t = WatchHandTracker();
+        t.onRead(p('As Kd'), 0, episode: 1, scene: 1);
+        final d = t.onLookEnd(s('7c'), 6000, scene: 2);
+        expect(d.action, WatchAction.newHandUnread);
+        expect(d.startsHand, isTrue);
+        expect(d.previous, p('As Kd'));
+        expect(t.cards, isNull);
+        expect(t.partial, s('7c'));
+      });
+
+      test('a look showing only the current cards is a re-peek', () {
+        final t = WatchHandTracker();
+        t.onRead(p('As Kd'), 0, episode: 1, scene: 1);
+        expect(t.onLookEnd(s('Kd'), 6000, scene: 2).action, WatchAction.confirm);
+        expect(t.cards, p('As Kd'));
+      });
+
+      test('the two cards of a missed hand seen on two looks stay one hand', () {
+        final t = WatchHandTracker();
+        t.onRead(p('As Kd'), 0, episode: 1, scene: 1);
+        expect(t.onLookEnd(s('7c'), 6000, scene: 2).action, WatchAction.newHandUnread);
+        expect(t.onLookEnd(s('2d'), 8000, scene: 2).action, WatchAction.ignore);
+        // A third card: yet another hand.
+        expect(t.onLookEnd(s('9h'), 15000, scene: 3).action, WatchAction.newHandUnread);
+      });
+
+      test('an agreed pair that fits the seen cards fills the unread hand', () {
+        final t = WatchHandTracker();
+        t.onRead(p('As Kd'), 0, episode: 1, scene: 1);
+        t.onLookEnd(s('7c'), 6000, scene: 2);
+        expect(t.onRead(p('7c 2d'), 7000, episode: 2, scene: 2).action, WatchAction.fill);
+      });
+
+      test('an agreed pair that does not fit closes the unread hand', () {
+        final t = WatchHandTracker();
+        t.onRead(p('As Kd'), 0, episode: 1, scene: 1);
+        t.onLookEnd(s('7c'), 6000, scene: 2);
+        expect(t.onRead(p('Qh Jh'), 12000, episode: 3, scene: 3).action, WatchAction.newHand);
+      });
+
+      test('in the same scene, a look with only one current card is a re-peek', () {
+        final t = WatchHandTracker();
+        t.onRead(p('As Kd'), 0, episode: 1, scene: 4);
+        expect(t.onLookEnd(s('As'), 3000, scene: 4).action, WatchAction.confirm);
+        // One current card and one new one: new cards were dealt.
+        expect(t.onLookEnd(s('As 7c'), 6000, scene: 4).action, WatchAction.newHandUnread);
+      });
+    });
+
+    group('corrections across peeks of one hand (no split)', () {
+      test('same scene, one card kept, the other a likely misread: a correction', () {
+        final t = WatchHandTracker();
+        t.onRead(p('As Kd'), 0, episode: 1, scene: 2);
+        // K♦ -> K♥: same rank, the suit was misread.
+        expect(t.onRead(p('As Kh'), 9000, episode: 2, scene: 2).action, WatchAction.correct);
+        // A♠ -> 4♠: same suit, the rank was misread.
+        expect(t.onRead(p('4s Kh'), 12000, episode: 3, scene: 2).action, WatchAction.correct);
+      });
+
+      test('same scene, one card kept but the other unrelated: the next hand', () {
+        // From the owner's footage: A♠ T♠ then T♠ T♥ was a new hand.
+        final t = WatchHandTracker();
+        t.onRead(p('As Ts'), 0, episode: 1, scene: 2);
+        expect(t.onRead(p('Ts Th'), 9000, episode: 2, scene: 2).action, WatchAction.newHand);
+      });
+
+      test('same scene, no card kept: the next hand', () {
+        final t = WatchHandTracker();
+        t.onRead(p('As Kd'), 0, episode: 1, scene: 2);
+        expect(t.onRead(p('7c 2d'), 9000, episode: 2, scene: 2).action, WatchAction.newHand);
+      });
+
+      test('the view cleared in between: the next hand even with a shared card', () {
+        final t = WatchHandTracker();
+        t.onRead(p('As Kd'), 0, episode: 1, scene: 2);
+        expect(t.onRead(p('As Kh'), 9000, episode: 2, scene: 3).action, WatchAction.newHand);
+      });
+    });
+
     test('a pair of the same card is ignored', () {
       final t = WatchHandTracker();
       expect(t.onRead([12, 12], 0).action, WatchAction.ignore);

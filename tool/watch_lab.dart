@@ -62,6 +62,11 @@ Future<void> main(List<String> argv) async {
   final maxSec = double.tryParse(opt('--max', '') ?? '');
   final startSec = double.tryParse(opt('--start', '') ?? '') ?? 0;
   final sat = double.tryParse(opt('--sat', '') ?? '');
+  // HLG HDR clip -> SDR like the live camera stream: a 3D LUT made by
+  // tool/camera_lab/make_hlg_sdr_lut.py (this ffmpeg has no zscale).
+  final hlgLut = opt('--hlg');
+  // Spoken "next hand" times (tool/camera_lab/next_hand_markers.py).
+  final markersPath = opt('--markers');
   // Synthetic clips made of separate stills: re-learn the background at each
   // cut (seconds), as if each segment were filmed on its own.
   final resetEvery = double.tryParse(opt('--reset-every', '') ?? '');
@@ -76,7 +81,7 @@ Future<void> main(List<String> argv) async {
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_lab.dart VIDEO [--short 720] [--fps 15] '
         '[--phone 2.0] [--labels L.json] [--start S] [--max S] [--tta] [--agree 2] '
-        '[--read-short 720] [--crop 0.5] [--no-wb] [--no-warm] [--dump DIR] [-v]');
+        '[--read-short 720] [--crop 0.5] [--no-wb] [--no-warm] [--hlg LUT.cube] [--markers M.json] [--sat S] [--dump DIR] [-v]');
     exit(2);
   }
   final cnn = GlyphCnn.parse(File('assets/data/glyph_cnn.bin').readAsBytesSync());
@@ -89,6 +94,7 @@ Future<void> main(List<String> argv) async {
     // Always video range + BT.709, like the iPhone stream, whatever the
     // file is tagged (a clip made from JPEGs is full range).
     '-vf', "fps=$fps,scale='if(gt(iw,ih),-2,$short)':'if(gt(iw,ih),$short,-2)':flags=area"
+        "${hlgLut == null ? '' : ':in_color_matrix=bt2020:in_range=tv,format=rgb48le,lut3d=file=$hlgLut,scale=in_range=pc'}"
         "${android ? ':out_range=pc:out_color_matrix=bt601' : ':out_range=tv:out_color_matrix=bt709'}"
         // Rough stand-in for HDR tone-mapping (no zscale here): HLG / BT.2020
         // shown as SDR looks flat and desaturated; --sat 1.35 undoes part.
@@ -110,7 +116,7 @@ Future<void> main(List<String> argv) async {
   ]);
   final info = '${probe.stdout}'.trim().replaceAll('\n', ', ');
   stdout.writeln('source: $info');
-  if (RegExp(r'arib-std-b67|smpte2084').hasMatch(info)) {
+  if (hlgLut == null && RegExp(r'arib-std-b67|smpte2084').hasMatch(info)) {
     stdout.writeln('WARNING: HDR source video, not tone-mapped: colours are off, expect worse reads');
   }
   final frameBytes = w * h * 3 ~/ 2;
@@ -131,9 +137,9 @@ Future<void> main(List<String> argv) async {
           '${f.$4}ms ${f.$2.timingMs}: ${f.$2.hero.join(', ')}');
     }
     if (pair == null) return;
-    final d = tracker.onRead(pair, f.$1.tMs, episode: pipe.cardEpisode);
+    final d = tracker.onRead(pair, f.$1.tMs, episode: pipe.cardEpisode, scene: pipe.sceneEpoch);
     pipe.noteDecision(d);
-    if (d.action == WatchAction.newHand) pipe.resetVotes();
+    if (d.startsHand) pipe.resetVotes();
     decisions.add((f.$1.tMs, d));
   }
 
@@ -150,6 +156,13 @@ Future<void> main(List<String> argv) async {
     final frame = WatchFrame(w, h, WatchPixelFormat.yuv420, [WatchPlane(y, w, 1), WatchPlane(uv, w, 2)],
         videoRange: !android);
     final job = pipe.onFrame(frame, t);
+    for (final (tl, seen) in pipe.lookEnds) {
+      final d = tracker.onLookEnd(seen, tl, scene: pipe.sceneEpoch);
+      if (d.action == WatchAction.ignore) continue;
+      if (d.startsHand) pipe.resetVotes();
+      decisions.add((tl, d));
+    }
+    pipe.lookEnds.clear();
     if (job == null) return;
     if (dumpDir != null) _dumpPpm('$dumpDir/crop_${job.tMs.toString().padLeft(7, '0')}.ppm', job);
     final sw = Stopwatch()..start();
@@ -202,26 +215,65 @@ Future<void> main(List<String> argv) async {
   if (labelsPath != null) {
     final labels = (jsonDecode(File(labelsPath).readAsStringSync()) as List).cast<Map<String, dynamic>>();
     stdout.writeln('\n--- vs labels');
-    stdout.writeln(scoreAgainstLabels(decisions, [
+    final lab = [
       for (final l in labels) (((l['t'] as num) * 1000).round(), canonicalPair(parseCards(l['cards'] as String)))
-    ]));
+    ];
+    stdout.writeln(scoreAgainstLabels(decisions, lab));
+    if (markersPath != null) {
+      final marks = [
+        for (final m in (jsonDecode(File(markersPath).readAsStringSync()) as List).cast<Map<String, dynamic>>())
+          ((m['t'] as num) * 1000).round()
+      ];
+      stdout.writeln(scoreBoundaries(decisions, marks, [for (final l in lab) l.$1]));
+    }
   }
 }
 
-/// The hand log the decisions produce: (start ms, final cards) per hand.
-/// fill / newHand start a hand, correct replaces its cards.
+/// The hand log the decisions produce: (start ms, final cards) per hand;
+/// no cards = a hand counted but not read. newHand / newHandUnread start a
+/// hand; fill starts the first one or fills an unread one; correct replaces
+/// the cards.
 List<(int, List<int>)> handLog(List<(int, WatchDecision)> decisions) {
   final hands = <(int, List<int>)>[];
   for (final (t, d) in decisions) {
     switch (d.action) {
-      case WatchAction.fill || WatchAction.newHand:
+      case WatchAction.fill:
+        if (hands.isNotEmpty && hands.last.$2.isEmpty) {
+          hands[hands.length - 1] = (hands.last.$1, d.cards);
+        } else {
+          hands.add((t, d.cards));
+        }
+      case WatchAction.newHand:
         hands.add((t, d.cards));
+      case WatchAction.newHandUnread:
+        hands.add((t, const []));
       case WatchAction.correct:
         if (hands.isNotEmpty) hands[hands.length - 1] = (hands.last.$1, d.cards);
       case _:
     }
   }
   return hands;
+}
+
+/// Hand boundaries against the spoken "next hand" markers: a marker is
+/// found when a hand starts between 2 s before it and 4 s after the next
+/// labelled peek. Hand starts outside every such window (other than the
+/// first hand) are extra boundaries: a hand split in two.
+String scoreBoundaries(List<(int, WatchDecision)> decisions, List<int> markers, List<int> labelTimes) {
+  final starts = [
+    for (final (t, d) in decisions)
+      if (d.startsHand || d.action == WatchAction.fill) t
+  ];
+  final windows = [
+    for (final m in markers) (m - 2000, (labelTimes.firstWhere((t) => t > m, orElse: () => m + 6000)) + 4000)
+  ];
+  var found = 0;
+  for (final (a, b) in windows) {
+    if (starts.any((t) => t >= a && t <= b)) found++;
+  }
+  final extra = starts.skip(1).where((t) => !windows.any((w) => t >= w.$1 && t <= w.$2)).length;
+  return 'next-hand markers ${markers.length}: found $found, missed ${markers.length - found}; '
+      'extra boundaries (hands split) $extra';
 }
 
 /// Scores the hand log against labelled hands ((ms mid-peek, cards), one
@@ -249,25 +301,28 @@ String scoreAgainstLabels(List<(int, WatchDecision)> decisions, List<(int, List<
       handOf[best] = h;
     }
   }
-  var right = 0, wrong = 0, missed = 0, bounds = 0;
+  var right = 0, wrong = 0, missed = 0, unread = 0, bounds = 0;
   final out = StringBuffer();
   for (var l = 0; l < labels.length; l++) {
     final h = handOf[l];
     final got = h == null ? null : hands[h].$2;
-    final ok = got != null && _same(got, labels[l].$2);
+    final ok = got != null && got.length == 2 && _same(got, labels[l].$2);
     if (ok) {
       right++;
     } else if (got == null) {
       missed++;
+    } else if (got.isEmpty) {
+      unread++;
     } else {
       wrong++;
     }
     if (l > 0 && h != null && handOf[l - 1] != null && handOf[l - 1] != h) bounds++;
     out.writeln('${(labels[l].$1 / 1000).toStringAsFixed(1)}s truth ${prettyCards(labels[l].$2)}  '
-        'logged ${got == null ? '-' : prettyCards(got)}  ${ok ? 'OK' : got == null ? 'MISSED' : 'WRONG'}');
+        'logged ${got == null ? '-' : got.isEmpty ? '(not read)' : prettyCards(got)}  '
+        '${ok ? 'OK' : got == null ? 'MISSED' : got.isEmpty ? 'UNREAD (hand counted)' : 'WRONG'}');
   }
   final spurious = labelOf.where((l) => l == null).length;
-  out.writeln('hands ${labels.length}: right $right, wrong $wrong, missed $missed; '
+  out.writeln('hands ${labels.length}: right $right, wrong $wrong, counted unread $unread, missed $missed; '
       'spurious logged hands $spurious; false logs ${wrong + spurious}');
   out.write('hand boundaries: ${labels.length - 1} true, $bounds found between logged hands, '
       '${hands.length} hands logged');

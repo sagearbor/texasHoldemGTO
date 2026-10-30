@@ -239,7 +239,7 @@ void main() {
       run(1500, '7c 2d');
       run(2000, ''); // put down, hand still there
       run(1500, 'Jh 6c');
-      run(1200, '');
+      run(2000, ''); // (a resting hand is re-read every 1.5 s)
       run(1500, 'Jh 6c'); // re-peek, same cards: silent
       expect(log, ['fill 7♣ 2♦', 'newHand J♥ 6♣']);
       expect(p.cardEpisode, 3);

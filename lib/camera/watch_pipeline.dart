@@ -115,6 +115,16 @@ class WatchConfig {
   /// cards seen start a new card episode (see [WatchPipeline.cardEpisode]).
   final int cardsGoneMs;
 
+  /// The view counts as clear (hands gone, nothing in front of the camera)
+  /// after this long without a changed cell: see [WatchPipeline.sceneEpoch].
+  final int clearMs;
+
+  /// Skip a read when the last one found no card and the crop's cells moved
+  /// less than this (mean luma) since: a hand resting in view. At most
+  /// [staticRereadMs] between reads anyway.
+  final double staticDiff;
+  final int staticRereadMs;
+
   const WatchConfig({
     this.idleIntervalMs = 200,
     this.burstIntervalMs = 60,
@@ -138,6 +148,9 @@ class WatchConfig {
     this.motionReadGapMs = 300,
     this.satisfiedReadGapMs = 600,
     this.cardsGoneMs = 800,
+    this.clearMs = 1500,
+    this.staticDiff = 4,
+    this.staticRereadMs = 1500,
   });
 }
 
@@ -170,6 +183,27 @@ class ChangeGate {
   Int32List? _since; // ms a cell started being "changed", -1 = not changed
 
   void reset() => _bg = null;
+
+  /// The last frame's luma grid and its size (for the reader's
+  /// "unchanged since the last empty read" skip).
+  Uint8List? get grid => _prev;
+  int get gridW => _gw;
+  int get gridH => _gh;
+
+  /// Mean absolute luma difference between [a] and [b] over the cells under
+  /// the pixel box [r] of a [fw] x [fh] frame.
+  double boxDiff(Uint8List a, Uint8List b, PixRect r, int fw, int fh) {
+    final x0 = (r.x0 * _gw ~/ fw).clamp(0, _gw - 1), x1 = ((r.x1 - 1) * _gw ~/ fw).clamp(0, _gw - 1);
+    final y0 = (r.y0 * _gh ~/ fh).clamp(0, _gh - 1), y1 = ((r.y1 - 1) * _gh ~/ fh).clamp(0, _gh - 1);
+    var acc = 0, n = 0;
+    for (var y = y0; y <= y1; y++) {
+      for (var x = x0; x <= x1; x++) {
+        acc += (a[y * _gw + x] - b[y * _gw + x]).abs();
+        n++;
+      }
+    }
+    return n == 0 ? 0 : acc / n;
+  }
 
   GateResult update(WatchFrame f, int tMs) {
     final long = math.max(f.width, f.height);
@@ -395,6 +429,12 @@ class WatchPipeline {
   final List<PeekRecord> peeks = [];
   PeekRecord? _peek;
 
+  /// Looks that ended without an agreed pair: the cards read confidently in
+  /// at least two of their frames. The caller drains these into
+  /// WatchHandTracker.onLookEnd (a missed hand still ends a hand).
+  final List<(int, Set<int>)> lookEnds = [];
+  final Map<int, int> _lookCounts = {};
+
   int _lastGateMs = -1 << 40;
   int _burstUntil = -1 << 40;
   int _lastChangeMs = -1 << 40;
@@ -413,6 +453,18 @@ class WatchPipeline {
   /// tracker treats a different pair in the same episode as a correction
   /// and one in a later episode as the next hand.
   int cardEpisode = 0;
+
+  /// Counts clear views: the scene was empty (no change against the
+  /// background) for [WatchConfig.clearMs]. Hands leave the view between
+  /// hands (dealing, pushing cards in); a misread fixed on a later peek in
+  /// the same scene epoch is a correction, not a new hand.
+  int sceneEpoch = 0;
+  int _quietSince = -1 << 40;
+  bool _clearCounted = true;
+
+  Uint8List? _lastReadGrid;
+  bool _lastReadEmpty = false;
+  int _lastReadMs = -1 << 40;
 
   bool get readerBusy => _busy;
   PeekRecord? get currentPeek => _peek;
@@ -435,6 +487,16 @@ class WatchPipeline {
     if (g.global) {
       voter.reset();
       return null;
+    }
+    if (g.changed >= cfg.minCells) {
+      _quietSince = -1 << 40;
+      _clearCounted = false;
+    } else {
+      if (_quietSince < 0) _quietSince = tMs;
+      if (!_clearCounted && tMs - _quietSince >= cfg.clearMs) {
+        sceneEpoch++;
+        _clearCounted = true;
+      }
     }
     if (g.changed > 0) {
       if (_peek == null) {
@@ -460,6 +522,19 @@ class WatchPipeline {
     counts.candidate++;
     p?.framesCandidate++;
     if (_busy || tMs < _nextReadMs) return null;
+    // A hand resting in view after an empty read: same crop, same answer.
+    final grid = gate.grid, last = _lastReadGrid;
+    if (_lastReadEmpty &&
+        grid != null &&
+        last != null &&
+        last.length == grid.length &&
+        tMs - _lastReadMs < cfg.staticRereadMs &&
+        gate.boxDiff(grid, last, g.card!, f.width, f.height) < cfg.staticDiff) {
+      counts.skippedStatic++;
+      return null;
+    }
+    _lastReadGrid = grid == null ? null : Uint8List.fromList(grid);
+    _lastReadMs = tMs;
     _busy = true;
     counts.read++;
     p?.framesRead++;
@@ -476,6 +551,7 @@ class WatchPipeline {
     _busy = false;
     counts.readMs += readMs;
     final cards = [for (final c in r.hero) if (c.confident) c.card];
+    _lastReadEmpty = cards.isEmpty;
     if (r.hero.isEmpty) {
       _emptyReads++;
       if (_emptyReads >= cfg.emptyReadsBeforeBackoff) {
@@ -485,6 +561,9 @@ class WatchPipeline {
     } else {
       _emptyReads = 0;
       _nextReadMs = -1 << 40;
+    }
+    for (final c in cards) {
+      _lookCounts[c] = (_lookCounts[c] ?? 0) + 1;
     }
     if (cards.isNotEmpty) {
       if (!_cardsUp) {
@@ -531,6 +610,7 @@ class WatchPipeline {
       WatchAction.confirm => PeekOutcome.confirmed,
       WatchAction.correct => PeekOutcome.corrected,
       WatchAction.newHand => PeekOutcome.newHand,
+      WatchAction.newHandUnread => PeekOutcome.newHandUnread,
       WatchAction.ignore => PeekOutcome.ignored,
     };
   }
@@ -562,5 +642,13 @@ class WatchPipeline {
     p.endMs = math.min(tMs, math.max(_lastCandidateMs, p.startMs) + cfg.quietMs);
     // Plain motion (no card-like change) is only counted.
     if (p.framesRead > 0) peeks.add(p);
+    if (p.confidentMs == null) {
+      final seen = {
+        for (final e in _lookCounts.entries)
+          if (e.value >= 2) e.key
+      };
+      if (seen.isNotEmpty) lookEnds.add((p.endMs, seen));
+    }
+    _lookCounts.clear();
   }
 }

@@ -161,51 +161,48 @@ class WatchFrame {
 }
 
 /// White balance on the card stock, in place. Warm tungsten light at a
-/// home game tints white cards orange (HSV saturation 70-95, and red ink
+/// home game tints white cards orange (HSV saturation 70-110, and red ink
 /// drifts to orange), while the glyph reader treats only low-saturation
-/// pixels as paper and only near-pure red as red ink. Reference "white":
-/// among the brighter pixels ([brightFrac] by value), the least saturated
-/// [paperFrac] of them: paper, not skin (skin is bright but more orange).
-/// Each channel is then scaled so that reference reaches [target]; gains
+/// pixels as paper and only near-pure red as red ink.
+///
+/// Reference "white": the brightest [top] of the TINTED pixels (saturation
+/// [sMin]..[sMax]). Under a lamp the card stock is the brightest tinted
+/// thing near the hand (skin is a little darker); already-neutral pixels
+/// (white window frames, a daylight scene) are left out, so a scene without
+/// a cast is left alone: too few tinted bright pixels, no change. Each
+/// channel is scaled so the reference becomes neutral at [target]; gains
 /// are capped at [maxGain] and never darken.
 void whiteBalance(Uint8List rgba,
-    {int target = 225, double maxGain = 3.0, double brightFrac = 0.3, double paperFrac = 0.25}) {
+    {int target = 225, double maxGain = 3.0, double top = 0.03, int sMin = 25, int sMax = 150}) {
   final n = rgba.length ~/ 4;
   if (n == 0) return;
-  final vHist = Int32List(256);
-  for (var i = 0; i < n; i++) {
-    final o = i * 4;
-    vHist[math.max(rgba[o], math.max(rgba[o + 1], rgba[o + 2]))]++;
-  }
-  var vThr = 255, acc = 0;
-  while (vThr > 0 && acc + vHist[vThr] < n * brightFrac) {
-    acc += vHist[vThr--];
-  }
-  // Saturation histogram (0..255) of the bright pixels.
-  final sHist = Int32List(256);
-  var bright = 0;
-  int sat(int o) {
-    final mx = math.max(rgba[o], math.max(rgba[o + 1], rgba[o + 2]));
+  int vOf(int o) => math.max(rgba[o], math.max(rgba[o + 1], rgba[o + 2]));
+  bool tinted(int o) {
+    final mx = vOf(o);
+    if (mx == 0) return false;
     final mn = math.min(rgba[o], math.min(rgba[o + 1], rgba[o + 2]));
-    return mx == 0 ? 0 : 255 * (mx - mn) ~/ mx;
+    final sat = 255 * (mx - mn) ~/ mx;
+    // A warm (or cool) cast: blue lowest (or highest), not a hue like green.
+    return sat >= sMin && sat <= sMax && (rgba[o + 2] == mn || rgba[o + 2] == mx);
   }
 
+  final vHist = Int32List(256);
+  var tintedN = 0;
   for (var i = 0; i < n; i++) {
     final o = i * 4;
-    if (math.max(rgba[o], math.max(rgba[o + 1], rgba[o + 2])) < vThr) continue;
-    sHist[sat(o)]++;
-    bright++;
+    if (!tinted(o)) continue;
+    vHist[vOf(o)]++;
+    tintedN++;
   }
-  if (bright == 0) return;
-  var sThr = 0;
-  acc = sHist[0];
-  while (sThr < 255 && acc < bright * paperFrac) {
-    acc += sHist[++sThr];
+  if (tintedN < n * 0.01) return;
+  var vThr = 255, acc = 0;
+  while (vThr > 0 && acc + vHist[vThr] < tintedN * top) {
+    acc += vHist[vThr--];
   }
   var sr = 0, sg = 0, sb = 0, cnt = 0;
   for (var i = 0; i < n; i++) {
     final o = i * 4;
-    if (math.max(rgba[o], math.max(rgba[o + 1], rgba[o + 2])) < vThr || sat(o) > sThr) continue;
+    if (vOf(o) < vThr || !tinted(o)) continue;
     sr += rgba[o];
     sg += rgba[o + 1];
     sb += rgba[o + 2];
