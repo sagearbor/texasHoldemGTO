@@ -1,7 +1,7 @@
 // AOT timing of the pure-Dart glyph reader (no Flutter needed).
 //
 //   dart compile exe tool/bench_glyph_reader.dart -o /tmp/bench
-//   /tmp/bench <dir with NAME_WxH.rgba files>
+//   /tmp/bench <dir with NAME_WxH.rgba files> [--fast]   (--fast: no TTA, as Watch mode)
 //
 // Each .rgba file is raw 8-bit RGBA (e.g. dumped with OpenCV); the
 // dimensions come from the file name.
@@ -31,9 +31,9 @@ void main(List<String> args) {
     final w = int.parse(m[1]!), h = int.parse(m[2]!);
     final px = f.readAsBytesSync();
     // Best of 3 runs per photo (the build machine may be busy).
-    var r = readGlyphs(px, w, h, cnn: cnn);
+    var r = readGlyphs(px, w, h, cnn: cnn, tta: !args.contains("--fast"));
     for (var k = 0; k < 2; k++) {
-      final again = readGlyphs(px, w, h, cnn: cnn);
+      final again = readGlyphs(px, w, h, cnn: cnn, tta: !args.contains("--fast"));
       if (again.timingMs['total']! < r.timingMs['total']!) r = again;
     }
     final name = f.uri.pathSegments.last;

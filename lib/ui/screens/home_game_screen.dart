@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../camera/snap_cards_screen.dart';
+import '../../camera/watch_screen.dart';
+import '../../camera/watch_tracker.dart';
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
@@ -290,20 +292,27 @@ class _Logger extends StatefulWidget {
   State<_Logger> createState() => _LoggerState();
 }
 
-class _LoggerState extends State<_Logger> {
+class _LoggerState extends State<_Logger> implements WatchHost {
   List<int?> cards = [null, null];
   Facing facing = Facing.unopened;
+
+  /// Watch my cards: what the camera logged this hand (kept in step with
+  /// manual picks and Next hand).
+  final WatchHandTracker _watch = WatchHandTracker();
 
   bool get hasCards => !cards.contains(null);
   List<int>? get _cards => hasCards ? cards.cast<int>() : null;
 
   /// After a hand boundary: clear the entry, coach a graded miss, badges.
-  void _afterClose(int before) {
+  /// [quiet]: from Watch mode's black screen (no bright snackbars there; a
+  /// graded miss is still queued as a drill).
+  void _afterClose(int before, {bool quiet = false}) {
     final s = widget.session;
     setState(() {
       cards = [null, null];
       facing = Facing.unopened;
     });
+    _watch.handClosed();
     if (s.hands.length <= before) return;
     final last = s.hands.last;
     // Instant feedback for graded spots.
@@ -314,6 +323,7 @@ class _LoggerState extends State<_Logger> {
       if (st.misses.isNotEmpty) {
         final (h, spot, _) = st.misses.first;
         widget.trainer?.addExternalMisses([(spot.id, h.hand!.index)]);
+        if (quiet) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${h.hand!.name} from ${h.position}: GTO says '
               '${strategyLine(spot, h.hand!)}'),
@@ -325,15 +335,69 @@ class _LoggerState extends State<_Logger> {
         ));
       }
     }
+    if (quiet) return;
     showBadgeSnack(context, widget.model.claimNewBadges());
   }
 
   /// Organizer: the hand is over, the button moves on.
-  void _nextHand() {
+  void _nextHand({bool quiet = false}) {
     final before = widget.session.hands.length;
     widget.model.nextHand(cards: _cards);
-    _afterClose(before);
+    _afterClose(before, quiet: quiet);
   }
+
+  // ------------------------------------------------ Watch my cards (host)
+
+  @override
+  WatchHandTracker get watchTracker => _watch;
+
+  @override
+  int get watchHandNumber => widget.session.hands.length + 1;
+
+  @override
+  void watchSetCards(List<int> c) {
+    if (mounted) setState(() => cards = [c[0], c[1]]);
+  }
+
+  @override
+  bool watchNewHand(List<int> c, {int? episode, int? scene}) {
+    if (!mounted) return false;
+    final s = widget.session;
+    // First orbit: the dealer tap closes hands (it teaches the seats), so
+    // only swap the cards in.
+    final canMove = !s.learning && s.handInProgress;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (canMove) {
+      _nextHand(quiet: true);
+      // _afterClose cleared the tracker; these cards start the new hand
+      // (fewer than two: the hand's cards were not read).
+      if (c.length == 2) {
+        _watch.onRead(c, now, episode: episode, scene: scene);
+      } else {
+        _watch.onLookEnd(c.toSet(), now);
+      }
+    }
+    setState(() => cards = c.length == 2 ? [c[0], c[1]] : [null, null]);
+    return canMove;
+  }
+
+  @override
+  void watchNextHand() {
+    if (!mounted) return;
+    final s = widget.session;
+    if (s.learning || !s.handInProgress) return;
+    _nextHand(quiet: true);
+  }
+
+  @override
+  Future<void> watchFixCards(BuildContext context) async {
+    final picked = await pickTwoCards(context);
+    if (picked == null || !mounted) return;
+    setState(() => cards = picked);
+    _watch.manualCards(hasCards ? _cards : null, DateTime.now().millisecondsSinceEpoch);
+  }
+
+  Future<void> _openWatch() => openWatchMode(context, this);
 
   /// Organizer, first orbit: [seat] is dealing now.
   void _dealerTap(int seat) {
@@ -363,7 +427,9 @@ class _LoggerState extends State<_Logger> {
 
   Future<void> _pickCards() async {
     final picked = await pickTwoCards(context);
-    if (picked != null) setState(() => cards = picked);
+    if (picked == null) return;
+    setState(() => cards = picked);
+    _watch.manualCards(hasCards ? _cards : null, DateTime.now().millisecondsSinceEpoch);
   }
 
   /// Beta camera flow; always optional, the picker stays one tap away.
@@ -374,6 +440,7 @@ class _LoggerState extends State<_Logger> {
       await _pickCards();
     } else {
       setState(() => cards = snapped);
+      _watch.manualCards(hasCards ? _cards : null, DateTime.now().millisecondsSinceEpoch);
     }
   }
 
@@ -565,6 +632,15 @@ class _LoggerState extends State<_Logger> {
                         textAlign: TextAlign.center,
                         style: t.bodySmall),
                   ),
+                  if (watchModeSupported)
+                    Center(
+                      child: TextButton.icon(
+                        key: const Key('watch-my-cards'),
+                        onPressed: _openWatch,
+                        icon: const Icon(Icons.visibility_outlined, size: 18),
+                        label: const Text('Watch my cards (beta)'),
+                      ),
+                    ),
                   const SizedBox(height: 14),
                   SegmentedButton<Facing>(
                     segments: const [

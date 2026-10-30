@@ -52,6 +52,6 @@
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>The board cards you call aloud are recognised on this iPhone and turned into cards. Nothing is uploaded.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Felt Notes (beta) can photograph your own two hole cards to fill them in, and the organizer's QR code to join a table night. Photos are read on your phone and never uploaded.</string>
+	<string>Felt Notes (beta) can read your own two hole cards with the camera: from one photo you take, or, with Watch my cards on, from the live view while you peek. It also reads the organizer's table-night QR code from a photo. Images are read on your phone, never saved and never uploaded.</string>
 </dict>
 </plist>
