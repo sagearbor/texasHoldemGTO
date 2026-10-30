@@ -225,7 +225,11 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     final s = night;
     if (s == null) return '';
     final up = s.uploader;
-    if (s.cloud == null || up == null) return 'Saved on this phone only (no cloud in this build).';
+    if (s.cloud == null || up == null) {
+      return cloudError == null
+          ? 'Saved on this phone only (no cloud in this build).'
+          : 'Saved on this phone only (cloud did not start: $cloudError).';
+    }
     final ok = up.lastOkMs;
     final ago = ok == null ? null : _ago(DateTime.now().millisecondsSinceEpoch - ok);
     if (up.lastError != null) {

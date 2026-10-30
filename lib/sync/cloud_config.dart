@@ -28,6 +28,9 @@ const fbEmulator = String.fromEnvironment('FELT_FB_EMULATOR');
 const fbAuthEmulator = String.fromEnvironment('FELT_FB_AUTH_EMULATOR');
 
 CloudLogs? _cloud;
+
+/// Why the cloud did not start (shown instead of a bare "no cloud").
+String? cloudError;
 Future<CloudLogs?>? _opening;
 
 /// The cloud backend, or null for local-only. Never throws: any failure to
@@ -54,7 +57,8 @@ Future<CloudLogs?> _open() async {
       emulator: fbEmulator.isEmpty ? null : fbEmulator,
       authEmulator: fbAuthEmulator.isEmpty ? null : fbAuthEmulator,
     );
-  } catch (_) {
+  } catch (e) {
+    cloudError = '$e';
     _cloud = null;
   }
   return _cloud;

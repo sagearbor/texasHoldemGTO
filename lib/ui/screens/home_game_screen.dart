@@ -106,7 +106,7 @@ class _Setup extends StatefulWidget {
 
 class _SetupState extends State<_Setup> {
   final names =
-      TextEditingController(text: 'Me, Alex, Sam, Jordan, Casey, Riley');
+      TextEditingController(text: 'Me, Seat 2, Seat 3, Seat 4, Seat 5, Seat 6');
   int hero = 0;
 
   /// First dealer; -1 = not known yet (tapped in the game when learning).

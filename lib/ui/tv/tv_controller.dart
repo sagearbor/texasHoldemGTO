@@ -69,7 +69,7 @@ class TvController extends ChangeNotifier {
       final c = _cloud;
       if (c == null) {
         link = TvLink.failed;
-        error = 'This build has no cloud.';
+        error = cloudError == null ? 'This build has no cloud.' : 'Cloud did not start: $cloudError';
         notifyListeners();
         return;
       }
