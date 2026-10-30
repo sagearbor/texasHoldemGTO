@@ -46,7 +46,7 @@ def gates(sid, spot, all_spots):
     e = spot["exploitabilityBb"]
     out.append(("preflop Nash gap < 0.001bb", e is not None and e < MAX_EXPL_BB, f"{e}"))
     d = spot.get("fixedPointDelta")
-    out.append((f"fixed point: under {MAX_FP_DELTA:.0%} of hero's hands move with the measured (undamped) tables",
+    out.append((f"fixed point: under {MAX_FP_DELTA:.0%} of hero's hands move between the last two rounds",
                 d is not None and d <= MAX_FP_DELTA, f"{d}"))
     fx = spot.get("maxFlopExploitPctPot")
     out.append(("every flop solve feeding the spot < 1% of the pot exploitable",

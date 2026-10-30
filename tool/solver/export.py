@@ -122,6 +122,7 @@ def make_spots(games, stats, fixed_point):
             flopLeaves=leaves,
             maxFlopExploitPctPot=_r(max([post_expl[p] for p in leaves if p in post_expl] or [float("nan")]), 3),
             fixedPointDelta=_r(check.get(gid), 4),
+            undampedCheckDelta=_r((fixed_point.get("undampedCheckDelta") or {}).get(gid), 4),
             nodes=_nodes(gid, g),
         )
         if not isinstance(g, pf.Game):
@@ -163,6 +164,7 @@ def write(out_dir, games, Rt, aggs, stats, flops, sub, bench, fixed_point, tab, 
                          rangeDrift={k: _r(v, 4) for k, v in r.get("rangeDrift", {}).items()})
                     for r in fixed_point.get("rounds", [])],
             finalCheckDelta={k: _r(v, 4) for k, v in check.items()},
+            undampedCheckDelta={k: _r(v, 4) for k, v in (fixed_point.get("undampedCheckDelta") or {}).items()},
             borrowGateDelta={k: _r(v, 4) for k, v in borrow.items()}),
     )
     with open(os.path.join(out_dir, "preflop.json"), "w") as f:
