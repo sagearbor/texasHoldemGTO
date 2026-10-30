@@ -15,7 +15,7 @@
 #   START_R             starting realisation tables (round 0 only; JSON
 #                       {potType: {"0": [...], "1": [...]}}); default
 #                       tmp/solve/start_R.json if present, else a prior
-#   THREADS (10)  MEM_GB (8.5)
+#   THREADS (10)  MEM_GB (9.5)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p tool/.cache tmp/solve
