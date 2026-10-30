@@ -82,6 +82,10 @@ Future<void> main(List<String> argv) async {
     minAgree: int.parse(opt('--agree', '2')!),
     readMaxShort: int.parse(opt('--read-short', '540')!),
     minCropFrac: double.parse(opt('--crop', '0.5')!),
+    singleFrameScore: double.parse(opt('--single', '0.92')!),
+    ringPaperMin: double.parse(opt('--ring', '0.5')!),
+    maxBlobs: int.tryParse(opt('--max-blobs', '') ?? ''),
+    findBoard: args.remove('--board'),
   ));
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_lab.dart VIDEO [--short 720] [--fps 15] '
@@ -135,6 +139,9 @@ Future<void> main(List<String> argv) async {
   var frameNo = 0;
   final buf = BytesBuilder(copy: false);
   var maxReadMs = 0, sumReadMs = 0, reads = 0;
+  // Per-stage reader time (this Mac) and crop sizes: where a read's cost goes.
+  final stageMs = <String, int>{};
+  var cropPx = 0, emptyReads = 0;
 
   void deliver((ReadJob, GlyphReadResult, int, int) f) {
     final pair = pipe.onRead(f.$1, f.$2, readMs: f.$4);
@@ -173,8 +180,14 @@ Future<void> main(List<String> argv) async {
     if (dumpDir != null) _dumpPpm('$dumpDir/crop_${job.tMs.toString().padLeft(7, '0')}.ppm', job);
     final sw = Stopwatch()..start();
     final r = readGlyphs(job.rgba, job.width, job.height,
-        cnn: cnn, tta: pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: pipe.cfg.warmLight);
+        cnn: cnn, tta: pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: pipe.cfg.warmLight, ringPaperMin: pipe.cfg.ringPaperMin,
+        maxBlobs: pipe.cfg.maxBlobs, findBoard: pipe.cfg.findBoard);
     final ms = sw.elapsedMilliseconds;
+    for (final e in r.timingMs.entries) {
+      if (e.key != 'total') stageMs[e.key] = (stageMs[e.key] ?? 0) + e.value;
+    }
+    cropPx += job.width * job.height;
+    if (r.hero.isEmpty) emptyReads++;
     maxReadMs = ms > maxReadMs ? ms : maxReadMs;
     sumReadMs += ms;
     reads++;
@@ -209,6 +222,11 @@ Future<void> main(List<String> argv) async {
   final sum = WatchSessionSummary(endMs, pipe.counts, pipe.peeks);
   stdout.writeln('\n--- summary');
   stdout.writeln(sum.describe());
+  if (reads > 0) {
+    stdout.writeln('reader stages (mean ms, this Mac): '
+        '${stageMs.entries.map((e) => '${e.key} ${(e.value / reads).toStringAsFixed(1)}').join(', ')}; '
+        'crop mean ${(cropPx / reads / 1000).round()} kpx; reads with no card ${(100 * emptyReads / reads).round()} %');
+  }
   stdout.writeln('reader on this Mac: $reads reads, mean ${reads == 0 ? 0 : sumReadMs ~/ reads} ms, '
       'max $maxReadMs ms (simulated phone x$phone)');
   final mins = endMs / 60000;

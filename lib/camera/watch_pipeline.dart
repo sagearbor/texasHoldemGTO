@@ -97,12 +97,25 @@ class WatchConfig {
   /// Reader colour gates for warm room light (readGlyphs warmLight).
   final bool warmLight;
 
+  /// readGlyphs ringPaperMin.
+  final double ringPaperMin;
+
+  /// readGlyphs maxBlobs / findBoard. maxBlobs 10 halved the CNN work but
+  /// lost a third of the hands, so it stays off. The board finder is off:
+  /// it cost ~30 ms a read and its exclusion zones hid hole-card indices
+  /// (mock1 14 -> 17 hands right, mock2 4 -> 6, still no wrong logs, the
+  /// face-up board of mock1's first deals never read as hole cards).
+  final int? maxBlobs;
+  final bool findBoard;
+
   final int minAgree;
   final int voteWindowMs;
 
   /// One frame is enough when both cards score at least this (and no other
   /// card was read in the vote window): a quick peek that only gave the
-  /// reader one good frame can still log. 1.0+ turns it off.
+  /// reader one good frame can still log. 1.0+ turns it off. 0.92: the
+  /// lowest setting with no wrong log on any harness input (0.92 / 0.95 /
+  /// 0.97 / 0.99 / off gave identical hand logs, all without wrong logs).
   final double singleFrameScore;
 
   /// After this many reads in a row with no card at all, the reader backs
@@ -160,6 +173,9 @@ class WatchConfig {
     this.tta = false,
     this.whiteBalance = true,
     this.warmLight = true,
+    this.ringPaperMin = 0.5,
+    this.maxBlobs,
+    this.findBoard = false,
     this.minAgree = 2,
     this.voteWindowMs = 2500,
     this.singleFrameScore = 0.92,

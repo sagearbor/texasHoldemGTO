@@ -52,6 +52,8 @@ int _redHueMax = 8; // OpenCV hue (0..179): red ink is <= this or >= 166
 int _redInkSMin = _redSMin; // red-ink pixel mask
 int _redPureSMin = _redSMin + 30; // a red glyph's median saturation
 int _redInkVMax = 256; // warm light: lit skin is as orange as red ink, but brighter
+double _ringPaperMin = 0.5; // share of a glyph's surroundings that must be card stock
+int? _maxBlobs; // keep only this many glyph blobs (the most paper-ringed)
 
 const int _paperVMin = 90;
 const int _redSMin = 110;
@@ -263,6 +265,15 @@ GlyphReadResult readGlyphsMessage(GlyphReadRequest r) => readGlyphs(r.rgba, r.wi
 /// orange and paler (hue up to 14, saturation from 90-100). The board
 /// finder keeps the daylight gates.
 ///
+/// [maxBlobs]: classify only this many glyph blobs, those most surrounded
+/// by card stock (the CNN is most of a read's cost). [findBoard] = false
+/// skips the board-card count and its exclusion zones (Watch my cards: the
+/// crop is around the hands near the camera).
+///
+/// [ringPaperMin]: share of a glyph's surroundings that must be card stock
+/// (0.5). A standard deck's small suit index sits next to a big pip on low
+/// cards, so that share drops below half there.
+///
 /// [tta] = false classifies each glyph once instead of at three rotations
 /// (about half the time). Watch my cards uses it: agreement over several
 /// frames replaces the rotation voting.
@@ -272,13 +283,18 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
     int targetShortSide = 1500,
     bool tta = true,
     int? scaleShortSide,
-    bool warmLight = false}) {
+    bool warmLight = false,
+    double ringPaperMin = 0.5,
+    int? maxBlobs,
+    bool findBoard = true}) {
   if (templates == null && cnn == null) throw ArgumentError('templates or cnn required');
   _paperSMax = warmLight ? 100 : _paperSMaxDefault;
   _redHueMax = warmLight ? 14 : 8;
   _redInkSMin = warmLight ? 90 : _redSMin;
   _redPureSMin = warmLight ? 100 : _redSMin + 30;
   _redInkVMax = warmLight ? 165 : 256;
+  _ringPaperMin = ringPaperMin;
+  _maxBlobs = maxBlobs;
   final sw = Stopwatch()..start();
   final timing = <String, int>{};
   final img = _Planes.fromRgba(rgba, width, height, targetShortSide);
@@ -287,13 +303,13 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
   final hsv = _Hsv(img);
   timing['hsv'] = sw.elapsedMilliseconds - timing['resize']!;
   var t0 = sw.elapsedMilliseconds;
-  final board = _findBoard(img, hsv);
+  final board = findBoard ? _findBoard(img, hsv) : const <_Rect>[];
   timing['board'] = sw.elapsedMilliseconds - t0;
   t0 = sw.elapsedMilliseconds;
   final List<_Read> reads;
   final List<GlyphCard> hero;
   if (cnn != null) {
-    reads = _readIndicesCnn(img, hsv, cnn, board, tta ? _cnnTta : const [0]);
+    reads = _readIndicesCnn(img, hsv, cnn, board, tta ? _cnnTta : const [0], timing);
     hero = _heroFromCnnReads(reads);
   } else {
     reads = _readIndices(img, hsv, templates!, board);
@@ -825,6 +841,9 @@ class _Blob {
   final double cx, cy, md;
   final bool red;
   final Float64List mask; // w*h, 0 or 255
+
+  /// Share of the surroundings that is card stock (how "on a card" it is).
+  double ring = 1;
   _Blob(this.x, this.y, this.w, this.h, this.cx, this.cy, this.md, this.red, this.mask);
 }
 
@@ -905,7 +924,7 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
         }
       }
     }
-    if (ringN == 0 || ringPaper / ringN < 0.5) continue;
+    if (ringN == 0 || ringPaper / ringN < _ringPaperMin) continue;
     final hs = <int>[], ss = <int>[], vs = <int>[];
     final mask = Float64List(bw * bh);
     for (var y = c.minY; y <= c.maxY; y++) {
@@ -924,7 +943,7 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
     final isRed = (hue <= _redHueMax - 1 || hue >= 168) && sat > _redPureSMin;
     final isBlack = val < 0.5 * paperV && !isRed;
     if (!(isRed || isBlack)) continue;
-    blobs.add(_Blob(c.minX, c.minY, bw, bh, c.cx, c.cy, md.toDouble(), isRed, mask));
+    blobs.add(_Blob(c.minX, c.minY, bw, bh, c.cx, c.cy, md.toDouble(), isRed, mask)..ring = ringPaper / ringN);
   }
   return blobs;
 }
@@ -1127,10 +1146,19 @@ List<GlyphCard> _heroFromReads(List<_Read> reads) {
 
 // ---------------------------------------------------------------- CNN path
 
-List<_Blob> _heroBlobs(_Planes img, _Hsv hsv, List<_Rect> board) => [
-      for (final b in _findGlyphBlobs(img, hsv))
-        if (!board.any((r) => r.contains(b.cx, b.cy, 2.2))) b
-    ];
+List<_Blob> _heroBlobs(_Planes img, _Hsv hsv, List<_Rect> board) {
+  final out = [
+    for (final b in _findGlyphBlobs(img, hsv))
+      if (!board.any((r) => r.contains(b.cx, b.cy, 2.2))) b
+  ];
+  // Cost cap (Watch my cards): only the blobs most surrounded by card stock.
+  final cap = _maxBlobs;
+  if (cap != null && out.length > cap) {
+    out.sort((a, b) => b.ring.compareTo(a.ring));
+    out.removeRange(cap, out.length);
+  }
+  return out;
+}
 
 /// 32x32 crop of the green channel around [b], rotated so that the unit
 /// vector ([ux], [uy]) points down, plus [extraDeg] (port of the lab's
@@ -1207,8 +1235,14 @@ Float32List _ttaProbs(GlyphCnn cnn, _Planes img, _Blob b, double ux, double uy, 
   return best!;
 }
 
-List<_Read> _readIndicesCnn(_Planes img, _Hsv hsv, GlyphCnn cnn, List<_Rect> board, List<double> tta) {
+/// [stats] gets 'blobs' (ms finding glyph blobs), 'nBlobs' and 'cnnCalls'.
+List<_Read> _readIndicesCnn(
+    _Planes img, _Hsv hsv, GlyphCnn cnn, List<_Rect> board, List<double> tta, Map<String, int> stats) {
+  final sw = Stopwatch()..start();
   final blobs = _heroBlobs(img, hsv, board);
+  stats['blobs'] = sw.elapsedMilliseconds;
+  stats['nBlobs'] = blobs.length;
+  var calls = 0;
   final reads = <_Read>[];
   for (var i = 0; i < blobs.length; i++) {
     final a = blobs[i];
@@ -1224,6 +1258,7 @@ List<_Read> _readIndicesCnn(_Planes img, _Hsv hsv, GlyphCnn cnn, List<_Rect> boa
       if (!(dist > 0.55 * meanMd && dist < 1.9 * meanMd)) continue;
       final ux = dx / dist, uy = dy / dist;
       final pr = _ttaProbs(cnn, img, a, ux, uy, tta);
+      calls += tta.length;
       var r = 0;
       for (var k = 1; k < 13; k++) {
         if (pr[k] > pr[r]) r = k;
@@ -1232,6 +1267,7 @@ List<_Read> _readIndicesCnn(_Planes img, _Hsv hsv, GlyphCnn cnn, List<_Rect> boa
       // CNN work; Watch my cards runs this several times a second).
       if (pr[r] < _cnnScoreMin) continue;
       final ps = _ttaProbs(cnn, img, b, ux, uy, tta);
+      calls += tta.length;
       final allowed = a.red ? _redSuits : _blackSuits;
       final su = ps[glyphCnnSuit0 + allowed[0]] >= ps[glyphCnnSuit0 + allowed[1]] ? allowed[0] : allowed[1];
       final score = pr[r] * ps[glyphCnnSuit0 + su];
@@ -1239,6 +1275,7 @@ List<_Read> _readIndicesCnn(_Planes img, _Hsv hsv, GlyphCnn cnn, List<_Rect> boa
       reads.add(_Read(makeCard(r, su), score, i, j, meanMd));
     }
   }
+  stats['cnnCalls'] = calls;
   reads.sort((x, y) => y.score.compareTo(x.score));
   return reads;
 }
