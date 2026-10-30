@@ -297,12 +297,13 @@ class _Slot {
 
 AgreedBoard _vote(List<BoardObservation> obs, Set<int> holeCards, BoardVoteOptions opts) {
   final longest = obs.map((o) => o.count).reduce(math.max);
-  // Most informative first: longer streets, then exact cards, then later.
+  // Most informative first: longer streets, then exact cards, then the
+  // earliest (its left-to-right order becomes the board's).
   final sorted = [...obs]..sort((a, b) {
       if (a.count != b.count) return b.count.compareTo(a.count);
       final ea = a.cards.where((c) => c.exact).length, eb = b.cards.where((c) => c.exact).length;
       if (ea != eb) return eb.compareTo(ea);
-      return b.ms.compareTo(a.ms);
+      return a.ms.compareTo(b.ms);
     });
   final slots = <_Slot>[];
   for (final o in sorted) {

@@ -58,6 +58,18 @@ enum EventKind {
   /// Card sharing on or off for the night `{on}`.
   share,
 
+  /// The board as this phone's camera read it, one event per street
+  /// `{c, q, u}`: card tokens left to right as seen from this seat ("7d",
+  /// "Fr" = a red face card, "9?" = a nine of unknown suit; see
+  /// lib/sync/board_consensus.dart), rank confidences, suit confidences
+  /// (0..1 each). Filed under a hand by time at merge; phones vote.
+  boardRead,
+
+  /// One tap to confirm or fix the board of hand [n] `{n, c}` (3 to 5
+  /// cards). Any phone; beats the cameras, loses to the organizer's
+  /// `board` call.
+  boardFix,
+
   // ---- organizer only (the dealer bookkeeping)
   /// The table in clockwise seat order `{seats: [[pid, name], ...]}`. Applies
   /// to the hands started after it. Add / remove a player = a new seats event.

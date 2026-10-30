@@ -56,6 +56,16 @@ abstract class TableSync {
 
   Future<void> endNight();
 
+  // ------------------------------------------------ board (any phone)
+
+  /// What this phone's camera read of a street (lib/camera/board_watch.dart):
+  /// card tokens left to right as seen from this seat, with a rank and a
+  /// suit confidence each. The merge votes across phones.
+  Future<void> recordBoardRead(List<String> tokens, {required List<double> rankConf, required List<double> suitConf});
+
+  /// One tap to confirm or fix the board of hand [handNo] (3 to 5 cards).
+  Future<void> fixBoard(int handNo, List<int> cards);
+
   // ---------------------------------------------------------- any player
 
   /// One tap for a hand you played. Not tapping = fold. A second tap within
@@ -293,6 +303,18 @@ class LocalTableSync implements TableSync {
     _organizerOnly();
     if (cards.length < 3 || cards.length > 5) throw ArgumentError('3 to 5 board cards');
     await _append(EventKind.board, {'n': handNo, 'c': cards});
+  }
+
+  @override
+  Future<void> recordBoardRead(List<String> tokens, {required List<double> rankConf, required List<double> suitConf}) async {
+    if (tokens.length < 3 || tokens.length > 5) throw ArgumentError('3 to 5 board cards');
+    await _append(EventKind.boardRead, {'c': tokens, 'q': rankConf, 'u': suitConf});
+  }
+
+  @override
+  Future<void> fixBoard(int handNo, List<int> cards) async {
+    if (cards.length < 3 || cards.length > 5) throw ArgumentError('3 to 5 board cards');
+    await _append(EventKind.boardFix, {'n': handNo, 'c': cards});
   }
 
   @override
