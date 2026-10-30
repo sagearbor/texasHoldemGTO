@@ -100,7 +100,11 @@ class WatchConfig {
   /// readGlyphs ringPaperMin.
   final double ringPaperMin;
 
-  /// readGlyphs maxBlobs / findBoard (reader cost).
+  /// readGlyphs maxBlobs / findBoard. maxBlobs 10 halved the CNN work but
+  /// lost a third of the hands, so it stays off. The board finder is off:
+  /// it cost ~30 ms a read and its exclusion zones hid hole-card indices
+  /// (mock1 14 -> 17 hands right, mock2 4 -> 6, still no wrong logs, the
+  /// face-up board of mock1's first deals never read as hole cards).
   final int? maxBlobs;
   final bool findBoard;
 
@@ -171,7 +175,7 @@ class WatchConfig {
     this.warmLight = true,
     this.ringPaperMin = 0.5,
     this.maxBlobs,
-    this.findBoard = true,
+    this.findBoard = false,
     this.minAgree = 2,
     this.voteWindowMs = 2500,
     this.singleFrameScore = 0.92,

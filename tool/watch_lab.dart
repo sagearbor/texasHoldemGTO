@@ -85,7 +85,7 @@ Future<void> main(List<String> argv) async {
     singleFrameScore: double.parse(opt('--single', '0.92')!),
     ringPaperMin: double.parse(opt('--ring', '0.5')!),
     maxBlobs: int.tryParse(opt('--max-blobs', '') ?? ''),
-    findBoard: !args.remove('--no-board'),
+    findBoard: args.remove('--board'),
   ));
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_lab.dart VIDEO [--short 720] [--fps 15] '
