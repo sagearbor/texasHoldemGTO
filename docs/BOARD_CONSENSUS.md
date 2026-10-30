@@ -85,13 +85,33 @@ raise, facing), no sizes, nothing postflop. "What you should have done on
 the turn" cannot be graded without a postflop action logger; that is the
 biggest unlock after the board itself.
 
-Ranked: (built) agreed board in the merge, drama lines and board stats;
+`lib/sync/street_equity.dart` has `equityByStreet`, `swingLines` and
+`handOfTheNight` ready for those views; `tv_board.dart` already hands the
+TV the agreed board.
+
+Ranked: (built) agreed board in the merge, drama lines, board stats,
+equity-by-street functions;
 (next week) TV board strip with tap-to-fix, camera reader in log-only
 mode on the organizer's phone for real-night tuning data; (later) equity
 by street on the TV and in the recap, camera reads driving the TV board,
 postflop action logger, river drill from tonight's board texture,
 full-resolution stills per street, postflop GTO (needs solved spots that
 do not exist).
+
+## Where it stands (harness, 2026-10-29)
+
+End to end the watcher does not yet produce a usable board: in 130 s of
+poker-mock1 it emitted two streets, neither matching the 8 labelled
+streets, and none in simulated portrait; poker-mock2 (no boards)
+correctly produced nothing in both orientations. Per frame
+(`tool/board_probe.dart`) the row is found in most labelled frames, the
+count is wrong when cards overlap or a glossy placemat edge joins the
+row, colour is right, rank is within one pip but unstable from look to
+look (so the agreement vote never settles), face cards are caught about
+half the time, suits are near chance. Next: track each card's box
+across looks instead of re-detecting, vote per pip, then log-only on a
+real night. The consensus and merge layers are complete and tested
+independently of the reader.
 
 ## Risks
 
