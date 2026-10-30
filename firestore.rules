@@ -1,0 +1,94 @@
+rules_version = '2';
+
+// Felt Notes multi-phone table night (NOT deployed anywhere; no project
+// exists). Design and rationale: docs/MULTIPHONE.md. Tests:
+// tool/firestore_rules/ (./run.sh, local emulator, demo- project id).
+//
+// Local-first: every phone keeps its own append-only log and uploads it
+// whenever it has a connection, so the cloud only ever sees whole log
+// documents written by their owner.
+//
+// nights/{nightId}                      {secret, organizer, createdAt}
+//   members/{uid}                       {name, deviceId, secret, joinedAt}
+//   logs/{deviceId}_{part}              one phone's events seq part*400+1 ..
+//                                       {uid, deviceId, part, count, events,
+//                                        name, skew?, clientMs, updatedAt}
+//
+// Whoever holds the join ticket (scanned from the organizer's QR) knows the
+// night id and its secret. The first phone online creates the night; every
+// phone proves the secret once, by creating its member doc. Cards a player
+// does not share never leave the phone, so there is nothing here to hide
+// from members: members read everything, nobody else reads anything.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function code(s, n) { return s is string && s.matches('^[A-HJ-NP-Z2-9]{' + string(n) + '}$'); }
+    function name(s) { return s is string && s.size() >= 1 && s.size() <= 24; }
+
+    match /nights/{nightId} {
+      function nightPath() { return /databases/$(database)/documents/nights/$(nightId); }
+      function memberPath(uid) { return /databases/$(database)/documents/nights/$(nightId)/members/$(uid); }
+      function isMember() { return signedIn() && exists(memberPath(me())); }
+
+      // A non-member may only learn that a night does not exist yet (so the
+      // first phone online knows to create it). Nobody lists nights.
+      allow get: if signedIn() && (resource == null || isMember());
+      allow list: if false;
+
+      allow create: if signedIn()
+        && code(nightId, 8)
+        && request.resource.data.keys().hasOnly(['secret', 'organizer', 'createdAt'])
+        && code(request.resource.data.secret, 8)
+        && request.resource.data.organizer is string
+        && request.resource.data.organizer.size() <= 24
+        && request.resource.data.createdAt == request.time;
+      // Immutable: the secret can never be swapped out from under members.
+      allow update, delete: if false;
+
+      match /members/{uid} {
+        allow read: if isMember();
+        // Joining proves the secret. Re-joining (same phone) may change the
+        // name but never the device id.
+        allow create: if signedIn() && me() == uid
+          && request.resource.data.keys().hasOnly(['name', 'deviceId', 'secret', 'joinedAt'])
+          && name(request.resource.data.name)
+          && code(request.resource.data.deviceId, 12)
+          && request.resource.data.secret == get(nightPath()).data.secret
+          && request.resource.data.joinedAt == request.time;
+        allow update: if signedIn() && me() == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'joinedAt'])
+          && name(request.resource.data.name)
+          && request.resource.data.joinedAt == request.time;
+        allow delete: if false;
+      }
+
+      match /logs/{logId} {
+        function myDevice() { return get(memberPath(me())).data.deviceId; }
+        allow read: if isMember();
+        // Only the phone that owns the device id writes its log, a part is
+        // at most 400 events, and a part never shrinks (a stale re-upload
+        // cannot erase events).
+        allow create, update: if isMember()
+          && request.resource.data.keys().hasOnly(
+               ['uid', 'deviceId', 'part', 'count', 'events', 'name', 'skew', 'clientMs', 'updatedAt'])
+          && request.resource.data.uid == me()
+          && request.resource.data.deviceId == myDevice()
+          && request.resource.data.part is int
+          && request.resource.data.part >= 0
+          && request.resource.data.part < 50
+          && logId == request.resource.data.deviceId + '_' + string(request.resource.data.part)
+          && request.resource.data.events is list
+          && request.resource.data.count == request.resource.data.events.size()
+          && request.resource.data.count <= 400
+          && name(request.resource.data.name)
+          && (!('skew' in request.resource.data) || request.resource.data.skew is int)
+          && request.resource.data.clientMs is int
+          && request.resource.data.updatedAt == request.time
+          && (resource == null
+              || (resource.data.uid == me() && request.resource.data.count >= resource.data.count));
+        allow delete: if false;
+      }
+    }
+  }
+}

@@ -30,6 +30,18 @@ dependencies:
   # Restore from a backup file. 8.3.2 declares Flutter >=3.22 / Dart >=3.4
   # (compileSdk 34, AGP 7.4) and builds; 8.3.3+ was not verified on 3.22.
   file_picker: ">=8.3.2 <8.3.3"
+  # Table night join QR (organizer shows it). Pure Dart, builds on 3.22.
+  qr_flutter: 4.1.0
+  # Reading that QR from a photo, on-device. 0.14.1 is the last line on
+  # google_mlkit_commons 0.11.0 (the pinned text recognizer's); 0.14.2+
+  # needs Flutter 3.32.
+  google_mlkit_barcode_scanning: 0.14.1
+  # Multi-phone upload (lib/sync/). Compiled in but never initialised unless
+  # the build sets --dart-define=FELT_CLOUD=true (lib/sync/cloud_config.dart).
+  # These exact versions build here (AGP 8.11.1, minSdk 24, iOS 15.5).
+  firebase_core: 3.8.1
+  firebase_auth: 5.3.3
+  cloud_firestore: 5.5.1
 
 dev_dependencies:
   flutter_test:

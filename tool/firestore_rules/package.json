@@ -1,0 +1,12 @@
+{
+  "name": "feltnotes-rules-test",
+  "private": true,
+  "description": "Firestore security-rules tests for the Felt Notes table night, against the local emulator (run ./run.sh)",
+  "scripts": {
+    "test": "./run.sh"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.10.0"
+  }
+}
