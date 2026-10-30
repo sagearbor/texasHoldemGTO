@@ -28,6 +28,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:felt_notes/camera/board_watch.dart';
 import 'package:felt_notes/camera/glyph_cnn.dart';
 import 'package:felt_notes/camera/glyph_reader.dart';
 import 'package:felt_notes/camera/watch_diagnostics.dart';
@@ -75,6 +76,12 @@ Future<void> main(List<String> argv) async {
   // Synthetic clips made of separate stills: re-learn the background at each
   // cut (seconds), as if each segment were filmed on its own.
   final resetEvery = double.tryParse(opt('--reset-every', '') ?? '');
+  // Board cards too (lib/camera/board_watch.dart), scored against
+  // [{"t0": 11.5, "t1": 15.5, "cards": "7d 9c Kh"}, ...] (seconds the
+  // street lay on the table; "?" for a rank or suit you cannot tell).
+  final boardLabelsPath = opt('--board-labels');
+  final boardDump = opt('--board-dump');
+  final board = args.remove('--board') || boardLabelsPath != null;
   final pipe = WatchPipeline(WatchConfig(
     tta: args.remove('--tta'),
     whiteBalance: !args.remove('--no-wb'),
@@ -129,6 +136,8 @@ Future<void> main(List<String> argv) async {
       '${readMsFixed == null ? 'measured x$phone' : '$readMsFixed ms (fixed)'}');
 
   if (unrotate) pipe.rotation = (360 - rotate) % 360;
+  final boardWatch = BoardWatcher()..rotation = pipe.rotation;
+  var boardReadMs = 0;
   final tracker = WatchHandTracker();
   final decisions = <(int, WatchDecision)>[];
   (ReadJob, GlyphReadResult, int, int)? inFlight; // job, result, deliver at, ms
@@ -161,6 +170,26 @@ Future<void> main(List<String> argv) async {
     final uv = Uint8List.sublistView(data, w * h);
     final frame = WatchFrame(w, h, WatchPixelFormat.yuv420, [WatchPlane(y, w, 1), WatchPlane(uv, w, 2)],
         videoRange: !android);
+    if (board) {
+      final bj = boardWatch.onFrame(frame, t);
+      if (bj != null) {
+        final bsw = Stopwatch()..start();
+        final cards = readBoardJob(bj);
+        boardReadMs += bsw.elapsedMilliseconds;
+        if (boardDump != null) {
+          for (var i = 0; i < bj.cards.length; i++) {
+            final c = bj.cards[i];
+            _dumpPpm('$boardDump/board_${bj.tMs.toString().padLeft(7, '0')}_$i.ppm',
+                ReadJob(c.rgba, c.width, c.height, bj.tMs, 0));
+          }
+        }
+        final r = boardWatch.onRead(bj, cards);
+        if (verbose) {
+          stdout.writeln('  board @${(bj.tMs / 1000).toStringAsFixed(2)}s ${cards.join(' ')}'
+              '${r == null ? '' : '  -> $r'}');
+        }
+      }
+    }
     final job = pipe.onFrame(frame, t);
     for (final (tl, seen) in pipe.lookEnds) {
       final d = tracker.onLookEnd(seen, tl, scene: pipe.sceneEpoch);
@@ -216,6 +245,20 @@ Future<void> main(List<String> argv) async {
     stdout.writeln('battery proxy: ${(pipe.counts.read / mins).toStringAsFixed(1)} reader runs/min, '
         '${((readMsFixed == null ? sumReadMs * phone : reads * readMsFixed) / mins / 1000).toStringAsFixed(1)} '
         's reader CPU/min (phone estimate)');
+  }
+
+  if (board) {
+    stdout.writeln('\n--- board streets read');
+    for (final r in boardWatch.reads) {
+      stdout.writeln(r);
+    }
+    stdout.writeln('board swept at: ${boardWatch.clears.map((t) => '${(t / 1000).toStringAsFixed(1)}s').join(', ')}');
+    stdout.writeln('board looks ${boardWatch.looks} (${boardWatch.lookMs} ms), jobs ${boardWatch.jobs} ($boardReadMs ms)');
+    if (boardLabelsPath != null) {
+      final labels = (jsonDecode(File(boardLabelsPath).readAsStringSync()) as List).cast<Map<String, dynamic>>();
+      stdout.writeln('\n--- board vs labels');
+      stdout.writeln(scoreBoard(boardWatch.reads, labels));
+    }
   }
 
   if (labelsPath != null) {
@@ -332,6 +375,95 @@ String scoreAgainstLabels(List<(int, WatchDecision)> decisions, List<(int, List<
       'spurious logged hands $spurious; false logs ${wrong + spurious}');
   out.write('hand boundaries: ${labels.length - 1} true, $bounds found between logged hands, '
       '${hands.length} hands logged');
+  return out.toString();
+}
+
+/// Scores the board streets read against labels: each label is a street
+/// window (t0..t1 seconds, cards left to right as the camera sees them,
+/// "?" for an unknown rank or suit). A label is found when a read with
+/// the same card count lands between t0 - 1.5 s and t1 + 1.5 s (its
+/// latency is counted from t0). Rank, colour and suit are scored per card;
+/// a J / Q / K label counts a "face" read as right for the rank class and
+/// notes that the exact rank was not told. Reads outside every window
+/// are false streets.
+String scoreBoard(List<BoardRead> reads, List<Map<String, dynamic>> labels) {
+  final out = StringBuffer();
+  var found = 0, rankOk = 0, rankWrong = 0, rankNone = 0, faceOnly = 0;
+  var suitOk = 0, suitWrong = 0, suitNone = 0, colourOk = 0, colourWrong = 0, cards = 0;
+  final latencies = <int>[];
+  final used = <BoardRead>{};
+  for (final l in labels) {
+    final t0 = ((l['t0'] as num) * 1000).round(), t1 = ((l['t1'] as num) * 1000).round();
+    final toks = (l['cards'] as String).split(RegExp(r'\s+'));
+    final hits = [
+      for (final r in reads)
+        if (r.count == toks.length && r.tMs >= t0 - 1500 && r.tMs <= t1 + 1500) r
+    ];
+    if (hits.isEmpty) {
+      out.writeln('${(t0 / 1000).toStringAsFixed(1)}s truth ${toks.join(' ')}  MISSED');
+      continue;
+    }
+    found++;
+    final r = hits.first;
+    used.addAll(hits);
+    latencies.add(r.tMs - t0);
+    final marks = <String>[];
+    for (var i = 0; i < toks.length; i++) {
+      final want = toks[i], got = r.cards[i];
+      cards++;
+      final wr = want[0], ws = want[1];
+      var m = got.token;
+      if (wr != '?') {
+        final wantRank = '23456789TJQKA'.indexOf(wr);
+        if (got.face && wantRank >= 9 && wantRank <= 11) {
+          faceOnly++;
+          m += ' face';
+        } else if (got.rank == wantRank) {
+          rankOk++;
+        } else if (got.rank == null && !got.face) {
+          rankNone++;
+          m += ' rank?';
+        } else {
+          rankWrong++;
+          m += ' RANK';
+        }
+      }
+      if (ws != '?') {
+        final wantSuit = 'cdhs'.indexOf(ws);
+        final wantRed = wantSuit == 1 || wantSuit == 2;
+        if (got.red == null) {
+          colourWrong++;
+          m += ' colour?';
+        } else if (got.red == wantRed) {
+          colourOk++;
+        } else {
+          colourWrong++;
+          m += ' COLOUR';
+        }
+        if (got.suit == wantSuit) {
+          suitOk++;
+        } else if (got.suit == null) {
+          suitNone++;
+        } else {
+          suitWrong++;
+          m += ' suit';
+        }
+      }
+      marks.add(m);
+    }
+    out.writeln('${(t0 / 1000).toStringAsFixed(1)}s truth ${toks.join(' ')}  read ${marks.join(' | ')}  '
+        '(+${((r.tMs - t0) / 1000).toStringAsFixed(1)}s, ${r.agreed}/${r.reads} agree)');
+  }
+  final falseReads = reads.where((r) => !used.contains(r)).toList();
+  for (final r in falseReads) {
+    out.writeln('FALSE street: $r');
+  }
+  latencies.sort();
+  out.writeln('streets ${labels.length}: found $found, missed ${labels.length - found}, false ${falseReads.length}; '
+      'latency median ${latencies.isEmpty ? '-' : '${latencies[latencies.length ~/ 2]} ms'}');
+  out.writeln('cards $cards: rank right $rankOk (+$faceOnly face, exact rank not told), wrong $rankWrong, '
+      'unread $rankNone; colour right $colourOk, wrong $colourWrong; '
+      'suit right $suitOk, wrong $suitWrong, unknown $suitNone');
   return out.toString();
 }
 
