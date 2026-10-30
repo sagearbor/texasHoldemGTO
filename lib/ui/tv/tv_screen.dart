@@ -30,11 +30,32 @@ class TvApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Every screen is a named route `/tv?c=CODE`, so the browser's address
+    // keeps the code and a reload lands back on the same table.
     return MaterialApp(
       title: 'Felt Notes TV',
       debugShowCheckedModeBanner: false,
       theme: Felt.dark(),
-      home: _TvEntry(code: code),
+      initialRoute: code == null ? '/tv' : '/tv?c=$code',
+      onGenerateRoute: (settings) {
+        final name = settings.name ?? '/tv';
+        final q = name.indexOf('?');
+        final c = q < 0 ? null : Uri.splitQueryString(name.substring(q + 1))['c'];
+        return PageRouteBuilder<void>(
+          settings: RouteSettings(name: c == null ? '/tv' : '/tv?c=$c'),
+          pageBuilder: (_, __, ___) => _TvEntry(code: c),
+        );
+      },
+      // A deep link is one route, not '/' then '/tv'.
+      onGenerateInitialRoutes: (name) => [
+        PageRouteBuilder<void>(
+          settings: RouteSettings(name: name),
+          pageBuilder: (_, __, ___) {
+            final q = name.indexOf('?');
+            return _TvEntry(code: q < 0 ? null : Uri.splitQueryString(name.substring(q + 1))['c']);
+          },
+        )
+      ],
     );
   }
 }
@@ -67,19 +88,25 @@ class _TvEntryState extends State<_TvEntry> {
         if (last != null) t = JoinTicket.parse(last);
       } catch (_) {}
     }
-    if (mounted) {
-      setState(() {
-        _ticket = t;
-        _loading = false;
-      });
+    if (!mounted) return;
+    if (t != null && widget.code == null) {
+      // Remembered code: show it in the address too.
+      Navigator.of(context).pushReplacementNamed('/tv?c=${t.code}');
+      return;
     }
+    setState(() {
+      _ticket = t;
+      _loading = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Scaffold(backgroundColor: _bg, body: Center(child: CircularProgressIndicator()));
     final t = _ticket;
-    if (t != null) return TvScreen(ticket: t, onChangeCode: () => setState(() => _ticket = null));
+    if (t != null) {
+      return TvScreen(ticket: t, onChangeCode: () => Navigator.of(context).pushReplacementNamed('/tv'));
+    }
     return Scaffold(
       backgroundColor: _bg,
       body: Center(
@@ -117,10 +144,8 @@ class _TvEntryState extends State<_TvEntry> {
 
   void _go() {
     final t = ticketFromTvInput(_input.text);
-    setState(() {
-      _ticket = t;
-      _error = t == null ? 'That is not a table code.' : null;
-    });
+    if (t == null) return setState(() => _error = 'That is not a table code.');
+    Navigator.of(context).pushReplacementNamed('/tv?c=${t.code}');
   }
 }
 
@@ -189,7 +214,7 @@ class _TvBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final b = c.board;
     final now = c.now();
-    final organizer = c.ticket.organizerName;
+    final organizer = c.ticket.organizerName.isNotEmpty ? c.ticket.organizerName : (b?.organizerName ?? '');
     final header = Wrap(
       spacing: 16 * scale,
       runSpacing: 8,

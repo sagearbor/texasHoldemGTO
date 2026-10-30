@@ -135,7 +135,7 @@ class _SetupState extends State<_Setup> {
         Text('Start a game night', style: t.headlineSmall),
         const SizedBox(height: 4),
         Text(
-            'Everything stays on this phone. Do nothing on hands you fold: '
+            'Do nothing on hands you fold: '
             'tap the big pad only when you call or raise. The organizer taps '
             'Next hand once per hand and Felt Notes moves the button.',
             style: t.bodyMedium),

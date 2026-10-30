@@ -419,9 +419,9 @@ MergedNight mergeNight({
       }
       if (e.kind == EventKind.share) sharing = e.data['on'] == true;
     }
-    if (open != null) present.add((open, 1 << 52));
+    if (open != null) present.add((open, _forever));
     if (evs.every((e) => e.kind != EventKind.join) && id == organizerDeviceId) {
-      present.add((-(1 << 52), 1 << 52));
+      present.add((-_forever, _forever));
     }
     devices.add(DeviceInfo(
       deviceId: id,
@@ -533,6 +533,11 @@ List<Entry> _entries(DeviceInfo d, Iterable<NightEvent> events) {
   return out;
 }
 
+/// "No end" for presence intervals and the alignment's infinity: 2^52 as a
+/// literal, NOT `1 << 52`: on the web (JavaScript) shifts are 32-bit, so
+/// `1 << 52` is 2^20 and every phone would have "left" in January 1970.
+const _forever = 4503599627370496;
+
 /// Order-preserving assignment of [entries] to distinct [hands] (both
 /// sorted by time) minimising total distance; an entry may stay unassigned
 /// at cost [maxSkew], and may only match a hand within [maxSkew].
@@ -540,7 +545,7 @@ List<Entry> _entries(DeviceInfo d, Iterable<NightEvent> events) {
   final k = entries.length, m = hands.length;
   if (k == 0) return (const {}, const []);
   if (m == 0) return (const {}, entries);
-  const inf = 1 << 60;
+  const inf = _forever;
   // dp[i][j]: best cost for the first i entries using the first j hands.
   final dp = List.generate(k + 1, (_) => List<int>.filled(m + 1, inf));
   final how = List.generate(k + 1, (_) => List<int>.filled(m + 1, 0)); // 0 match, 1 skip entry, 2 skip hand

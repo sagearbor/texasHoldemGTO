@@ -147,6 +147,22 @@ const _topics = {
           'a card to each seat (high card deals, ♠ > ♥ > ♦ > ♣ break ties). The menu at the top right → My result stores '
           'your own buy-in and cash-out (just you — nobody else\'s money is tracked). '
           'Badges for milestones are on Crew & season.',
+      'Table nights (other phones and a TV): leave "Let other phones and a TV join" on at '
+          'Start. The QR icon at the top shows a QR: each player taps Join a table night on '
+          'the setup screen and photographs it once (or types the code), picks their name and '
+          'then taps only Call or Raise on hands they play; you keep tapping Next hand for '
+          'everyone. Phones work without signal and upload when they can. For the TV, open the '
+          'link under the QR on a laptop, tablet or spare phone and cast or plug it in: it shows '
+          'the blind clock, everyone\'s hands, VPIP and PFR, recent hands and big hands, and '
+          'turns amber if your phone stops uploading.',
+      'What a table night shares: "Share my game with the table (TV)" is on by default and '
+          'can be switched off when joining or from the QR icon. On, your call / raise taps go '
+          'up as you tap, and the cards you enter only after the hand is over (nobody can read '
+          'them for 2 more minutes; the TV shows them a few minutes after the hand). Off, '
+          'nothing of yours leaves the phone (what was sent is deleted) and the TV shows you '
+          'as "private". The data has no account behind it (an anonymous id), is readable only '
+          'with the night\'s code, and is deleted after about 60 days. Your money never leaves '
+          'the phone.',
     ]
   ),
   HelpTopic.terms: (

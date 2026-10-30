@@ -162,7 +162,9 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _attach(LocalTableSync s) async {
     night = s;
     await _store?.set(_currentKey, s.nightId);
-    s.startSync(listen: s.isOrganizer, onStatus: notifyListeners);
+    // Nobody listens live on a phone (the TV does): saves a read per
+    // change per phone. The pad fetches once on demand.
+    s.startSync(onStatus: notifyListeners);
     if (s.isOrganizer) {
       _bridge = OrganizerBridge(s);
       await _onHomeAsync();

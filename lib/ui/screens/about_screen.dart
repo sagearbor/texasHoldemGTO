@@ -20,12 +20,13 @@ const feedbackEmail = 'sagearbor+feltnotes@gmail.com';
 
 const privacyPolicyUrl = 'https://sagearbor.github.io/texasHoldemGTO/privacy.html';
 
-const privacyStatement = 'No account. Everything stays on this device. '
-    'No ads, no tracking, no analytics. Data is never sent anywhere.';
+const privacyStatement = 'No account. No ads, no tracking, no analytics. '
+    'Everything stays on this device, except a table night you start or join: '
+    'then that night\'s game goes to the table under an anonymous id (sharing '
+    'can be switched off) and is deleted after about 60 days.';
 
 const backupStatement = 'A backup is a file you keep: you choose where it '
-    'goes (Files, Drive, email, a computer). Felt Notes never uploads it '
-    'and has no server to send it to.';
+    'goes (Files, Drive, email, a computer). Felt Notes never uploads it.';
 
 const creditsText = 'Push/fold charts solved by Felt Notes; '
     '6-max charts are approximate GTO baselines.';

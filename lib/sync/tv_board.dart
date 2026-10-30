@@ -104,6 +104,9 @@ class TvBoard {
   final int? latestUploadMs;
   final bool hasOrganizer;
 
+  /// The organizer's name (a TV opened with a typed code has no other).
+  final String? organizerName;
+
   const TvBoard({
     required this.handNow,
     required this.handNowStartMs,
@@ -116,6 +119,7 @@ class TvBoard {
     required this.organizerUploadMs,
     required this.latestUploadMs,
     required this.hasOrganizer,
+    this.organizerName,
   });
 
   /// True when the organizer's phone has gone quiet for a while: the TV is
@@ -232,6 +236,7 @@ TvBoard buildTvBoard(MergedNight m, {required int nowMs, TvOptions opts = const 
     organizerUploadMs: org?.uploadedAtMs,
     latestUploadMs: ups.isEmpty ? null : ups.reduce(max),
     hasOrganizer: t.hands.isNotEmpty || org != null,
+    organizerName: org?.name,
   );
 }
 
