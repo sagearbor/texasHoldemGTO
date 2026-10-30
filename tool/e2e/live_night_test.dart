@@ -27,6 +27,10 @@ import 'rest_cloud_logs.dart';
 
 int now() => DateTime.now().millisecondsSinceEpoch;
 
+/// Real hands last minutes; here a second keeps every tap well inside its
+/// hand despite the few ms of QR clock error.
+Future<void> pause() => Future<void>.delayed(const Duration(seconds: 1));
+
 void log(String s) => stdout.writeln('  · $s');
 
 void main() {
@@ -57,7 +61,9 @@ void main() {
       }
 
       // ---- hand 1: John raises with KK (cards entered), Joe (private) calls.
+      await pause();
       await org.startHand(1, 'Sage');
+      await pause();
       await johnP.setCards(parseCards('KsKh'));
       await johnP.tap(PreAction.raise);
       await joeP.tap(PreAction.call);
@@ -101,7 +107,9 @@ void main() {
       await expectLater(stranger.getCards(night, johnP.deviceId, 1), completion(isNull));
 
       // ---- hand 2: the next entry releases John's hand-1 cards.
+      await pause();
       await org.startHand(2, 'John');
+      await pause();
       await johnP.setCards(parseCards('7c2d'));
       await johnP.tap(PreAction.call);
       await uploadAll();
@@ -125,9 +133,13 @@ void main() {
       ups.add(up(kim, 'kim'));
       await org.setSeats(const [sage, john, joe, Seat('Kim', 'Kim')]);
       await joeP.setSharing(true);
+      await pause();
       await org.startHand(3, 'Joe');
+      await pause();
       await kim.tap(PreAction.raise);
+      await pause();
       await org.startHand(4, 'Kim');
+      await pause();
       await uploadAll();
       b = buildTvBoard(await tvView(), nowMs: now());
       expect(b.rows.firstWhere((r) => r.name == 'Joe').status, TvStatus.sharing);
