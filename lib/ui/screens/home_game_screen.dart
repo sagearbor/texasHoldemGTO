@@ -43,6 +43,7 @@ class HomeGameScreen extends StatelessWidget {
             actions: [
               const GlossaryButton(),
               const HelpButton(HelpTopic.homeGame),
+              if (s != null) TableNightButton(session: s),
               if (s != null)
                 IconButton(
                   tooltip: 'TV dashboard',
@@ -158,6 +159,8 @@ class _SetupState extends State<_Setup> {
           subtitle: const Text(
               'First orbit: tap whoever is dealing. That order becomes the seating.'),
         ),
+        TableNightStartSwitch(
+            namesHaveMe: p.any((n) => n.toLowerCase() == 'me')),
         const SizedBox(height: 16),
         Text('Which seat is you?', style: t.labelLarge),
         Wrap(spacing: 6, children: [
@@ -204,13 +207,17 @@ class _SetupState extends State<_Setup> {
         FilledButton.icon(
           onPressed: p.length < 2 || p.length > 10
               ? null
-              : () => widget.model.start(
+              : () {
+                  final nav = Navigator.of(context);
+                  widget.model.start(
                     name: 'Game night ${_date(DateTime.now())}',
                     players: p,
                     heroSeat: hero,
                     buttonSeat: button,
                     learnSeats: learn,
-                  ),
+                  );
+                  afterGameNightStart(nav, widget.model);
+                },
           icon: const Icon(Icons.play_arrow),
           label: const Text('Start'),
         ),
@@ -220,15 +227,8 @@ class _SetupState extends State<_Setup> {
           icon: const Icon(Icons.timer_outlined),
           label: const Text('Blind clock'),
         ),
-        if (tableNightUiEnabled) ...[
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.of(context)
-                .push(MaterialPageRoute(builder: (_) => const TableNightScreen())),
-            icon: const Icon(Icons.qr_code_2),
-            label: const Text('Table night (beta)'),
-          ),
-        ],
+        const SizedBox(height: 8),
+        const TableNightEntry(),
         if (past.isNotEmpty) ...[
           const SizedBox(height: 10),
           OutlinedButton.icon(

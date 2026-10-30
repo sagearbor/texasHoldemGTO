@@ -1,35 +1,51 @@
 rules_version = '2';
 
-// Felt Notes multi-phone table night (NOT deployed anywhere; no project
-// exists). Design and rationale: docs/MULTIPHONE.md. Tests:
-// tool/firestore_rules/ (./run.sh, local emulator, demo- project id).
+// Felt Notes multi-phone table night, project felt-notes-poker (Spark plan).
+// Design and rationale: docs/MULTIPHONE.md. Tests: tool/firestore_rules/
+// (./run.sh, local emulator, demo- project id) and tool/e2e/ (real project).
 //
 // Local-first: every phone keeps its own append-only log and uploads it
 // whenever it has a connection, so the cloud only ever sees whole log
 // documents written by their owner.
 //
-// nights/{nightId}                      {secret, organizer, createdAt}
-//   members/{uid}                       {name, deviceId, secret, joinedAt}
+// nights/{nightId}                      {secret, organizer, createdAt, expireAt}
+//   members/{uid}                       {name, deviceId, secret, joinedAt, expireAt}
 //   logs/{deviceId}_{part}              one phone's events seq part*400+1 ..
 //                                       {uid, deviceId, part, count, events,
-//                                        name, skew?, clientMs, updatedAt}
+//                                        name, skew?, clientMs, updatedAt, expireAt}
+//   cards/{deviceId}_{entry}            one phone's hole cards for one entry
+//                                       {uid, deviceId, e, c, at, expireAt}
 //
-// Whoever holds the join ticket (scanned from the organizer's QR) knows the
-// night id and its secret. The first phone online creates the night; every
-// phone proves the secret once, by creating its member doc. Cards a player
-// does not share never leave the phone, so there is nothing here to hide
-// from members: members read everything, nobody else reads anything.
+// Whoever holds the join ticket (scanned from the organizer's QR, or the
+// TV link) knows the night id and its secret. The first phone online
+// creates the night; every phone (and the TV) proves the secret once, by
+// creating its member doc. Members read every log (taps, "had cards",
+// seats, hand starts: what the table can see anyway). Hole cards are never
+// in a log: they are separate card documents that a phone writes only
+// once the hand is over, and that NOBODY can read until 2 minutes after
+// they were written (server time). Nobody can list them either. A phone
+// with sharing off writes no taps and no cards at all.
+//
+// Every document carries expireAt (1 to 90 days ahead); a TTL policy on
+// that field deletes it.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function me() { return request.auth.uid; }
     function code(s, n) { return s is string && s.matches('^[A-HJ-NP-Z2-9]{' + string(n) + '}$'); }
     function name(s) { return s is string && s.size() >= 1 && s.size() <= 24; }
+    function expiry(t) {
+      return t is timestamp
+        && t > request.time + duration.value(1, 'd')
+        && t < request.time + duration.value(90, 'd');
+    }
+    function card(c) { return c is int && c >= 0 && c < 52; }
 
     match /nights/{nightId} {
       function nightPath() { return /databases/$(database)/documents/nights/$(nightId); }
       function memberPath(uid) { return /databases/$(database)/documents/nights/$(nightId)/members/$(uid); }
       function isMember() { return signedIn() && exists(memberPath(me())); }
+      function myDevice() { return get(memberPath(me())).data.deviceId; }
 
       // A non-member may only learn that a night does not exist yet (so the
       // first phone online knows to create it). Nobody lists nights.
@@ -38,11 +54,12 @@ service cloud.firestore {
 
       allow create: if signedIn()
         && code(nightId, 8)
-        && request.resource.data.keys().hasOnly(['secret', 'organizer', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['secret', 'organizer', 'createdAt', 'expireAt'])
         && code(request.resource.data.secret, 8)
         && request.resource.data.organizer is string
         && request.resource.data.organizer.size() <= 24
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && expiry(request.resource.data.expireAt);
       // Immutable: the secret can never be swapped out from under members.
       allow update, delete: if false;
 
@@ -51,27 +68,28 @@ service cloud.firestore {
         // Joining proves the secret. Re-joining (same phone) may change the
         // name but never the device id.
         allow create: if signedIn() && me() == uid
-          && request.resource.data.keys().hasOnly(['name', 'deviceId', 'secret', 'joinedAt'])
+          && request.resource.data.keys().hasOnly(['name', 'deviceId', 'secret', 'joinedAt', 'expireAt'])
           && name(request.resource.data.name)
           && code(request.resource.data.deviceId, 12)
           && request.resource.data.secret == get(nightPath()).data.secret
-          && request.resource.data.joinedAt == request.time;
+          && request.resource.data.joinedAt == request.time
+          && expiry(request.resource.data.expireAt);
         allow update: if signedIn() && me() == uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'joinedAt'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'joinedAt', 'expireAt'])
           && name(request.resource.data.name)
-          && request.resource.data.joinedAt == request.time;
+          && request.resource.data.joinedAt == request.time
+          && expiry(request.resource.data.expireAt);
         allow delete: if false;
       }
 
       match /logs/{logId} {
-        function myDevice() { return get(memberPath(me())).data.deviceId; }
         allow read: if isMember();
         // Only the phone that owns the device id writes its log, a part is
-        // at most 400 events, and a part never shrinks (a stale re-upload
-        // cannot erase events).
+        // at most 400 events, and a part never shrinks in place (a stale
+        // re-upload cannot erase events).
         allow create, update: if isMember()
           && request.resource.data.keys().hasOnly(
-               ['uid', 'deviceId', 'part', 'count', 'events', 'name', 'skew', 'clientMs', 'updatedAt'])
+               ['uid', 'deviceId', 'part', 'count', 'events', 'name', 'skew', 'clientMs', 'updatedAt', 'expireAt'])
           && request.resource.data.uid == me()
           && request.resource.data.deviceId == myDevice()
           && request.resource.data.part is int
@@ -85,9 +103,34 @@ service cloud.firestore {
           && (!('skew' in request.resource.data) || request.resource.data.skew is int)
           && request.resource.data.clientMs is int
           && request.resource.data.updatedAt == request.time
+          && expiry(request.resource.data.expireAt)
           && (resource == null
               || (resource.data.uid == me() && request.resource.data.count >= resource.data.count));
-        allow delete: if false;
+        // The owner may take its log back (sharing turned off).
+        allow delete: if isMember() && (resource == null || resource.data.uid == me());
+      }
+
+      match /cards/{cardId} {
+        // One document at a time, and only 2 minutes after it was written:
+        // a member cannot read anyone's cards for the hand being played.
+        allow get: if isMember() && request.time > resource.data.at + duration.value(120, 's');
+        allow list: if false;
+        allow create, update: if isMember()
+          && request.resource.data.keys().hasOnly(['uid', 'deviceId', 'e', 'c', 'at', 'expireAt'])
+          && request.resource.data.uid == me()
+          && request.resource.data.deviceId == myDevice()
+          && request.resource.data.e is int
+          && request.resource.data.e >= 1
+          && request.resource.data.e < 100000
+          && cardId == request.resource.data.deviceId + '_' + string(request.resource.data.e)
+          && request.resource.data.c is list
+          && request.resource.data.c.size() == 2
+          && card(request.resource.data.c[0])
+          && card(request.resource.data.c[1])
+          && request.resource.data.at == request.time
+          && expiry(request.resource.data.expireAt)
+          && (resource == null || resource.data.uid == me());
+        allow delete: if isMember() && (resource == null || resource.data.uid == me());
       }
     }
   }

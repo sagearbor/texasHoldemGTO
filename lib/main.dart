@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app_data.dart';
@@ -12,9 +15,28 @@ import 'ui/screens/help_screen.dart';
 import 'ui/screens/home_game_screen.dart';
 import 'ui/screens/stats_screen.dart';
 import 'ui/screens/train_screen.dart';
+import 'sync/table_night_service.dart';
 import 'ui/theme.dart';
+import 'ui/tv/tv_screen.dart';
 
-void main() => runApp(const FeltNotesApp());
+void main() {
+  // The table TV page (/#/tv?c=CODE) is its own small app: no trainer, no
+  // spot library, nothing stored but the code.
+  final tv = tvRoute(Uri.base);
+  if (tv != null) return runApp(TvApp(code: tv.isEmpty ? null : tv));
+  runApp(const FeltNotesApp());
+}
+
+/// "" for the TV page without a code, the code for /#/tv?c=CODE, null when
+/// this is not the TV page. Web only (the hash route is the GitHub Pages URL).
+String? tvRoute(Uri u) {
+  if (!kIsWeb) return null;
+  final f = u.fragment;
+  if (f != '/tv' && !f.startsWith('/tv?') && !f.startsWith('/tv/')) return null;
+  final q = f.indexOf('?');
+  if (q < 0) return '';
+  return Uri.splitQueryString(f.substring(q + 1))['c'] ?? '';
+}
 
 class FeltNotesApp extends StatefulWidget {
   const FeltNotesApp({super.key});
@@ -35,6 +57,8 @@ class _FeltNotesAppState extends State<FeltNotesApp> {
       final h = HomeGameModel(lib);
       await Future.wait(
           [m.load(), h.load(), ChartPrefs.load(), AppSettings.load()]);
+      // Resumes a table night this phone was in (no network until one is).
+      unawaited(TableNightService.instance.init(h));
       if (mounted) {
         setState(() {
           model = m;

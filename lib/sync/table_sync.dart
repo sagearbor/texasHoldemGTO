@@ -35,7 +35,7 @@ abstract class TableSync {
 
   /// The ticket to draw right now (fresh clock reading). Organizer only;
   /// redraw it every second while the QR is on screen.
-  JoinTicket qrTicket();
+  JoinTicket qrTicket({List<Seat>? roster});
 
   /// The table in clockwise order, from the next hand on. The first-orbit
   /// dealer taps produce the first call; adding or removing a player is
@@ -70,8 +70,8 @@ abstract class TableSync {
   /// Withdraws the latest entry.
   Future<void> undoLast();
 
-  /// Card sharing with the table, per player, off by default. While off,
-  /// cards never leave this phone.
+  /// Sharing with the table (the TV), per player, ON by default (the join
+  /// screen asks). While off, none of this phone's taps or cards leave it.
   Future<void> setSharing(bool on);
   bool get sharing;
 
@@ -141,6 +141,7 @@ class LocalTableSync implements TableSync {
     required String organizerName,
     required String selfPid,
     List<Seat> roster = const [],
+    bool sharing = true,
     CloudLogs? cloud,
     int Function()? now,
     Random? rng,
@@ -157,6 +158,7 @@ class LocalTableSync implements TableSync {
     final s = LocalTableSync._(log, role: NightRole.organizer, ticket: ticket, myName: organizerName, cloud: cloud, now: now);
     await s._saveMeta();
     await s._append(EventKind.join, {'name': organizerName, 'claim': selfPid, 'offset': 0});
+    await s._append(EventKind.share, {'on': sharing});
     if (roster.isNotEmpty) await s.setSeats(roster);
     return s;
   }
@@ -168,6 +170,7 @@ class LocalTableSync implements TableSync {
     required String name,
     String? claimPid,
     required int scannedAtMs,
+    bool sharing = true,
     CloudLogs? cloud,
     int Function()? now,
   }) async {
@@ -181,6 +184,7 @@ class LocalTableSync implements TableSync {
       if (claimPid != null) 'claim': claimPid,
       if (offset != null) 'offset': offset,
     }, ms: scannedAtMs);
+    await s._append(EventKind.share, {'on': sharing});
     return s;
   }
 
@@ -222,21 +226,62 @@ class LocalTableSync implements TableSync {
     return null;
   }
 
-  /// Starts uploading (and, on the organizer, listening for other phones)
-  /// when a [cloud] is configured. No-op in the local-only build.
-  void startSync({Duration minInterval = const Duration(minutes: 2)}) {
+  /// Starts uploading when a [cloud] is configured (no-op in a local-only
+  /// build). With [listen] (the organizer) it also follows everyone else's
+  /// uploads live; players fetch once on demand ([refresh]) to save reads.
+  void startSync({
+    Duration minInterval = const Duration(seconds: 20),
+    bool listen = false,
+    void Function()? onStatus,
+  }) {
     final c = cloud;
     if (c == null) return;
-    uploader ??= Uploader(log: log, cloud: c, ticket: ticket, name: myName, now: now, minInterval: minInterval)
+    uploader ??= Uploader(
+        log: log, cloud: c, ticket: ticket, name: myName, now: now, minInterval: minInterval, onChange: onStatus)
       ..start();
-    _sub ??= c.watch(nightId).listen((logs) {
+    if (listen) _listen(c);
+  }
+
+  /// When the cloud last sent the other phones' logs (this phone's clock).
+  int? remoteAtMs;
+  Timer? _relisten;
+  bool _disposed = false;
+
+  void _listen(CloudLogs c) {
+    if (_sub != null || _disposed) return;
+    _sub = c.watch(nightId).listen((logs) {
       _remote = logs;
+      remoteAtMs = now();
       _emit();
-    }, onError: (_) {});
+    }, onError: (_) {
+      // Not a member yet (the first upload is still on its way), or the
+      // network dropped: listen again shortly.
+      _sub?.cancel();
+      _sub = null;
+      _relisten?.cancel();
+      _relisten = Timer(const Duration(seconds: 30), () => _listen(c));
+    }, onDone: () {
+      _sub = null;
+    });
+  }
+
+  /// One fetch of everyone's uploads (players; or "refresh" anywhere).
+  Future<bool> refresh() async {
+    final c = cloud;
+    if (c == null) return false;
+    try {
+      setRemote(await c.fetch(nightId));
+      remoteAtMs = now();
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> dispose() async {
+    _disposed = true;
     uploader?.stop();
+    _relisten?.cancel();
     await _sub?.cancel();
     await _out.close();
   }
@@ -246,6 +291,17 @@ class LocalTableSync implements TableSync {
     _remote = [..._remote, ...logs];
     _emit();
   }
+
+  /// Replace what is known from the cloud (a full fetch).
+  void setRemote(List<DeviceLog> logs) {
+    _remote = logs;
+    _emit();
+  }
+
+  /// Appends one event at [ms] (default now). For the organizer bridge,
+  /// which mirrors the hand logger's state with the logger's own times.
+  Future<NightEvent> appendEvent(EventKind kind, Map<String, Object?> data, {int? ms}) =>
+      _append(kind, data, ms: ms);
 
   Future<NightEvent> _append(EventKind k, Map<String, Object?> data, {int? ms}) async {
     final e = await log.append(k, ms ?? now(), data);
@@ -264,10 +320,15 @@ class LocalTableSync implements TableSync {
 
   // ---------------------------------------------------------- organizer
 
+  /// [roster] replaces the ticket's (the organizer's current seats).
   @override
-  JoinTicket qrTicket() {
+  JoinTicket qrTicket({List<Seat>? roster}) {
     _organizerOnly();
-    return ticket.withClock(now());
+    final t = roster == null
+        ? ticket
+        : JoinTicket(
+            nightId: ticket.nightId, secret: ticket.secret, organizerName: ticket.organizerName, roster: roster);
+    return t.withClock(now());
   }
 
   @override
@@ -398,6 +459,7 @@ class LocalTableSync implements TableSync {
       organizerDeviceId: org ?? '',
       logs: [mine, ..._remote],
       opts: opts,
+      selfDeviceId: deviceId,
     );
   }
 

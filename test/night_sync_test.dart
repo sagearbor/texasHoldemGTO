@@ -10,6 +10,7 @@ import 'package:felt_notes/sync/event_log.dart';
 import 'package:felt_notes/sync/night_events.dart';
 import 'package:felt_notes/sync/night_merge.dart';
 import 'package:felt_notes/sync/table_sync.dart';
+import 'package:felt_notes/sync/tv_board.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final t0 = DateTime(2026, 10, 30, 19).millisecondsSinceEpoch;
@@ -112,8 +113,10 @@ void main() {
 
     test('joining records the clock offset and the claim', () async {
       final p = await player(skew: 42000);
-      final j = p.localEvents.single;
+      final j = p.localEvents.first;
       expect(j.kind, EventKind.join);
+      expect(p.localEvents[1].kind, EventKind.share);
+      expect(p.sharing, isTrue); // the default: on
       expect(j.data['offset'], 42000);
       expect(j.data['claim'], 'p2');
       expect(p.ticket.roster.length, 3);
@@ -136,7 +139,7 @@ void main() {
       await p.setCards(parseCards('AsKd'));
       clock.advance(60000);
       await p.tap(PreAction.raise, facing: Facing.unopened);
-      final plays = p.localEvents.where((e) => e.kind != EventKind.join).map((e) => e.data['e']);
+      final plays = p.localEvents.where((e) => e.data.containsKey('e')).map((e) => e.data['e']);
       expect(plays, [1, 1]);
       await p.undoLast();
       expect(p.localEvents.last.kind, EventKind.undo);
@@ -151,7 +154,7 @@ void main() {
       final r = (await LocalTableSync.resume(store, p.nightId, now: clock.call))!;
       expect(r.role, NightRole.player);
       expect(r.ticket.nightId, org.nightId);
-      expect(r.localEvents.length, 2);
+      expect(r.localEvents.length, 3); // join, share, play
     });
 
     test('nextDealer walks clockwise and wraps', () {
@@ -184,12 +187,11 @@ void main() {
       for (var i = 0; i < 20; i++) {
         up.backoff.next();
       }
-      expect(up.backoff.next().inMinutes, inInclusiveRange(8, 12)); // capped
+      expect(up.backoff.next().inSeconds, inInclusiveRange(48, 72)); // capped at a minute
       cloud.online = true;
       expect(await up.drainOnce(), UploadResult.uploaded);
       expect(up.backoff.failures, 0);
-      expect(up.pending, isTrue); // skew was just measured: one resend carries it
-      expect(await up.drainOnce(), UploadResult.uploaded);
+      // The skew was measured on the first write and resent in the same drain.
       expect(up.pending, isFalse);
       expect(await up.drainOnce(), UploadResult.nothing);
       final logs = await cloud.fetch(org.nightId);
@@ -198,25 +200,84 @@ void main() {
       expect(org.log.meta['skew'], 3000);
     });
 
-    test('cards stay on the phone until the player shares; sharing re-sends them', () async {
+    test('sharing off: no taps or cards leave the phone; on again: they all go', () async {
+      final org = await LocalTableSync.organize(MemoryStore(),
+          organizerName: 'Sage', selfPid: 'p1', now: clock.call, cloud: cloud);
+      final p = await LocalTableSync.join(MemoryStore(), org.qrTicket(),
+          name: 'John', scannedAtMs: clock.ms, sharing: false, now: clock.call, cloud: cloud);
+      await p.setCards(parseCards('AsKd'));
+      await p.tap(PreAction.raise);
+      final up = Uploader(log: p.log, cloud: cloud, ticket: p.ticket, name: 'John', now: clock.call);
+      await up.drainOnce();
+      List<EventKind> kinds() => [for (final e in cloud.parts[org.nightId]!.values.single.events) e.kind];
+      expect(kinds(), [EventKind.join, EventKind.share]); // name + "private", nothing else
+      clock.advance(cardHoldMs);
+      await up.drainOnce();
+      expect(cloud.cards[org.nightId], isNull);
+      await p.setSharing(true);
+      expect(up.pending, isTrue);
+      await up.drainOnce();
+      expect(kinds(), contains(EventKind.play));
+      // The log only ever says "had cards"; the cards are a separate document.
+      final stub = cloud.parts[org.nightId]!.values.single.events.firstWhere((e) => e.kind == EventKind.cards);
+      expect(stub.data, {'e': 1});
+      expect(cloud.cards[org.nightId]![cardDocId(p.deviceId, 1)]!.$1, parseCards('AsKd'));
+      // Off again: the part shrinks (delete + write) and the cards go.
+      await p.setSharing(false);
+      await up.drainOnce();
+      expect(kinds(), isNot(contains(EventKind.play)));
+      expect(kinds().last, EventKind.share);
+      expect(cloud.cards[org.nightId], isEmpty);
+      expect(up.pending, isFalse);
+      final m = mergeNight(organizerDeviceId: org.deviceId, logs: await cloud.fetch(org.nightId));
+      expect(m.devices.firstWhere((d) => d.deviceId == p.deviceId).private, isTrue);
+    });
+
+    test('cards wait until the hand is over: a later entry, or the hold time', () async {
       final org = await LocalTableSync.organize(MemoryStore(),
           organizerName: 'Sage', selfPid: 'p1', now: clock.call, cloud: cloud);
       final p = await LocalTableSync.join(MemoryStore(), org.qrTicket(),
           name: 'John', scannedAtMs: clock.ms, now: clock.call, cloud: cloud);
-      await p.setCards(parseCards('AsKd'));
       final up = Uploader(log: p.log, cloud: cloud, ticket: p.ticket, name: 'John', now: clock.call);
+      await p.setCards(parseCards('QsQd'));
+      await p.tap(PreAction.raise);
       await up.drainOnce();
+      Map<String, (List<int>, int)> docs() => cloud.cards[org.nightId] ?? {};
+      expect(docs(), isEmpty); // the hand may still be going
+      expect(up.holdingCards, isTrue);
+      expect(up.nextCardRelease, clock.ms + cardHoldMs);
+      clock.advance(90000);
+      await p.setCards(parseCards('7c2d')); // the next hand: the first one is over
       await up.drainOnce();
-      NightEvent cardsIn() => cloud.parts[org.nightId]!.values.single.events.firstWhere((e) => e.kind == EventKind.cards);
-      expect(cardsIn().data.containsKey('c'), isFalse);
-      expect(cardsIn().data['e'], 1); // still says "had cards"
-      await p.setSharing(true);
-      expect(up.pending, isTrue);
+      expect(docs().keys, [cardDocId(p.deviceId, 1)]);
+      clock.advance(cardHoldMs);
       await up.drainOnce();
-      expect(cardsIn().data['c'], parseCards('AsKd'));
-      await p.setSharing(false);
+      expect(docs().length, 2); // the hold ran out
+      expect(up.holdingCards, isFalse);
+      // The server holds a fresh card document back for 2 minutes.
+      expect(await cloud.getCards(org.nightId, p.deviceId, 2), isNull);
+      clock.advance(serverCardHoldMs);
+      expect(await cloud.getCards(org.nightId, p.deviceId, 2), parseCards('7c2d'));
+      // Undo withdraws an entry's cards from the cloud too.
+      await p.undoLast();
       await up.drainOnce();
-      expect(cardsIn().data.containsKey('c'), isFalse);
+      expect(docs().length, 1);
+    });
+
+    test('a lost reply or a crash between writes converges, never duplicates', () async {
+      final org = await LocalTableSync.organize(MemoryStore(),
+          organizerName: 'Sage', selfPid: 'p1', roster: const [sage, john], now: clock.call, cloud: cloud);
+      final up = Uploader(log: org.log, cloud: cloud, ticket: org.ticket, name: 'Sage', now: clock.call);
+      await org.startHand(1, 'p1');
+      await up.drainOnce();
+      // The server took the write but the phone never heard back.
+      await org.log.setMeta('up.parts', null);
+      await org.startHand(2, 'p2');
+      expect(await up.drainOnce(), UploadResult.uploaded);
+      expect(await up.drainOnce(), UploadResult.nothing);
+      final logs = await cloud.fetch(org.nightId);
+      expect(logs.single.events.length, org.localEvents.length);
+      expect(mergeNight(organizerDeviceId: org.deviceId, logs: logs).hands.length, 2);
     });
 
     test('a long night splits into parts; re-uploads are idempotent', () async {
@@ -235,8 +296,8 @@ void main() {
       final docs = cloud.parts[org.nightId]!;
       expect(docs.keys.toSet(), {'${org.deviceId}_0', '${org.deviceId}_1'});
       expect(docs['${org.deviceId}_0']!.events.length, partSize);
-      // Forget the watermark: the whole log goes up again, nothing doubles.
-      await org.log.setMeta('up.seq', 0);
+      // Forget what was uploaded: the whole log goes up again, nothing doubles.
+      await org.log.setMeta('up.parts', null);
       await up.drainOnce();
       final logs = await cloud.fetch(org.nightId);
       final m = mergeNight(organizerDeviceId: org.deviceId, logs: [...logs, ...logs]);
@@ -258,8 +319,6 @@ void main() {
           name: 'John', claimPid: 'p2', scannedAtMs: clock.ms + 120000, now: () => clock.ms + 120000, cloud: cloud);
       final joe_ = await LocalTableSync.join(MemoryStore(), org.qrTicket(),
           name: 'Joe', claimPid: 'p3', scannedAtMs: clock.ms - 60000, now: () => clock.ms - 60000, cloud: cloud);
-      await john_.setSharing(true);
-      await joe_.setSharing(true);
       cloud.online = false; // the basement
       for (var n = 1; n <= 12; n++) {
         await org.startHand(n, const ['p1', 'p2', 'p3'][(n - 1) % 3]);
@@ -297,12 +356,19 @@ void main() {
       expect(m.hands[2].players['p2']!.action, PreAction.raise);
       expect(m.hands[6].players['p2']!.action, PreAction.call);
       expect(m.hands[6].players['p3']!.inferred, isTrue);
+      expect(dramaLines(m), isEmpty); // no card values in the logs
+      // The card documents, once the server's hold is over.
+      clock.advance(serverCardHoldMs);
+      final fetcher = CardFetcher(cloud, org.nightId, now: clock.call);
+      expect(await fetcher.fill(m), isTrue);
+      m = mergeNight(
+          organizerDeviceId: org.deviceId, logs: injectCards(await cloud.fetch(org.nightId), fetcher.got));
       expect(dramaLines(m).single.text, startsWith('Cooler · Joe AA vs John KK'));
       // The organizer's own phone merges its local log with the cloud.
-      org.addRemote(await cloud.fetch(org.nightId));
+      org.addRemote(injectCards(await cloud.fetch(org.nightId), fetcher.got));
       expect(org.merged().hands[2].players['p2']!.cards, parseCards('KsKh'));
       // Billed operations for this 3-phone night stay tiny.
-      expect(cloud.writes, lessThan(20));
+      expect(cloud.writes, lessThan(24));
     });
   });
 }
