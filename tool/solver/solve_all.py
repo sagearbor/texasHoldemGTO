@@ -50,8 +50,9 @@ MEM_GB = float(os.environ.get("MEM_GB", "9.5"))
 FLOPS_K = int(os.environ.get("FLOPS_K", "54"))
 SUB_N = int(os.environ.get("SUB_N", "12"))    # pass A flops (heaviest per stratum)
 CORR_N = int(os.environ.get("CORR_N", "14"))  # fixed-point correction flops (calibrated)
-FP_MAX = int(os.environ.get("FP_MAX", "4"))
-FP_DAMP = float(os.environ.get("FP_DAMP", "0.5"))
+FP_MAX = int(os.environ.get("FP_MAX", "14"))
+FP_DAMP_MIN = float(os.environ.get("FP_DAMP_MIN", "0.25"))
+ALL_EVERY = int(os.environ.get("ALL_EVERY", "4"))
 FP_STOP = float(os.environ.get("FP_STOP", "0.03"))
 START_R = os.environ.get("START_R", os.path.join(WORK, "start_R.json"))
 STOP_FREE_GB = 12.0
@@ -633,32 +634,52 @@ def main():
                           seconds=sb["seconds"] + statsA.get(pt, {}).get("seconds", 0),
                           subsetExploitPctPot=list(statsA.get(pt, {}).get("exploitPctPot", [])), pot=sb["pot"])
                  for pt, sb in statsB.items()}
+    # Fixed-point rounds. Every round re-measures the "fast" pots (3BP, 4BP,
+    # ISO, LIMP) on the correction subset with the current ranges; the
+    # single-raised pots (most of the compute; they only shape the 3-bettor's
+    # flat-or-3-bet split) are re-measured on the first round, whenever the
+    # fast pots pass the check, and at least every ALL_EVERY rounds. The
+    # check that ends the loop always has every pot measured on the current
+    # ranges, undamped. Damping: lambda_k = max(FP_DAMP_MIN, 1/sqrt(k)).
     rnd = 2
+    measure_all, since_all = True, 0
+    Rs_last = {}
+    chk, dchk = None, {}
     while True:
         jobs_now = leaf_jobs(games)
-        Rs, _, st, _ = solve_postflop(jobs_now, tab, sub, f"fp {rnd + 1} (subset)")
+        pts = [pt for pt in jobs_now if measure_all or not pt.startswith("SRP:")]
+        Rs, _, st, _ = solve_postflop({pt: jobs_now[pt] for pt in pts}, tab, sub,
+                                      f"fp {rnd + 1} (subset, {'all pots' if measure_all else 'fast pots'})")
         for pt, s in st.items():
             stats_all[pt]["subsetExploitPctPot"] += s["exploitPctPot"]
             stats_all[pt]["seconds"] += s["seconds"]
-        target = correct(RB, Rs, RBsub)
+        Rs_last.update(Rs)
+        target = correct(RB, Rs_last, RBsub)
         # undamped check: would the measured tables move the strategy?
         chk = solve_round(tab, target, f"check {rnd}", warm={k: game_state(g) for k, g in games.items()})
         dchk = {k: hero_delta(chk[k], games[k]) for k in games}
-        log(f"check after round {rnd}: " + ", ".join(f"{k} {v:.3f}" for k, v in dchk.items()))
+        log(f"check after round {rnd} ({'all pots' if measure_all else 'fast pots'}): "
+            + ", ".join(f"{k} {v:.3f}" for k, v in dchk.items()))
         rounds[-1]["checkDelta"] = dchk
-        if max(dchk.values()) <= FP_STOP or rnd >= FP_MAX + 1:
+        rounds[-1]["allPotsMeasured"] = measure_all
+        ok = max(dchk.values()) <= FP_STOP
+        if (ok and measure_all) or rnd >= FP_MAX + 1:
             break
+        since_all = 0 if measure_all else since_all + 1
+        measure_all = ok or since_all + 1 >= ALL_EVERY
         rnd += 1
-        Rt_new = blend(target, Rt, FP_DAMP)
+        lam = max(FP_DAMP_MIN, 1.0 / np.sqrt(rnd - 2))
+        Rt_new = blend(target, Rt, lam)
         dR = {pt: max(float(np.abs(Rt_new[pt][p] - Rt[pt][p]).mean()) for p in (0, 1)) for pt in Rt}
         Rt = Rt_new
+        save_tables(os.path.join(WORK, f"R_round{rnd}.json"), Rt)
         prev = games
         games = solve_round(tab, Rt, f"round {rnd}", warm={k: game_state(g) for k, g in games.items()})
         dd = {k: hero_delta(games[k], prev[k]) for k in games}
-        rounds.append(dict(round=rnd, damp=FP_DAMP, heroDelta=dd, meanAbsDeltaR=dR,
+        rounds.append(dict(round=rnd, damp=round(lam, 3), heroDelta=dd, meanAbsDeltaR=dR,
                            rangeDrift={pt: max(range_dist(jobs_now[pt][0], j[0]), range_dist(jobs_now[pt][1], j[1]))
                                        for pt, j in leaf_jobs(games).items() if pt in jobs_now}))
-        log(f"round {rnd}: max mean |dR| {max(dR.values()):.3f}; hero delta "
+        log(f"round {rnd} (damping {lam:.2f}): max mean |dR| {max(dR.values()):.3f}; hero delta "
             + ", ".join(f"{k} {v:.3f}" for k, v in dd.items()))
     save_tables(os.path.join(WORK, "R_final.json"), Rt)
     with open(os.path.join(WORK, "games_final.pkl"), "wb") as f:

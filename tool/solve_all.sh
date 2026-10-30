@@ -11,7 +11,7 @@
 #   POST_TARGET (0.97)  every flop solve runs to this exploitability, % pot
 #   POST_ITERS (1000)   iteration cap per flop solve
 #   SUB_N (12)          flops in the fixed-point correction subset
-#   FP_MAX (4) FP_DAMP (0.5) FP_STOP (0.03)   fixed-point rounds
+#   FP_MAX (14) FP_DAMP_MIN (0.25) ALL_EVERY (4) FP_STOP (0.03)   fixed-point rounds
 #   START_R             starting realisation tables (round 0 only; JSON
 #                       {potType: {"0": [...], "1": [...]}}); default
 #                       tmp/solve/start_R.json if present, else a prior
