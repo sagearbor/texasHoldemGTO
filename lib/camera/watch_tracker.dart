@@ -178,6 +178,11 @@ class WatchHandTracker {
     final cur = _cards;
     if (cur != null) {
       if (s.every(cur.contains)) return WatchDecision(WatchAction.confirm, cur);
+      // One stray card with the rank of a current card is likelier a suit
+      // misread of it (T♦ read as T♣ on the owner's footage) than a new hand.
+      if (s.length == 1 && cur.any((c) => cardRank(c) == cardRank(s.first))) {
+        return WatchDecision(WatchAction.ignore, cur);
+      }
       if (scene != null && scene == _scene && s.length == 1 && s.any(cur.contains)) {
         return WatchDecision(WatchAction.ignore, cur);
       }

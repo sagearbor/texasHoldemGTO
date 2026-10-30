@@ -87,13 +87,13 @@ Future<void> main(List<String> argv) async {
     whiteBalance: !args.remove('--no-wb'),
     warmLight: !args.remove('--no-warm'),
     minAgree: int.parse(opt('--agree', '2')!),
-    readMaxShort: int.parse(opt('--read-short', '720')!),
+    readMaxShort: int.parse(opt('--read-short', '540')!),
     minCropFrac: double.parse(opt('--crop', '0.5')!),
   ));
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_lab.dart VIDEO [--short 720] [--fps 15] '
         '[--phone 2.0] [--labels L.json] [--start S] [--max S] [--tta] [--agree 2] '
-        '[--read-short 720] [--crop 0.5] [--no-wb] [--no-warm] [--hlg LUT.cube] [--markers M.json] [--sat S] [--dump DIR] [-v]');
+        '[--read-short 540] [--crop 0.5] [--no-wb] [--no-warm] [--hlg LUT.cube] [--markers M.json] [--sat S] [--dump DIR] [-v]');
     exit(2);
   }
   final cnn = GlyphCnn.parse(File('assets/data/glyph_cnn.bin').readAsBytesSync());
@@ -306,13 +306,17 @@ List<(int, List<int>)> handLog(List<(int, WatchDecision)> decisions) {
 
 /// Hand boundaries against the spoken "next hand" markers: a marker is
 /// found when a hand starts between 2 s before it and 4 s after the next
-/// labelled peek. Hand starts outside every such window (other than the
-/// first hand) are extra boundaries: a hand split in two.
+/// labelled peek. Splits: hands started beyond one between two labelled
+/// peeks (each label's interval runs from 3 s before it to 3 s before the
+/// next), i.e. one real hand logged as two. (The owner forgot to say "next
+/// hand" on the first deals, so markers alone would over-count splits.)
 String scoreBoundaries(List<(int, WatchDecision)> decisions, List<int> markers, List<int> labelTimes) {
-  final starts = [
-    for (final (t, d) in decisions)
-      if (d.startsHand || d.action == WatchAction.fill) t
-  ];
+  final starts = <int>[];
+  for (final (t, d) in decisions) {
+    // A fill of a just-started unread hand is the same hand.
+    if (d.action == WatchAction.fill && starts.isNotEmpty) continue;
+    if (d.startsHand || d.action == WatchAction.fill) starts.add(t);
+  }
   final windows = [
     for (final m in markers) (m - 2000, (labelTimes.firstWhere((t) => t > m, orElse: () => m + 6000)) + 4000)
   ];
@@ -320,7 +324,13 @@ String scoreBoundaries(List<(int, WatchDecision)> decisions, List<int> markers, 
   for (final (a, b) in windows) {
     if (starts.any((t) => t >= a && t <= b)) found++;
   }
-  final extra = starts.skip(1).where((t) => !windows.any((w) => t >= w.$1 && t <= w.$2)).length;
+  var extra = 0;
+  for (var i = 0; i < labelTimes.length; i++) {
+    final a = i == 0 ? -1 << 40 : labelTimes[i] - 3000;
+    final b = i + 1 < labelTimes.length ? labelTimes[i + 1] - 3000 : 1 << 40;
+    final n = starts.where((t) => t >= a && t < b).length;
+    if (n > 1) extra += n - 1;
+  }
   return 'next-hand markers ${markers.length}: found $found, missed ${markers.length - found}; '
       'extra boundaries (hands split) $extra';
 }
