@@ -21,7 +21,8 @@ import '../../homegame/home_game.dart';
 import '../../sync/night_events.dart';
 import '../../sync/organizer_bridge.dart';
 import '../../sync/table_night_service.dart';
-import '../../nearby/nearby_ui.dart' show FindNearbyButton, NearbyHostTile;
+import '../../nearby/nearby_service.dart';
+import '../../nearby/nearby_ui.dart' show FindNearbyButton, NearbyHostTile, showSeatCalibration;
 import '../app_settings.dart';
 import '../theme.dart';
 import '../tv/tv_controller.dart' show ticketFromTvInput;
@@ -134,6 +135,9 @@ class _JoinTableNightScreenState extends State<JoinTableNightScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+    if (!mounted) return;
+    // Optional ground truth for the seating experiment (skippable).
+    if (NearbyService.instance.allowed) await showSeatCalibration(context);
     if (!mounted) return;
     await Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const PlayerPadScreen()));
   }

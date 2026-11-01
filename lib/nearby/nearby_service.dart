@@ -52,6 +52,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
   bool advertiseFailed = false;
 
   bool _foreground = true;
+  String? _loopNight;
   bool _scanning = false;
   Timer? _timer;
   int _quietScans = 0;
@@ -186,12 +187,16 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
       }
       notifyListeners();
     }
+    // TableNightService also notifies on every upload status change: only
+    // a different night restarts the loop.
+    final changed = n?.nightId != _loopNight;
+    _loopNight = n?.nightId;
     if (n != null && _senseNight != n.nightId) await _openSense(n);
     if (n == null) {
       _senseNight = null;
       _senseLog = null;
     }
-    _schedule(_inGame ? const Duration(seconds: 2) : _interval);
+    if (changed) _schedule(_inGame ? const Duration(seconds: 2) : _interval);
   }
 
   // ----------------------------------------------- seating experiment

@@ -593,15 +593,11 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     if (_hostedStandalone) unawaited(TableNightService.instance.endStandalone());
     HapticFeedback.heavyImpact();
     if (!mounted) return;
-    final dir = _dir;
-    final photos = s.photos;
+    final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
-    if (dir != null) {
-      final ctx = Navigator.of(context).context;
-      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-        content: Text('Saved $photos photos. Export from Home game → Recordings.'),
-      ));
-    }
+    messenger.showSnackBar(SnackBar(
+      content: Text('Saved ${s.photos} photos. Export: Home game → Record the table → Recordings.'),
+    ));
   }
 
   // ------------------------------------------------------------ status
