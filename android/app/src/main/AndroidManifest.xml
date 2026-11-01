@@ -8,6 +8,10 @@
     <!-- Board caller: push-to-talk speech recognition by the phone's own
          engine (on-device where available). Audio is never stored. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Record the table: the rough area (last known fix) once at the start
+         of a recording, if the owner allows it. Saved in the recording on
+         the phone only. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <application
         android:label="Felt Notes"

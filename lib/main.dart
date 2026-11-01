@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'app_data.dart';
 import 'gto/spots.dart';
 import 'homegame/home_game.dart';
+import 'record/record_screen.dart';
 import 'trainer/trainer_model.dart';
 import 'ui/app_settings.dart';
 import 'ui/chart_prefs.dart';
@@ -121,7 +122,11 @@ class _ShellState extends State<Shell> {
     super.initState();
     shellTabs.addListener(_onTabRequest);
     WidgetsBinding.instance
-        .addPostFrameCallback((_) => maybeShowWelcome(context, widget.model));
+        .addPostFrameCallback((_) async {
+      await maybeShowWelcome(context, widget.model);
+      // A table recording the app did not stop: resume or close it.
+      if (mounted) await maybeOfferRecordResume(context);
+    });
   }
 
   void _onTabRequest() {

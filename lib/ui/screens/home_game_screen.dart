@@ -7,6 +7,7 @@ import '../../camera/watch_tracker.dart';
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
+import '../../record/record_screen.dart';
 import '../../trainer/trainer_model.dart';
 import '../theme.dart';
 import '../widgets/action_pad.dart';
@@ -76,13 +77,16 @@ class HomeGameScreen extends StatelessWidget {
                     }
                     if (v == 'seats') showSeatsEditor(context, model);
                     if (v == 'clock') openBlindClock(context);
+                    if (v == 'record') openRecordMode(context);
                   },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'clock', child: Text('Blind clock')),
-                    PopupMenuItem(
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'clock', child: Text('Blind clock')),
+                    if (recordModeSupported)
+                      const PopupMenuItem(value: 'record', child: Text('Record the table')),
+                    const PopupMenuItem(
                         value: 'seats', child: Text('Players & seats')),
-                    PopupMenuItem(value: 'result', child: Text('My result')),
-                    PopupMenuItem(value: 'end', child: Text('End game night')),
+                    const PopupMenuItem(value: 'result', child: Text('My result')),
+                    const PopupMenuItem(value: 'end', child: Text('End game night')),
                   ],
                 ),
             ],
@@ -229,6 +233,14 @@ class _SetupState extends State<_Setup> {
           icon: const Icon(Icons.timer_outlined),
           label: const Text('Blind clock'),
         ),
+        if (recordModeSupported) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => openRecordMode(context),
+            icon: const Icon(Icons.videocam_outlined),
+            label: const Text('Record the table'),
+          ),
+        ],
         const SizedBox(height: 8),
         const TableNightEntry(),
         if (past.isNotEmpty) ...[

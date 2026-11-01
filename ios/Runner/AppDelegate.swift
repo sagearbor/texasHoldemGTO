@@ -4,6 +4,10 @@ import UIKit
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
+  // Native channels kept alive for the app's lifetime.
+  private var record: RecordChannel?
+  private var nearby: NearbyChannel?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -31,6 +35,14 @@ import UIKit
         }
         result(["route": true, "outputs": outputs])
       }
+    }
+    // Record the table (lib/record/record_native.dart).
+    if let messenger = registrar(forPlugin: "FeltRecord")?.messenger() {
+      record = RecordChannel(messenger: messenger)
+    }
+    // Nearby games and the seating experiment (lib/nearby/).
+    if let messenger = registrar(forPlugin: "FeltNearby")?.messenger() {
+      nearby = NearbyChannel(messenger: messenger)
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }

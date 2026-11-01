@@ -1,6 +1,7 @@
 package com.sagearbor.feltnotes.app
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
@@ -10,11 +11,35 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity: FlutterActivity() {
+    private var record: RecordChannel? = null
+
+    // Runtime permission prompts for the native channels (record mode's
+    // location, Bluetooth for nearby games): one callback per request code.
+    private val permWaiters = mutableMapOf<Int, (Boolean) -> Unit>()
+    private var nextPermCode = 4100
+
+    fun hasPerms(names: List<String>): Boolean =
+        names.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+
+    fun requestPerms(names: List<String>, done: (Boolean) -> Unit) {
+        if (hasPerms(names)) return done(true)
+        val code = nextPermCode++
+        permWaiters[code] = done
+        requestPermissions(names.toTypedArray(), code)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        val done = permWaiters.remove(requestCode) ?: return
+        done(grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED })
+    }
+
     // Watch my cards speaker-leak guard (lib/camera/watch_voice.dart): where
     // would speech play right now? Android 13+: the actual route for media;
     // older: every connected output (the speaker is always among them).
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        record = RecordChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "felt_notes/audio_route")
             .setMethodCallHandler { call, result ->
                 if (call.method != "outputs") {

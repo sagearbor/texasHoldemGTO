@@ -60,6 +60,10 @@ dependencies:
   flutter_local_notifications: ">=17.2.3 <17.3.0"
   # Watch my cards diagnostics file (already a transitive dependency).
   path_provider: ">=2.1.0 <2.2.0"
+  # Record the table: one zip of a session (photos stored, not deflated:
+  # JPEGs do not shrink) to share to the Mac. 3.6.1 is pure Dart, Dart 3.0+,
+  # and writes zip64 for sessions over 4 GB.
+  archive: 3.6.1
 
 dev_dependencies:
   flutter_test:
