@@ -27,6 +27,11 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../camera/watch_frame.dart' show uprightRotation;
 import '../camera/watch_screen.dart' show watchFrameFromCamera, watchModeSupported;
+import '../nearby/nearby_ble.dart' show bleSupported;
+import '../nearby/nearby_service.dart';
+import '../nearby/nearby_ui.dart' show askBluetooth;
+import '../sync/table_night_service.dart';
+import '../ui/app_settings.dart';
 import '../ui/theme.dart';
 import 'record_log.dart';
 import 'record_native.dart';
@@ -127,6 +132,10 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   double _rate = 1.5;
   int? _dealerSeat;
 
+  /// Host a game for phones nearby while recording (Bluetooth, optional).
+  bool _host = false;
+  bool _hostedStandalone = false;
+
   // ------------------------------------------------------------ camera
   CameraController? _cam;
   LensInfo? _lens;
@@ -183,6 +192,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       c.dispose();
     }
     WakelockPlus.disable();
+    NearbyService.instance.mirror = null;
     // Leaving without "hold to stop" (back gesture): the session stays
     // open and is offered for resume at the next launch, like a kill.
     final s = _session;
@@ -413,6 +423,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _dir = dir;
     _log = log;
     _session = s;
+    await _startHosting(log);
     _segmentLogged = false;
     _pacer.intervalMs = intervalForRate(_rate);
     WakelockPlus.enable();
@@ -420,6 +431,32 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _tick = Timer.periodic(const Duration(seconds: 1), _onTick);
     unawaited(_refreshStatus());
     _startFraming();
+  }
+
+  /// Optional: the recording phone hosts a game phones nearby can join
+  /// (or shares the table night it already organizes). Its ids go in the
+  /// log so the offline analysis can match this phone's Bluetooth advert.
+  Future<void> _startHosting(RecordLogWriter log) async {
+    final tn = TableNightService.instance;
+    if (_host && mounted && await askBluetooth(context, hosting: true)) {
+      try {
+        final had = tn.night;
+        final n = await tn.organizeStandalone(AppSettings.playerName.value.isEmpty ? 'Host' : AppSettings.playerName.value);
+        _hostedStandalone = had == null && tn.standalone;
+        log.write('nearby_host', {
+          'night': n.nightId,
+          'device': n.deviceId,
+          'organizer': n.isOrganizer,
+          'standalone': _hostedStandalone,
+        });
+      } catch (e) {
+        log.write('nearby_host', {'error': '$e'});
+      }
+    } else if (tn.night != null) {
+      log.write('nearby_night', {'night': tn.night!.nightId, 'device': tn.night!.deviceId, 'organizer': tn.isOrganizer});
+    }
+    // The seating experiment's readings also land in this log.
+    NearbyService.instance.mirror = (k, f) => _write((k, f));
   }
 
   /// Just in time, once: ask before the OS prompt, in plain words. Later
@@ -552,6 +589,8 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     }
     _tick?.cancel();
     WakelockPlus.disable();
+    NearbyService.instance.mirror = null;
+    if (_hostedStandalone) unawaited(TableNightService.instance.endStandalone());
     HapticFeedback.heavyImpact();
     if (!mounted) return;
     final dir = _dir;
@@ -743,6 +782,14 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         title: const Text('Widest lens'),
         subtitle: const Text('Ultra-wide where the phone has one'),
       ),
+      if (bleSupported)
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: _host,
+          onChanged: (v) => setState(() => _host = v),
+          title: const Text('Let phones nearby join'),
+          subtitle: const Text('Players with Felt Notes see a one-tap "Nearby game" card. Bluetooth, no internet.'),
+        ),
       Text('Photos a second', style: t.labelLarge),
       Wrap(spacing: 8, children: [
         for (final r in recordRates)

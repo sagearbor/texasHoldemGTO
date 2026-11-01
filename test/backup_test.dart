@@ -66,6 +66,7 @@ Map<String, Object> fullStore() => {
       keyCardStyle: 'twoColor',
       keySolverDice: false,
       keyCurrency: '€',
+      keyPlayerName: 'Sage',
       'flutter.some_other_plugin': 'secret',
       'not_ours': 42,
     };

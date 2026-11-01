@@ -42,10 +42,9 @@ final class RecordChannel: NSObject, CLLocationManagerDelegate {
     case "storage":
       let url = URL(fileURLWithPath: args["path"] as? String ?? NSHomeDirectory())
       let v = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey])
-      result([
-        "free": v?.volumeAvailableCapacityForImportantUsage ?? 0,
-        "total": v?.volumeTotalCapacity ?? 0,
-      ])
+      let free: Int64 = v?.volumeAvailableCapacityForImportantUsage ?? 0
+      let total: Int = v?.volumeTotalCapacity ?? 0
+      result(["free": free, "total": total])
     case "device":
       var sys = utsname()
       uname(&sys)

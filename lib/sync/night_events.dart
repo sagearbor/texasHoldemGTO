@@ -95,6 +95,19 @@ enum EventKind {
   /// The blind clock as it is now `{j: BlindClock json}` (levels, anchor
   /// on the organizer's clock), so the TV can run the same clock.
   clock,
+
+  // ---- seating experiment (lib/nearby/sense.dart): logged, never shown
+  /// This phone, once per join `{model, os, app, uwb}`.
+  device,
+
+  /// A minute of Bluetooth / UWB readings of the other phones
+  /// `{w, n, p, u?, fg, scr?, bat?, chg?}` (see SenseWindow.take).
+  sense,
+
+  /// "Where are you sitting?" on the join calibration diagram `{x, y, a}`:
+  /// a point on the table drawing (0..1, the host at the bottom) and its
+  /// angle clockwise from the host in degrees. Ground truth, optional.
+  seat,
 }
 
 EventKind? eventKindFromName(Object? n) {

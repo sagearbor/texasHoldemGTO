@@ -45,6 +45,7 @@ const backupKeys = <String, PrefKind>{
   keyCardStyle: PrefKind.string,
   keySolverDice: PrefKind.boolean,
   keyCurrency: PrefKind.string,
+  keyPlayerName: PrefKind.string,
 };
 
 const keyTrainerHistory = 'trainer_history_v1';
@@ -61,6 +62,7 @@ const keyTheme = AppSettings.themeKey;
 const keyCardStyle = AppSettings.cardStyleKey;
 const keySolverDice = AppSettings.solverDiceKey;
 const keyCurrency = AppSettings.currencyKey;
+const keyPlayerName = AppSettings.playerNameKey;
 
 /// Thrown for anything that is not a valid Felt Notes backup. [message] is
 /// short and safe to show to the user.
@@ -210,6 +212,9 @@ Object _validate(String k, PrefKind kind, Object? v) {
     case keyCurrency:
       return AppSettings.normalizeCurrency(v) ??
           (throw const FormatException('currency'));
+    case keyPlayerName:
+      return AppSettings.normalizePlayerName(v) ??
+          (throw const FormatException('player name'));
     case keyDashboardDelay:
       final m = v as int;
       if (!dashboardDelays.contains(m)) throw const FormatException('delay');

@@ -116,6 +116,17 @@ class SettingsScreen extends StatelessWidget {
               ),
             ]),
             _Section(icon: Icons.groups, title: 'Home game', children: [
+              ValueListenableBuilder<String>(
+                valueListenable: AppSettings.playerName,
+                builder: (context, name, _) => ListTile(
+                  key: const Key('settings-player-name'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.badge_outlined),
+                  title: const Text('Your name at the table'),
+                  subtitle: Text(name.isEmpty ? 'Not set: asked once when you join a game' : name),
+                  onTap: () => editPlayerName(context),
+                ),
+              ),
               if (home != null) ...[
                 const _Label('TV dashboard delay'),
                 _Choices<int>(
@@ -306,4 +317,31 @@ class _CurrencyChoices extends StatelessWidget {
       ),
     ]);
   }
+}
+
+/// Edit (or set) the name this phone joins games with. Returns the name,
+/// or null when cancelled.
+Future<String?> editPlayerName(BuildContext context, {String title = 'Your name at the table'}) async {
+  final c = TextEditingController(text: AppSettings.playerName.value);
+  final v = await showDialog<String>(
+    context: context,
+    builder: (d) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: c,
+        autofocus: true,
+        maxLength: 24,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(helperText: 'Shown to the table when you join a game'),
+        onSubmitted: (v) => Navigator.pop(d, v),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(d, c.text), child: const Text('Save')),
+      ],
+    ),
+  );
+  if (v == null) return null;
+  await AppSettings.setPlayerName(v);
+  return AppSettings.playerName.value;
 }

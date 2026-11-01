@@ -89,6 +89,32 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     return sync;
   }
 
+  /// A table night with no hand logger behind it, for Record the table
+  /// hosting phones nearby: no seats and no hands, just a night that
+  /// others can join and log into. Already in a night: that one (a player
+  /// cannot host, and an organizer's own night is the one to share).
+  Future<LocalTableSync> organizeStandalone(String name) async {
+    final have = night;
+    if (have != null) return have;
+    final store = _store ??= await SharedPrefsStore.open();
+    final cloud = await openCloud();
+    final sync = await LocalTableSync.organize(store, organizerName: name, selfPid: 'host', cloud: cloud);
+    await sync.log.setMeta('standalone', true);
+    await _attach(sync);
+    return sync;
+  }
+
+  /// The current night is a standalone one ([organizeStandalone]).
+  bool get standalone => night?.log.meta['standalone'] == true;
+
+  /// Ends a standalone night (the recording that hosted it stopped).
+  Future<void> endStandalone() async {
+    final s = night;
+    if (s == null || s.log.meta['standalone'] != true) return;
+    await s.endNight();
+    await _release(s);
+  }
+
   // --------------------------------------------------------------- player
 
   Future<LocalTableSync> join(JoinTicket t,
@@ -165,7 +191,7 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     // Nobody listens live on a phone (the TV does): saves a read per
     // change per phone. The pad fetches once on demand.
     s.startSync(onStatus: notifyListeners);
-    if (s.isOrganizer) {
+    if (s.isOrganizer && s.log.meta['standalone'] != true) {
       _bridge = OrganizerBridge(s);
       await _onHomeAsync();
       await _bridge!.recordClock(BlindClockController.shared.clock.toJson());

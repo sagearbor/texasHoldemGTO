@@ -21,6 +21,8 @@ import '../../homegame/home_game.dart';
 import '../../sync/night_events.dart';
 import '../../sync/organizer_bridge.dart';
 import '../../sync/table_night_service.dart';
+import '../../nearby/nearby_ui.dart' show FindNearbyButton, NearbyHostTile;
+import '../app_settings.dart';
 import '../theme.dart';
 import '../tv/tv_controller.dart' show ticketFromTvInput;
 import '../tv/tv_screen.dart';
@@ -64,7 +66,7 @@ class JoinTableNightScreen extends StatefulWidget {
 }
 
 class _JoinTableNightScreenState extends State<JoinTableNightScreen> {
-  final _name = TextEditingController();
+  final _name = TextEditingController(text: AppSettings.playerName.value);
   final _code = TextEditingController();
   JoinTicket? _scanned;
   int? _scannedAt;
@@ -480,6 +482,8 @@ class _OrganizerSheetState extends State<_OrganizerSheet> {
           const SizedBox(height: 4),
           Text('Home game → Join a table night. No app? They just play: you log the hands.',
               style: t.bodySmall, textAlign: TextAlign.center),
+          const SizedBox(height: 10),
+          const NearbyHostTile(),
           const Divider(height: 28),
           Text('TV', style: t.titleMedium),
           const SizedBox(height: 4),
@@ -557,6 +561,10 @@ class TableNightEntry extends StatelessWidget {
               icon: const Icon(Icons.qr_code_scanner),
               label: const Text('Join a table night'),
             ),
+          if (s == null) ...[
+            const SizedBox(height: 8),
+            const FindNearbyButton(),
+          ],
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: () => showTvCodeDialog(context),

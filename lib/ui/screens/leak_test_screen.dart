@@ -7,6 +7,7 @@ import '../../gto/coach.dart';
 import '../../gto/spots.dart';
 import '../../trainer/leak_test.dart';
 import '../../trainer/trainer_model.dart';
+import '../app_settings.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
 
@@ -139,6 +140,20 @@ class _WelcomeCard extends StatelessWidget {
           line(Icons.lock_outline,
               'Everything stays on your phone. No account, no uploads.'),
           const SizedBox(height: 8),
+          // Asked once, here: joining a home game later is then one tap.
+          const TextField(
+            key: Key('onboarding-name'),
+            textCapitalization: TextCapitalization.words,
+            maxLength: 24,
+            decoration: InputDecoration(
+              labelText: 'Your name at the poker table (optional)',
+              helperText: 'Used when you join a home game. Change it in Settings.',
+              border: OutlineInputBorder(),
+              counterText: '',
+            ),
+            onChanged: AppSettings.setPlayerName,
+          ),
+          const SizedBox(height: 12),
           FilledButton(
             onPressed: onNext,
             style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),

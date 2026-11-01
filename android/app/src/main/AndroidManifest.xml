@@ -12,6 +12,21 @@
          of a recording, if the owner allows it. Saved in the recording on
          the phone only. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Nearby games: find a home game hosted by a phone at the table and
+         join with one tap, no internet needed; plus the seating experiment
+         (how loud the other Felt Notes phones are). Asked just in time.
+         Android 12+: "Nearby devices"; scanning never derives location. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Android 11 and older: the legacy Bluetooth permissions, and BLE
+         scanning there needs fine location (the OS rule, not used for
+         location). -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <application
         android:label="Felt Notes"

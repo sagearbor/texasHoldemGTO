@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'app_data.dart';
 import 'gto/spots.dart';
 import 'homegame/home_game.dart';
+import 'nearby/nearby_service.dart';
+import 'nearby/nearby_ui.dart';
 import 'record/record_screen.dart';
 import 'trainer/trainer_model.dart';
 import 'ui/app_settings.dart';
@@ -59,7 +61,7 @@ class _FeltNotesAppState extends State<FeltNotesApp> {
       await Future.wait(
           [m.load(), h.load(), ChartPrefs.load(), AppSettings.load()]);
       // Resumes a table night this phone was in (no network until one is).
-      unawaited(TableNightService.instance.init(h));
+      unawaited(TableNightService.instance.init(h).then((_) => NearbyService.instance.init()));
       if (mounted) {
         setState(() {
           model = m;
@@ -193,14 +195,15 @@ class _ShellState extends State<Shell> {
                 ],
               ),
               const VerticalDivider(width: 1),
-              Expanded(child: content),
+              Expanded(child: Column(children: [Expanded(child: content), const NearbyGameBanner()])),
             ],
           ),
         ),
       );
     }
     return Scaffold(
-      body: content,
+      // A game hosted at this table: the one-tap join card, on every tab.
+      body: Column(children: [Expanded(child: content), const NearbyGameBanner()]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: select,

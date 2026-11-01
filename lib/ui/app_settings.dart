@@ -38,6 +38,7 @@ class AppSettings {
   static const cardStyleKey = 'settings_card_style_v1';
   static const solverDiceKey = 'settings_solver_dice_v1';
   static const currencyKey = 'settings_currency_v1';
+  static const playerNameKey = 'settings_player_name_v1';
 
   static final theme = ValueNotifier<ThemeChoice>(ThemeChoice.dark);
   static final cardStyle = ValueNotifier<CardStyle>(CardStyle.fourColor);
@@ -48,9 +49,13 @@ class AppSettings {
   /// Symbol for My result amounts ("$40").
   static final currency = ValueNotifier<String>(defaultCurrency);
 
+  /// The name this phone joins games with (asked once at first launch,
+  /// editable in Settings). Empty: not set; a nearby join asks once.
+  static final playerName = ValueNotifier<String>('');
+
   /// Fires when any setting here changes.
   static final Listenable all =
-      Listenable.merge([theme, cardStyle, solverDice, currency]);
+      Listenable.merge([theme, cardStyle, solverDice, currency, playerName]);
 
   /// [name] as a [ThemeChoice], or null if it is not one.
   static ThemeChoice? parseTheme(Object? name) {
@@ -78,12 +83,23 @@ class AppSettings {
     return t;
   }
 
+  /// A usable display name: trimmed, inner whitespace collapsed, 1 to 24
+  /// characters (what the table-night rules accept). Null if [s] is not
+  /// one.
+  static String? normalizePlayerName(Object? s) {
+    if (s is! String) return null;
+    final t = s.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (t.isEmpty || t.length > 24) return null;
+    return t;
+  }
+
   /// Back to defaults in memory only (after "Reset all data").
   static void resetMemory() {
     theme.value = ThemeChoice.dark;
     cardStyle.value = CardStyle.fourColor;
     solverDice.value = true;
     currency.value = defaultCurrency;
+    playerName.value = '';
   }
 
   static Future<void> load() async {
@@ -96,6 +112,7 @@ class AppSettings {
       solverDice.value = prefs.getBool(solverDiceKey) ?? true;
       currency.value =
           normalizeCurrency(prefs.getString(currencyKey)) ?? defaultCurrency;
+      playerName.value = normalizePlayerName(prefs.getString(playerNameKey)) ?? '';
     } catch (_) {
       // Storage unavailable (private window etc.): keep the defaults.
     }
@@ -129,6 +146,21 @@ class AppSettings {
     if (c == null) return false;
     currency.value = c;
     await _write((p) => p.setString(currencyKey, c));
+    return true;
+  }
+
+  /// Empty clears it. Ignores an invalid name; returns whether it was
+  /// saved.
+  static Future<bool> setPlayerName(String s) async {
+    if (s.trim().isEmpty) {
+      playerName.value = '';
+      await _write((p) => p.remove(playerNameKey));
+      return true;
+    }
+    final n = normalizePlayerName(s);
+    if (n == null) return false;
+    playerName.value = n;
+    await _write((p) => p.setString(playerNameKey, n));
     return true;
   }
 }

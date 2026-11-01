@@ -120,9 +120,16 @@ List<DeviceLog> logsFromParts(Iterable<LogPart> parts) {
   ];
 }
 
-/// Kinds that are a player's own game: they stay on the phone while
-/// sharing is off.
-const _playerOwn = {EventKind.play, EventKind.cards, EventKind.undo};
+/// Kinds that are a player's own: they stay on the phone while sharing is
+/// off (the seating experiment's readings too).
+const _playerOwn = {
+  EventKind.play,
+  EventKind.cards,
+  EventKind.undo,
+  EventKind.device,
+  EventKind.sense,
+  EventKind.seat,
+};
 
 /// The cloud copy of a phone's log: see the library comment.
 List<NightEvent> cloudEvents(Iterable<NightEvent> events, {required bool sharing}) => [

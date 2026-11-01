@@ -12,6 +12,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity: FlutterActivity() {
     private var record: RecordChannel? = null
+    private var ble: BleChannel? = null
 
     // Runtime permission prompts for the native channels (record mode's
     // location, Bluetooth for nearby games): one callback per request code.
@@ -40,6 +41,7 @@ class MainActivity: FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         record = RecordChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+        ble = BleChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "felt_notes/audio_route")
             .setMethodCallHandler { call, result ->
                 if (call.method != "outputs") {
