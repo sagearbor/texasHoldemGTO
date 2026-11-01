@@ -83,3 +83,52 @@ No ATT prompt is needed (no tracking, no IDFA).
 * Play "Data deletion" URL field (if asked): the privacy policy URL; the
   deletion section is "How long table-night data is kept" / "Deleting your data".
 * In-app: Help → Home game → "Table nights (other phones and a TV)" says the same.
+
+# 0.3.3: Record the table, nearby join, seating experiment
+
+What changes (source of truth: `lib/record/`, `lib/nearby/`,
+`lib/sync/cloud_logs.dart` `cloudEvents`, `web/privacy.html`):
+
+| Data | Leaves the phone? |
+|---|---|
+| Record the table: table photos, session log, approximate location (once per recording, if allowed), model / OS | **No.** App storage only; the owner exports it himself (share sheet / USB). Not "collected" under either store's definition. |
+| Nearby join: BLE advert with the night id + join secret + organizer display name (host) or the random install id (player) | Broadcast over Bluetooth to phones in the room; not sent to us. |
+| Seating experiment: per-minute BLE signal strength of other Felt Notes phones (by their install ids), iPhone-iPhone UWB distances, phone model / OS / app version, battery level and charging, app in foreground, screen on, optional seat tap on a drawing | **Yes**, as table-night log events (`device`, `sense`, `seat`), only for phones in a table night that allowed Bluetooth, and only with sharing on (sharing off keeps them on the phone). |
+
+New permissions: Android `ACCESS_COARSE_LOCATION`, `BLUETOOTH_SCAN`
+(neverForLocation), `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT`, and on
+Android 11 and older `BLUETOOTH`, `BLUETOOTH_ADMIN`, `ACCESS_FINE_LOCATION`
+(maxSdkVersion 30, BLE scanning there requires it). No `UWB_RANGING`
+(Android UWB is not implemented). iOS: `NSBluetoothAlwaysUsageDescription`,
+`NSNearbyInteractionUsageDescription`, `NSLocationWhenInUseUsageDescription`,
+`UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace` (recordings in
+Files / Finder); no background modes. The camera string now mentions that
+Record the table saves photos on the phone.
+
+## Google Play: Data safety changes
+
+Add one data type, keep the rest:
+
+| Category → type | Collected | Shared | Ephemeral | Required? | Purposes |
+|---|---|---|---|---|---|
+| App info and performance → **Diagnostics** (battery level, phone model / OS, Bluetooth signal strengths) | Yes | No | No | Optional | Analytics (developing seat detection), App functionality |
+
+* **Location: still not collected.** The approximate location in a
+  recording never leaves the phone (Play: data processed only on the
+  device is not collected).
+* Device or other IDs: already declared (the install id; peers' install
+  ids now also appear in the seating events).
+* No location permission declaration is needed (foreground only;
+  `ACCESS_FINE_LOCATION` exists only up to Android 11 for BLE scanning).
+
+## Apple: App Privacy changes
+
+Add:
+
+| Type | Used for | Linked? | Tracking? |
+|---|---|---|---|
+| Diagnostics → **Other Diagnostic Data** (battery, model / OS, signal strengths, UWB distances between phones) | Analytics, App Functionality | Yes (install id) | No |
+
+Location: **not collected** (stays in the recording on the phone). The
+seat tap on the calibration drawing is user-entered game content, already
+covered by User Content → Gameplay Content.

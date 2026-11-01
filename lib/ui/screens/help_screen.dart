@@ -181,6 +181,19 @@ const _topics = {
           'as "private". The data has no account behind it (an anonymous id), is readable only '
           'with the night\'s code, and is deleted after about 60 days. Your money never leaves '
           'the phone.',
+      'Nearby game (no internet): tap Find a game nearby once and allow Bluetooth. When a '
+          'phone at your table hosts a game (an organizer, or Record the table with "Let phones '
+          'nearby join"), a "Nearby game" card appears above the tabs: tap Join. It uses the '
+          'name you gave at the start (Settings → Your name at the table). While you are in a '
+          'game the phone also notes how strong the other Felt Notes phones\' Bluetooth signals '
+          'are, for a seat-finding experiment; that is never shown and stays on the phone with '
+          'sharing off. The QR still works too.',
+      'Record the table: prop the phone where it sees the whole table, plugged in, and tap '
+          'Record the table. It uses the widest lens, checks the framing for 10 seconds with a '
+          'box per seat, then saves 1 to 2 photos a second and a log on this phone only (about '
+          '2 to 3 GB an hour) for working out seats and folds later. "Mark this hand" bookmarks '
+          'a hand, "I moved" starts a new segment, and you hold the red button to stop. The '
+          'screen dims after 30 seconds; tap to wake. Recordings & export shares a zip.',
     ]
   ),
   HelpTopic.terms: (
