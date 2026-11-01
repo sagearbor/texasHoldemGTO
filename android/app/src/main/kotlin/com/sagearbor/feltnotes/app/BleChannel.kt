@@ -84,6 +84,14 @@ class BleChannel(
                     result.success(null)
                 }
                 "scan" -> scan(call.argument<Int>("ms") ?: 4000, call.argument<String>("prefix") ?: "", result)
+                "scanStart" -> {
+                    startStream(call.argument<String>("prefix") ?: "")
+                    result.success(stream != null)
+                }
+                "scanStop" -> {
+                    stopStream()
+                    result.success(null)
+                }
                 "screenOn" -> result.success((activity.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive)
                 "uwbSupported" -> result.success(false)
                 "uwbStart", "uwbStop", "uwbRange" -> result.success(null)
@@ -152,6 +160,74 @@ class BleChannel(
         }
     }
 
+    // ---------------------------------------------- continuous (test)
+
+    /** Bluetooth distance test: every advert heard, as an event, until stopped. */
+    private var stream: ScanCallback? = null
+    private var streamPrefix = ""
+    private val restart = Runnable { restartStream() }
+
+    private fun startStream(prefix: String) {
+        stopStream()
+        val scanner = adapter?.bluetoothLeScanner ?: return
+        streamPrefix = prefix
+        val cb = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, r: ScanResult) {
+                val m = sighting(r, streamPrefix) ?: return
+                main.post { sink?.success(m + ("type" to "adv")) }
+            }
+        }
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+            .setReportDelay(0)
+            .build()
+        try {
+            scanner.startScan(null, settings, cb)
+            stream = cb
+            // Android turns a scan running over 30 minutes into a slow
+            // opportunistic one: start it again every 10.
+            main.postDelayed(restart, 10 * 60 * 1000L)
+        } catch (_: Exception) {
+            stream = null
+        }
+    }
+
+    private fun restartStream() {
+        if (stream != null) startStream(streamPrefix)
+    }
+
+    private fun stopStream() {
+        main.removeCallbacks(restart)
+        val cb = stream ?: return
+        stream = null
+        try {
+            adapter?.bluetoothLeScanner?.stopScan(cb)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** One result as the Dart map, or null when it is not a Felt Notes advert. */
+    private fun sighting(r: ScanResult, prefix: String): Map<String, Any?>? {
+        val rec = r.scanRecord ?: return null
+        val uuids = rec.serviceUuids?.map { it.uuid.toString() } ?: return null
+        if (uuids.none { it.replace("-", "").lowercase().startsWith(prefix) }) return null
+        val tx = when {
+            Build.VERSION.SDK_INT >= 26 && r.txPower != ScanResult.TX_POWER_NOT_PRESENT -> r.txPower
+            rec.txPowerLevel != Int.MIN_VALUE -> rec.txPowerLevel
+            else -> null
+        }
+        val wallMinusBoot = System.currentTimeMillis() - SystemClock.elapsedRealtime()
+        return mapOf(
+            "u" to uuids,
+            "r" to r.rssi,
+            "tx" to tx,
+            "n" to rec.deviceName,
+            "m" to rec.getManufacturerSpecificData(0xFFFF)?.map { it.toInt() and 0xFF },
+            "t" to wallMinusBoot + r.timestampNanos / 1_000_000,
+        )
+    }
+
     // ------------------------------------------------------------ scan
 
     private fun scan(ms: Int, prefix: String, result: MethodChannel.Result) {
@@ -159,29 +235,9 @@ class BleChannel(
         if (scanner == null || scanning) return result.success(emptyList<Any>())
         scanning = true
         val out = mutableListOf<Map<String, Any?>>()
-        // Wall clock of a result: now minus how long ago it was heard.
-        val wallMinusBoot = System.currentTimeMillis() - SystemClock.elapsedRealtime()
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, r: ScanResult) {
-                val rec = r.scanRecord ?: return
-                val uuids = rec.serviceUuids?.map { it.uuid.toString() } ?: return
-                // Only Felt Notes adverts: nobody else's devices are logged.
-                if (uuids.none { it.replace("-", "").lowercase().startsWith(prefix) }) return
-                val tx = when {
-                    Build.VERSION.SDK_INT >= 26 && r.txPower != ScanResult.TX_POWER_NOT_PRESENT -> r.txPower
-                    rec.txPowerLevel != Int.MIN_VALUE -> rec.txPowerLevel
-                    else -> null
-                }
-                out.add(
-                    mapOf(
-                        "u" to uuids,
-                        "r" to r.rssi,
-                        "tx" to tx,
-                        "n" to rec.deviceName,
-                        "m" to rec.getManufacturerSpecificData(0xFFFF)?.map { it.toInt() and 0xFF },
-                        "t" to wallMinusBoot + r.timestampNanos / 1_000_000,
-                    )
-                )
+                sighting(r, prefix)?.let { out.add(it) }
             }
 
             override fun onScanFailed(errorCode: Int) {

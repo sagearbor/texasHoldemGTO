@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../nearby/distance_test_screen.dart';
+import '../../nearby/nearby_ble.dart' show bleSupported;
+
 import '../../app_data.dart';
 import '../../camera/watch_log_store.dart';
 import '../../camera/watch_screen.dart' show watchModeSupported;
@@ -176,6 +179,18 @@ class SettingsScreen extends StatelessWidget {
                   },
                 ),
             ]),
+            if (bleSupported)
+              _Section(icon: Icons.science_outlined, title: 'Diagnostics', children: [
+                ListTile(
+                  key: const Key('settings-bt-distance'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.bluetooth_searching),
+                  title: const Text('Bluetooth distance test'),
+                  subtitle: const Text('Signal strength between phones at known distances, for the seating experiment'),
+                  onTap: () => Navigator.of(context)
+                      .push(MaterialPageRoute(builder: (_) => const DistanceTestScreen())),
+                ),
+              ]),
             _Section(icon: Icons.save_alt, title: 'Data', children: [
               ListTile(
                 key: const Key('settings-data'),

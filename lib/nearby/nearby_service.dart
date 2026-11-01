@@ -117,9 +117,27 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
     return _quietScans > 9 ? const Duration(seconds: 60) : const Duration(seconds: 20);
   }
 
+  /// The Bluetooth distance test owns the radio while it is open: no
+  /// loop scans, and its own advert.
+  bool _paused = false;
+
+  void pauseForTest() {
+    _paused = true;
+    _timer?.cancel();
+  }
+
+  /// Back to normal: whatever this phone should advertise, and the loop.
+  Future<void> resumeAfterTest() async {
+    _paused = false;
+    advertising = null;
+    _loopNight = '-';
+    await bleStopAdvertising();
+    if (allowed) await _onNightAsync();
+  }
+
   void _schedule(Duration d) {
     _timer?.cancel();
-    if (!allowed) return;
+    if (!allowed || _paused) return;
     // Out of a game, only look while the app is on screen.
     if (!_foreground && !_inGame) return;
     _timer = Timer(d, () async {
@@ -166,7 +184,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
   void _onNight() => unawaited(_onNightAsync());
 
   Future<void> _onNightAsync() async {
-    if (!allowed) return;
+    if (!allowed || _paused) return;
     final n = _tn.night;
     String? want;
     String? name;

@@ -122,3 +122,10 @@ Stream<Map<String, Object?>> bleEvents() {
   if (!bleSupported) return const Stream.empty();
   return _events.receiveBroadcastStream().where((e) => e is Map).map((e) => (e as Map).cast<String, Object?>());
 }
+
+/// Bluetooth distance test: scan without stopping (low latency, every
+/// advert, duplicates kept); each Felt Notes advert arrives on [bleEvents]
+/// as `{type: 'adv', u, r, tx?, n?, m?, t}` until [bleScanStop].
+Future<bool> bleScanStart() async => await _call<bool>('scanStart', {'prefix': advertUuidPrefix}) ?? false;
+
+Future<void> bleScanStop() => _call<void>('scanStop');

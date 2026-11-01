@@ -40,6 +40,8 @@ final class NearbyChannel: NSObject, FlutterStreamHandler, CBCentralManagerDeleg
   private var scanReply: FlutterResult?
   private var scanPrefix = ""
   private var scanWanted = false
+  private var streaming = false
+  private var streamPrefix = ""
   private var scanMs = 4000
   /// Advert UUID (lowercase) -> the peripheral that sent it, for UWB.
   private var seen: [String: CBPeripheral] = [:]
@@ -136,6 +138,18 @@ final class NearbyChannel: NSObject, FlutterStreamHandler, CBCentralManagerDeleg
       result(nil)
     case "scan":
       scan(ms: args["ms"] as? Int ?? 4000, prefix: args["prefix"] as? String ?? "", result)
+    case "scanStart":
+      // Bluetooth distance test: every advert as an event until stopped.
+      guard CBManager.authorization == .allowedAlways else { return result(false) }
+      managers()
+      streamPrefix = args["prefix"] as? String ?? ""
+      streaming = true
+      if central?.state == .poweredOn { beginScan() }
+      result(true)
+    case "scanStop":
+      streaming = false
+      if scanReply == nil { central?.stopScan() }
+      result(nil)
     case "screenOn":
       result(UIApplication.shared.applicationState == .active ? true : nil)
     case "uwbSupported":
@@ -174,7 +188,7 @@ final class NearbyChannel: NSObject, FlutterStreamHandler, CBCentralManagerDeleg
       for w in waiters { w(Self.authorization) }
     }
     emit(["type": "bt", "on": c.state == .poweredOn])
-    if c.state == .poweredOn && scanWanted { beginScan() }
+    if c.state == .poweredOn && (scanWanted || streaming) { beginScan() }
   }
 
   func peripheralManagerDidUpdateState(_ p: CBPeripheralManager) {
@@ -219,7 +233,7 @@ final class NearbyChannel: NSObject, FlutterStreamHandler, CBCentralManagerDeleg
 
   private func endScan() {
     scanWanted = false
-    central?.stopScan()
+    if !streaming { central?.stopScan() }
     let r = scanReply
     scanReply = nil
     r?(scanResults)
@@ -229,11 +243,12 @@ final class NearbyChannel: NSObject, FlutterStreamHandler, CBCentralManagerDeleg
   func centralManager(
     _ c: CBCentralManager, didDiscover p: CBPeripheral, advertisementData ad: [String: Any], rssi: NSNumber
   ) {
-    guard scanReply != nil, rssi.intValue != 127 else { return }
+    guard scanReply != nil || streaming, rssi.intValue != 127 else { return }
+    let prefix = scanReply != nil ? scanPrefix : streamPrefix
     var uuids = (ad[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]) ?? []
     uuids += (ad[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID]) ?? []
     let ours = uuids.map { $0.uuidString.lowercased() }
-      .filter { $0.replacingOccurrences(of: "-", with: "").hasPrefix(scanPrefix) }
+      .filter { $0.replacingOccurrences(of: "-", with: "").hasPrefix(prefix) }
     if ours.isEmpty { return } // nobody else's devices are logged
     for u in ours { seen[u] = p }
     var e: [String: Any] = [
@@ -246,7 +261,11 @@ final class NearbyChannel: NSObject, FlutterStreamHandler, CBCentralManagerDeleg
     if let m = ad[CBAdvertisementDataManufacturerDataKey] as? Data, m.count >= 2, m[0] == 0xFF, m[1] == 0xFF {
       e["m"] = m.dropFirst(2).map { Int($0) }
     }
-    scanResults.append(e)
+    if scanReply != nil { scanResults.append(e) }
+    if streaming {
+      e["type"] = "adv"
+      emit(e)
+    }
   }
 
   // ------------------------------------------------------- UWB: GATT
