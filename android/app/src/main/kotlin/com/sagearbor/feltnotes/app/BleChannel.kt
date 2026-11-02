@@ -117,7 +117,7 @@ class BleChannel(
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             // Medium: steady enough for RSSI between seats, not the
             // loudest the radio can do.
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .setConnectable(false)
             .setTimeout(0)
             .build()
