@@ -149,3 +149,11 @@ covered by User Content → Gameplay Content.
 * The data types above are unchanged (Diagnostics already covers the
   signal strengths, model / OS and battery in table-night events).
 * iOS purpose strings were reworded for review; no background modes.
+
+## 0.3.3+28: seat radar (no form changes)
+
+The radar only reads what table nights already upload (per-minute
+`sense` summaries, `device` events). The organizer's phone adds a
+`radar` event with the table setup (shape, size, player count, which end
+seats are used, the organizer's seat number): no personal data. Players'
+phones do nothing new.

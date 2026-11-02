@@ -23,6 +23,7 @@ import '../../sync/organizer_bridge.dart';
 import '../../sync/table_night_service.dart';
 import '../../nearby/nearby_service.dart';
 import '../../nearby/table_mode_screen.dart';
+import '../../radar/radar_screen.dart';
 import '../../nearby/nearby_ui.dart' show FindNearbyButton, NearbyHostTile, showSeatCalibration;
 import '../app_settings.dart';
 import '../theme.dart';
@@ -510,6 +511,11 @@ class _OrganizerSheetState extends State<_OrganizerSheet> {
               style: t.bodySmall, textAlign: TextAlign.center),
           const SizedBox(height: 10),
           const NearbyHostTile(),
+          TextButton.icon(
+            onPressed: () => openRadar(context),
+            icon: const Icon(Icons.radar),
+            label: const Text('Seat radar: who sits where (from the phones)'),
+          ),
           const Divider(height: 28),
           Text('TV', style: t.titleMedium),
           const SizedBox(height: 4),

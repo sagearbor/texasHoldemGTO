@@ -109,6 +109,12 @@ enum EventKind {
   /// a point on the table drawing (0..1, the host at the bottom) and its
   /// angle clockwise from the host in degrees. Ground truth, optional.
   seat,
+
+  // ---- live seat radar (lib/radar/): organizer only
+  /// The table as the organizer set it up `{shape, l, w, n, cam, eL, eR,
+  /// org?, orgDev?}` (RadarConfig): one per change, so the TV and the
+  /// offline analysis know the seat count over time.
+  radar,
 }
 
 EventKind? eventKindFromName(Object? n) {

@@ -76,6 +76,17 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
 
   TableNightService get _tn => TableNightService.instance;
 
+  /// What this phone heard itself in the last 2 minutes: advert key ->
+  /// median RSSI (the radar's offline view: distance from me only).
+  Map<String, double> get recentPeers {
+    final by = <String, List<int>>{};
+    for (final x in _recent) {
+      final a = x.advert;
+      if (a != null && a.peerKey != _selfKey) (by[a.peerKey] ??= []).add(x.rssi);
+    }
+    return {for (final e in by.entries) e.key: median(e.value)};
+  }
+
   // ---------------------------------------- Record the table (camera)
 
   /// A recording runs on this phone: it advertises with the camera flag

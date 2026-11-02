@@ -11,6 +11,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import '../../sync/cloud_config.dart';
+import '../../radar/radar_model.dart';
 import '../../sync/cloud_logs.dart';
 import '../../sync/event_log.dart';
 import '../../sync/night_events.dart';
@@ -56,6 +57,12 @@ class TvController extends ChangeNotifier {
   int? snapshotAtMs;
   MergedNight? merged;
   TvBoard? board;
+
+  /// Seat radar, if the organizer set the table up (a `radar` event);
+  /// recomputed at most every 30 s (it is the heaviest thing here).
+  RadarEstimate? radar;
+  RadarInput radarInput = const RadarInput();
+  int _radarAtMs = -1 << 40;
 
   Future<void> start() async {
     _tick = Timer.periodic(const Duration(seconds: 5), (_) => _rebuild(fetchCards: true));
@@ -125,7 +132,29 @@ class TvController extends ChangeNotifier {
     if (_disposed) return;
     merged = m;
     board = buildTvBoard(m, nowMs: now(), opts: opts);
+    _rebuildRadar(org);
     notifyListeners();
+  }
+
+  void _rebuildRadar(String? org) {
+    final t = now();
+    if (t - _radarAtMs < 30000) return;
+    _radarAtMs = t;
+    try {
+      final cfg = radarConfigIn(_logs, organizerDevice: org);
+      if (cfg == null) {
+        radar = null;
+        return;
+      }
+      final input = radarInputFrom(_logs).live(t);
+      // The organizer's own phone is a player's (not the camera): pinned
+      // to the organizer's seat, as on the organizer's Radar screen.
+      final pin = org != null && cfg.organizerSeat != null && !input.cameras.contains(org) ? org : null;
+      radarInput = input;
+      radar = estimateSeats(cfg.copyWith(organizerDevice: () => pin), input, beam: 1500);
+    } catch (_) {
+      radar = null;
+    }
   }
 
   @override

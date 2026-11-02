@@ -300,6 +300,14 @@ class LocalTableSync implements TableSync {
     await _out.close();
   }
 
+  /// This phone's log and everything fetched from the cloud, one per
+  /// device (the cloud's copy of this phone is replaced by the local one).
+  List<DeviceLog> get allLogs => [
+        DeviceLog(deviceId, log.events, serverSkewMs: log.meta['skew'] as int?),
+        for (final l in _remote)
+          if (l.deviceId != deviceId) l,
+      ];
+
   /// Feed logs from elsewhere (tests, or a one-shot fetch at home).
   void addRemote(List<DeviceLog> logs) {
     _remote = [..._remote, ...logs];

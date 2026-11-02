@@ -7,6 +7,7 @@ import '../../camera/watch_tracker.dart';
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
+import '../../radar/radar_screen.dart';
 import '../../record/record_screen.dart';
 import '../../trainer/trainer_model.dart';
 import '../theme.dart';
@@ -78,11 +79,13 @@ class HomeGameScreen extends StatelessWidget {
                     if (v == 'seats') showSeatsEditor(context, model);
                     if (v == 'clock') openBlindClock(context);
                     if (v == 'record') openRecordMode(context);
+                    if (v == 'radar') openRadar(context);
                   },
                   itemBuilder: (_) => [
                     const PopupMenuItem(value: 'clock', child: Text('Blind clock')),
                     if (recordModeSupported)
                       const PopupMenuItem(value: 'record', child: Text('Record the table')),
+                    const PopupMenuItem(value: 'radar', child: Text('Seat radar')),
                     const PopupMenuItem(
                         value: 'seats', child: Text('Players & seats')),
                     const PopupMenuItem(value: 'result', child: Text('My result')),

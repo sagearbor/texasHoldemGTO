@@ -15,6 +15,7 @@ import '../../sync/event_log.dart';
 import '../../sync/night_events.dart';
 import '../../sync/night_merge.dart' show clockLabel;
 import '../../sync/tv_board.dart';
+import '../../radar/radar_view.dart';
 import '../theme.dart';
 import 'tv_controller.dart';
 
@@ -233,7 +234,20 @@ class _TvBody extends StatelessWidget {
       ],
     );
     final clock = b?.clock == null ? null : _Clock(json: b!.clock!, now: now, scale: scale);
-    final players = _Players(rows: b?.rows ?? const [], scale: scale);
+    final players = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _Players(rows: b?.rows ?? const [], scale: scale),
+      if (c.radar != null && c.radar!.notEnough == null && c.radar!.probs.isNotEmpty) ...[
+        SizedBox(height: 16 * scale),
+        Text('Who sits where (from the phones, a best guess)', style: _t(18, color: _dim, w: FontWeight.w700)),
+        SizedBox(height: 6 * scale),
+        RadarView(
+            estimate: c.radar!,
+            names: c.radarInput.names,
+            colours: radarColours(c.radar!.probs.keys),
+            stale: c.radarInput.stale,
+            dark: true),
+      ],
+    ]);
     final hands = _Hands(board: b, now: now, scale: scale, delayMs: c.opts.cardDelayMs);
     final footer = Text(
       'Stats count finished hands. Cards show ${c.opts.cardDelayMs ~/ 60000} min after a hand ends. '

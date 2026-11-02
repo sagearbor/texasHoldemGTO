@@ -30,6 +30,9 @@ import '../camera/watch_screen.dart' show watchFrameFromCamera, watchModeSupport
 import '../nearby/nearby_ble.dart' show bleSupported;
 import '../nearby/nearby_service.dart';
 import '../nearby/nearby_ui.dart' show askBluetooth;
+import '../radar/radar_model.dart' show CameraAt;
+import '../radar/radar_screen.dart';
+import '../radar/radar_settings.dart';
 import '../sync/table_night_service.dart';
 import '../ui/app_settings.dart';
 import '../ui/theme.dart';
@@ -177,11 +180,28 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     WidgetsBinding.instance.addObserver(this);
     _loadPrefs();
     _initCamera();
+    RadarSettings.config.addListener(_onRadar);
+  }
+
+  /// The player count is shared with the seat radar, both ways: a change
+  /// there (people came or went) shows here and goes into the log.
+  void _onRadar() {
+    final n = RadarSettings.config.value.seats;
+    if (!mounted || n == _players) return;
+    final s = _session;
+    if (s != null && s.phase != RecordPhase.stopped) _write(('players', {'seg': s.segment.n, 'players': n, 'from': 'radar'}));
+    setState(() => _players = n);
+  }
+
+  void _setPlayers(int n) {
+    setState(() => _players = n);
+    unawaited(RadarSettings.setSeats(n, why: 'record'));
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    RadarSettings.config.removeListener(_onRadar);
     _tick?.cancel();
     _framingTimer?.cancel();
     _dimTimer?.cancel();
@@ -205,8 +225,11 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     try {
       final p = await SharedPreferences.getInstance();
       final r = widget.resume?.summary.start;
+      await RadarSettings.load();
+      if (!mounted) return;
       setState(() {
-        _players = (r?['players'] as int?) ?? p.getInt(_prefPlayers) ?? 6;
+        _players = (r?['players'] as int?) ??
+            (RadarSettings.saved ? RadarSettings.config.value.seats : p.getInt(_prefPlayers) ?? 6);
         _rate = (r?['rate'] as num?)?.toDouble() ?? p.getDouble(_prefRate) ?? 1.5;
         if (!recordRates.contains(_rate)) _rate = 1.5;
         _widest = p.getBool(_prefWidest) ?? true;
@@ -370,6 +393,11 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     final lens = _lens;
     if (lens == null) return;
     await _savePrefs();
+    // The radar takes the camera's place and the player count from here.
+    unawaited(RadarSettings.set(
+        RadarSettings.config.value.copyWith(
+            seats: _players, camera: _position == PhonePosition.side ? CameraAt.side : CameraAt.end),
+        why: 'record start'));
     final location = await _askLocation();
     final r = widget.resume;
     final now = DateTime.now();
@@ -584,7 +612,10 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     for (final e in s.moved(pos, _lens!)) {
       _write(e);
     }
-    if (players != _players) _write(('players', {'seg': s.segment.n, 'players': players}));
+    if (players != _players) {
+      _write(('players', {'seg': s.segment.n, 'players': players}));
+      unawaited(RadarSettings.setSeats(players, why: 'record moved'));
+    }
     setState(() {
       _players = players;
       _position = pos;
@@ -783,7 +814,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                   '${_widest && _lens!.kind != 'ultra_wide' ? ' · this phone has no wider lens' : ''}',
           style: t.bodySmall),
       const SizedBox(height: 12),
-      _PlayersStepper(value: _players, onChanged: (v) => setState(() => _players = v)),
+      _PlayersStepper(value: _players, onChanged: _setPlayers),
       const SizedBox(height: 8),
       _PositionPicker(value: _position, onChanged: (v) => setState(() => _position = v)),
       const SizedBox(height: 8),
@@ -955,7 +986,11 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
           ),
         ),
       ]),
-      const SizedBox(height: 12),
+      TextButton.icon(
+        onPressed: () => openRadar(context),
+        icon: const Icon(Icons.radar),
+        label: const Text('Seat radar'),
+      ),
       _HoldToStop(onDone: _stop),
       const SizedBox(height: 8),
       Text('The screen dims after 30 seconds; tap to wake. Keep the app open: the camera stops in the background.',
