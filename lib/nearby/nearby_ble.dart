@@ -74,9 +74,13 @@ Future<bool> blePoweredOn() async => await _call<bool>('poweredOn') ?? false;
 /// Advertise [uuid] (one at a time; a new call replaces the old one).
 /// [name]: the host's display name (Android: scan response; iOS: local
 /// name). Returns false when the phone cannot advertise.
-Future<bool> bleAdvertise(String uuid, {String? name}) async =>
+/// [power]: Android advert power, `high` (the default, and always in a
+/// game), `medium` or `low` (the distance test alternates high and low).
+/// iOS has no such setting.
+Future<bool> bleAdvertise(String uuid, {String? name, String power = 'high'}) async =>
     await _call<bool>('advertise', {
       'uuid': uuid,
+      'power': power,
       if (name != null) 'name': localNameFor(name),
       if (name != null) 'nameData': nameData(name),
       'company': nameCompanyId,

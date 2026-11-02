@@ -99,6 +99,37 @@ class Calibrate(unittest.TestCase):
         self.assertEqual(len(s), 4 * 2 * 300 - 600)  # status / self_heal lines ignored
         self.assertFalse(any(x["run"] in (1, 2) for x in s))
 
+    def test_power_levels_offset_and_low_fraction(self):
+        rng = random.Random(9)
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "x.jsonl")
+        with open(path, "w") as f:
+            for run, d in enumerate((0.5, 1.0, 2.0, 4.0), 1):
+                for level, tx, off, keep in (("high", 1, 0.0, 1.0), ("low", -15, -14.0, 0.6 if d >= 4 else 1.0)):
+                    for _ in range(400):
+                        if rng.random() > keep:
+                            continue  # low-power adverts lost far away
+                        r = -55 - 20 * math.log10(d) + off + rng.gauss(0, 2)
+                        line = {"k": "sample", "run": run, "obs": "A" * 12, "peer": "D:" + "B" * 12,
+                                "rssi": round(r), "d_m": d, "place": "tableUp", "tx": tx}
+                        if level == "high":
+                            line["tx_level"] = "high"  # the low ones derive it from tx
+                        f.write(json.dumps(line) + "\n")
+        s = C.load_samples([tmp])
+        self.assertEqual({x["level"] for x in s}, {"high", "low"})
+        lv = C.level_fits(s)
+        self.assertAlmostEqual(lv["high"][0][0], -55, delta=0.5)
+        self.assertAlmostEqual(lv["high"][1] - lv["low"][1], 14.0, delta=0.6)
+        frac = C.low_fraction(s)
+        self.assertAlmostEqual(frac[1.0][0], 0.5, delta=0.05)
+        self.assertLess(frac[4.0][0], 0.42)
+        buf = io.StringIO()
+        C.report(s, out=buf)
+        self.assertIn("high - low offset", buf.getvalue())
+        self.assertIn("heard at low power", buf.getvalue())
+        self.assertEqual(C.tx_level(-7), "medium")
+        self.assertIsNone(C.tx_level(None))
+
 
 if __name__ == "__main__":
     unittest.main()

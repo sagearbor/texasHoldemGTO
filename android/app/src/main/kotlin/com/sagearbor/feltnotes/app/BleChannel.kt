@@ -177,11 +177,17 @@ class BleChannel(
         val uuid = UUID.fromString(call.argument<String>("uuid")!!)
         val nameData = call.argument<ByteArray>("nameData")
         val company = call.argument<Int>("company") ?: 0xFFFF
+        // High in games; the distance test alternates high and low. The
+        // advert carries the level (includeTxPowerLevel) so receivers log it.
+        val power = when (call.argument<String>("power")) {
+            "low" -> AdvertiseSettings.ADVERTISE_TX_POWER_LOW
+            "medium" -> AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM
+            "ultra_low" -> AdvertiseSettings.ADVERTISE_TX_POWER_ULTRA_LOW
+            else -> AdvertiseSettings.ADVERTISE_TX_POWER_HIGH
+        }
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-            // Medium: steady enough for RSSI between seats, not the
-            // loudest the radio can do.
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+            .setTxPowerLevel(power)
             .setConnectable(false)
             .setTimeout(0)
             .build()
@@ -200,7 +206,7 @@ class BleChannel(
                 advertOk = true
                 lastAdvertCode = null
                 lastAdvertMs = now()
-                emit(mapOf("type" to "advert", "ok" to true))
+                emit(mapOf("type" to "advert", "ok" to true, "tx_dbm" to settingsInEffect?.txPowerLevel))
                 if (!answered) {
                     answered = true
                     result.success(true)

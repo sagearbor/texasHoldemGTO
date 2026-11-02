@@ -111,6 +111,21 @@ class RunStats {
   String toString() => '$n samples, median ${median.toStringAsFixed(1)} dBm, sd ${std.toStringAsFixed(1)} dB';
 }
 
+/// The sender's advert power from the transmit level its advert carries.
+/// Pixels report about +1 dBm (high), -7 (medium), -15 (low), -21 (ultra
+/// low); the cut points sit between them. Null when the advert had none
+/// (iPhones).
+String? txLevelOf(int? txDbm) {
+  if (txDbm == null) return null;
+  if (txDbm >= -3) return 'high';
+  if (txDbm >= -11) return 'medium';
+  if (txDbm >= -18) return 'low';
+  return 'ultra_low';
+}
+
+/// The distance test alternates its own advert between these every 5 s.
+const testPowers = ['high', 'low'];
+
 /// One raw advert of a recorded run (fields after `t`/`m`/`k`, which the
 /// log writer adds).
 Map<String, Object?> sampleLine({
@@ -136,6 +151,7 @@ Map<String, Object?> sampleLine({
       if (peerModel != null) 'peer_label': peerModel,
       'rssi': rssi,
       if (txPower != null) 'tx': txPower,
+      if (txLevelOf(txPower) != null) 'tx_level': txLevelOf(txPower),
       'd_m': distanceM,
       'unit': unit.name,
       'entered': entered ?? distanceM,
@@ -172,8 +188,11 @@ class RunRecord {
 
   /// Per peer.
   final Map<String, RunStats> stats;
+
+  /// All peers, per sender advert level (`high`, `low`, `unknown`).
+  final Map<String, RunStats> byLevel;
   const RunRecord(this.id, this.metres, this.unit, this.entered, this.place,
-      {this.complete = false, this.deleted = false, this.stats = const {}});
+      {this.complete = false, this.deleted = false, this.stats = const {}, this.byLevel = const {}});
 
   int get samples => stats.values.fold(0, (a, s) => a + s.n);
 
@@ -219,6 +238,7 @@ List<RunRecord> runsFromLog(Iterable<String> lines) {
   final starts = <int, Map<String, Object?>>{};
   final ended = <int, bool>{};
   final samples = <int, Map<String, List<int>>>{};
+  final levels = <int, Map<String, List<int>>>{};
   for (final l in ls) {
     final j = _decode(l);
     final run = j?['run'];
@@ -230,7 +250,11 @@ List<RunRecord> runsFromLog(Iterable<String> lines) {
         ended[run] = j['complete'] == true;
       case 'sample':
         final r = j['rssi'];
-        if (r is int) ((samples[run] ??= {})['${j['peer']}'] ??= []).add(r);
+        if (r is int) {
+          ((samples[run] ??= {})['${j['peer']}'] ??= []).add(r);
+          final lv = j['tx_level'] ?? txLevelOf((j['tx'] as num?)?.toInt()) ?? 'unknown';
+          ((levels[run] ??= {})['$lv'] ??= []).add(r);
+        }
     }
   }
   final out = <RunRecord>[];
@@ -248,6 +272,10 @@ List<RunRecord> runsFromLog(Iterable<String> lines) {
       deleted: del.contains(e.key),
       stats: {
         for (final p in (samples[e.key] ?? const <String, List<int>>{}).entries)
+          if (RunStats.of(p.value) != null) p.key: RunStats.of(p.value)!,
+      },
+      byLevel: {
+        for (final p in (levels[e.key] ?? const <String, List<int>>{}).entries)
           if (RunStats.of(p.value) != null) p.key: RunStats.of(p.value)!,
       },
     ));

@@ -35,6 +35,20 @@ def _name(label, model, key):
     return f"{short} ({model})" if model else key
 
 
+def tx_level(tx):
+    """The sender's advert power from the dBm its advert carries (same cut
+    points as the app's txLevelOf: Pixels send about +1 / -7 / -15 / -21)."""
+    if tx is None:
+        return None
+    if tx >= -3:
+        return "high"
+    if tx >= -11:
+        return "medium"
+    if tx >= -18:
+        return "low"
+    return "ultra_low"
+
+
 def load_samples(paths):
     """Every kept sample line: dicts with obs, peer, rssi, d, place, run.
     Runs deleted in the app (a raw log with `deleted` markers) are left
@@ -70,6 +84,8 @@ def load_samples(paths):
                 "d": float(j["d_m"]),
                 "place": j.get("place", "?"),
                 "run": j.get("run"),
+                "tx": j.get("tx"),
+                "level": j.get("tx_level") or tx_level(j.get("tx")) or "unknown",
             })
     return out
 
@@ -127,6 +143,35 @@ def placement_offsets(samples, fit):
     return {p: sum(v) / len(v) for p, v in sorted(acc.items())}
 
 
+def level_fits(samples):
+    """Per sender power level: (A, n, sigma) with n free, plus A refitted
+    with the pair's pooled n so the levels' offset is like for like."""
+    pooled = fit_path_loss(samples)
+    by = defaultdict(list)
+    for s in samples:
+        by[s["level"]].append(s)
+    out = {}
+    for lv, ss in sorted(by.items()):
+        free = fit_path_loss(ss)
+        a_fixed = None
+        if pooled is not None:
+            n = pooled[1]
+            a_fixed = sum(s["rssi"] + 10 * n * math.log10(s["d"]) for s in ss) / len(ss)
+        out[lv] = (free, a_fixed, len(ss))
+    return out
+
+
+def low_fraction(samples):
+    """Per distance: the share of samples heard from low-power adverts out
+    of high + low (0.5 if every low advert got through, as the sender
+    spends equal time at each)."""
+    acc = defaultdict(lambda: [0, 0])
+    for s in samples:
+        if s["level"] in ("high", "low"):
+            acc[s["d"]][s["level"] == "low"] += 1
+    return {d: (lo / (hi + lo), hi, lo) for d, (hi, lo) in sorted(acc.items()) if hi + lo}
+
+
 def report(samples, out=sys.stdout):
     pairs = defaultdict(list)
     for s in samples:
@@ -153,6 +198,15 @@ def report(samples, out=sys.stdout):
             print(f"  A = {a:.1f} dBm at 1 m   n = {n:.2f}   per-sample sigma = {sigma:.1f} dB", file=out)
             for p, off in placement_offsets(ss, fit).items():
                 print(f"  placement {p:10s} mean residual {off:+.1f} dB", file=out)
+        levels = level_fits(ss)
+        if len(levels) > 1 or "unknown" not in levels:
+            for lv, (free, a_fixed, k) in levels.items():
+                f = "one distance only" if free is None else f"A = {free[0]:.1f}  n = {free[1]:.2f}  sigma = {free[2]:.1f} dB"
+                print(f"  sender at {lv:9s} {k:6d} samples  {f}", file=out)
+            if "high" in levels and "low" in levels and levels["high"][1] is not None:
+                print(f"  high - low offset (same n): {levels['high'][1] - levels['low'][1]:.1f} dB", file=out)
+            for d, (frac, hi, lo) in low_fraction(ss).items():
+                print(f"  {d:.2f} m heard at low power: {frac:.0%} ({lo} low / {hi} high)", file=out)
         for (d, place), (meds, sd) in run_median_spread(ss).items():
             tail = f"sd of run medians {sd:.1f} dB" if len(meds) > 1 else "(1 run)"
             print(f"  {d:.2f} m {place:10s} run medians {[round(m, 1) for m in meds]} {tail}", file=out)

@@ -142,6 +142,11 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
       _write('open', {'obs': _me, 'obs_model': _model, 'os': dev?['os'], 'platform': Platform.operatingSystem});
       // Night tag 0: no game. The model rides as the name.
       final ok = await _advertise();
+      _write('ble_event', {
+        'type': Platform.isAndroid ? 'tx_switch' : 'tx_fixed',
+        'level': _power,
+        if (!Platform.isAndroid) 'note': 'iOS cannot set advert power',
+      });
       _sub = bleEvents().listen(_onEvent);
       _scanning = await bleScanStart();
       WakelockPlus.enable();
@@ -159,8 +164,22 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
     }
   }
 
+  /// Android: this phone's advert power, alternating every 5 s between
+  /// high and low so one run measures both (receivers log the level the
+  /// advert carries). iOS cannot set it: always "fixed".
+  int _powerIdx = 0;
+  String get _power => Platform.isAndroid ? testPowers[_powerIdx] : 'fixed';
+
   /// Night tag 0: no game. The phone's label rides as the name.
-  Future<bool> _advertise() => bleAdvertise(advertUuid(PresenceAdvert(_me!, 0)), name: _phoneLabel);
+  Future<bool> _advertise() => bleAdvertise(advertUuid(PresenceAdvert(_me!, 0)),
+      name: _phoneLabel, power: Platform.isAndroid ? _power : 'high');
+
+  Future<void> _switchPower() async {
+    if (!Platform.isAndroid || _me == null) return;
+    _powerIdx = (_powerIdx + 1) % testPowers.length;
+    final ok = await _advertise();
+    _write('ble_event', {'type': 'tx_switch', 'level': _power, 'ok': ok});
+  }
 
   Future<void> _saveLabel() async {
     try {
@@ -204,12 +223,12 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
           if (e.value.latestMs != null && now - e.value.latestMs! <= 5000) e.key: e.value.latest,
       },
       'recording_run': _run,
+      'tx_level_self': _power,
     });
     setState(() {
       _status = st;
       _heard5 = heard;
     });
-    if (heals.isEmpty) return;
     _healing = true;
     try {
       for (final (a, why) in heals) {
@@ -221,6 +240,8 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
           await _advertise();
         }
       }
+      // Then the next power level for the coming 5 s.
+      await _switchPower();
     } finally {
       _healing = false;
     }
@@ -392,6 +413,17 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
     try {
       await (await SharedPreferences.getInstance()).setString(_unitKey, u.name);
     } catch (_) {}
+  }
+
+  /// The run split by the sender's advert power.
+  String _levelLines(RunRecord r) {
+    final b = <String>[];
+    for (final lv in ['high', 'medium', 'low', 'ultra_low', 'unknown']) {
+      final st = r.byLevel[lv];
+      if (st == null) continue;
+      b.add('\n$lv: n ${st.n} · median ${st.median.toStringAsFixed(1)} · sd ${st.std.toStringAsFixed(1)}');
+    }
+    return b.length < 2 && r.byLevel.keys.every((k) => k == 'unknown') ? '' : b.join();
   }
 
   String _label(String key) => '${shortPeer(key)}${_models[key] == null ? '' : ' (${_models[key]})'}';
@@ -597,7 +629,8 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
                 subtitle: Text(r.overall == null
                     ? 'no phone heard${r.complete ? '' : ' · incomplete'}'
                     : '${r.overall!.n} samples · median ${r.overall!.median.toStringAsFixed(1)} dBm · '
-                        'sd ${r.overall!.std.toStringAsFixed(1)} dB${r.complete ? '' : ' · incomplete'}'),
+                        'sd ${r.overall!.std.toStringAsFixed(1)} dB${r.complete ? '' : ' · incomplete'}'
+                        '${_levelLines(r)}'),
                 trailing: Icon(r.complete ? Icons.check_circle_outline : Icons.warning_amber,
                     color: r.complete ? null : Colors.amber.shade800),
               ),

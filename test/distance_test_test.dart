@@ -133,6 +133,7 @@ void main() {
       'peer': 'D:BBBBBBBBBBBB',
       'rssi': -61,
       'tx': -7,
+      'tx_level': 'medium',
       'd_m': 1.5,
       'unit': 'metres',
       'entered': 1.5,
@@ -182,5 +183,29 @@ void main() {
       expect(exportLines(lines), [lines.first]);
       expect(runsFromLog(lines).single.deleted, isTrue);
     });
+  });
+
+  test('advert power level from the transmitted dBm, per-level run stats', () {
+    expect(txLevelOf(1), 'high');
+    expect(txLevelOf(-7), 'medium');
+    expect(txLevelOf(-15), 'low');
+    expect(txLevelOf(-21), 'ultra_low');
+    expect(txLevelOf(null), isNull);
+    final l = sampleLine(
+        run: 1, heardMs: 1, observer: 'A', observerModel: null, peer: 'D:B', peerModel: null,
+        rssi: -60, txPower: -15, distanceM: 1, placement: Placement.held);
+    expect(l['tx'], -15);
+    expect(l['tx_level'], 'low');
+    final r = runsFromLog([
+      jsonEncode({'k': 'run_start', 'run': 1, 'd_m': 1.0, 'place': 'held'}),
+      jsonEncode({'k': 'sample', 'run': 1, 'peer': 'D:B', 'rssi': -60, 'tx': 1, 'tx_level': 'high'}),
+      jsonEncode({'k': 'sample', 'run': 1, 'peer': 'D:B', 'rssi': -62, 'tx': 1}),
+      jsonEncode({'k': 'sample', 'run': 1, 'peer': 'D:B', 'rssi': -75, 'tx': -15}),
+      jsonEncode({'k': 'sample', 'run': 1, 'peer': 'D:C', 'rssi': -70}),
+    ]).single;
+    expect(r.byLevel['high']!.n, 2);
+    expect(r.byLevel['high']!.median, -61);
+    expect(r.byLevel['low']!.median, -75);
+    expect(r.byLevel['unknown']!.n, 1);
   });
 }
