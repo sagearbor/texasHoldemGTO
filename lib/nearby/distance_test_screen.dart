@@ -11,8 +11,11 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -270,6 +273,24 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> {
     if (ok == true) _setDeleted(ids, true);
   }
 
+  /// The same copy, saved where the owner picks (Downloads by default).
+  Future<void> _saveToPhone() async {
+    final f = _file;
+    if (f == null || !f.existsSync()) return;
+    final name = exportFileName(_phoneLabel, DateTime.now());
+    final bytes = Uint8List.fromList(
+        utf8.encode('${exportLines(await f.readAsLines()).join('\n')}\n'));
+    String? path;
+    try {
+      path = await FilePicker.platform.saveFile(fileName: name, bytes: bytes);
+    } catch (_) {
+      path = null;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(path == null ? 'Not saved' : 'Saved $name')));
+  }
+
   /// A copy of the log without the deleted runs.
   Future<void> _export() async {
     final f = _file;
@@ -495,6 +516,13 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> {
             onPressed: kept.isEmpty || recording ? null : _export,
             icon: const Icon(Icons.ios_share),
             label: Text('Export ${kept.length} run${kept.length == 1 ? '' : 's'}'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            key: const Key('bt-save'),
+            onPressed: kept.isEmpty || recording ? null : _saveToPhone,
+            icon: const Icon(Icons.download),
+            label: const Text('Save to this phone'),
           ),
         ]),
       ),
