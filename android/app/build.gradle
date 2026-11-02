@@ -81,4 +81,7 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"
+    // Android-Android UWB for the seating experiment (lib/nearby/uwb_android.dart):
+    // used only on phones with FEATURE_UWB and Android 12+.
+    implementation "androidx.core.uwb:uwb:1.0.0"
 }

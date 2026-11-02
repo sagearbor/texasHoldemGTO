@@ -29,7 +29,7 @@ import '../camera/watch_frame.dart' show uprightRotation;
 import '../camera/watch_screen.dart' show watchFrameFromCamera, watchModeSupported;
 import '../nearby/nearby_ble.dart' show bleSupported;
 import '../nearby/nearby_service.dart';
-import '../nearby/nearby_ui.dart' show askBluetooth;
+import '../nearby/nearby_ui.dart' show askBluetooth, maybeAskUwb;
 import '../radar/radar_model.dart' show CameraAt;
 import '../radar/radar_screen.dart';
 import '../radar/radar_settings.dart';
@@ -469,6 +469,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   Future<void> _startHosting(RecordLogWriter log) async {
     final tn = TableNightService.instance;
     if (_host && mounted && await askBluetooth(context, hosting: true)) {
+      if (mounted) await maybeAskUwb(context);
       try {
         final had = tn.night;
         final n = await tn.organizeStandalone(AppSettings.playerName.value.isEmpty ? 'Host' : AppSettings.playerName.value,

@@ -98,8 +98,8 @@ What changes (source of truth: `lib/record/`, `lib/nearby/`,
 New permissions: Android `ACCESS_COARSE_LOCATION`, `BLUETOOTH_SCAN`
 (neverForLocation), `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT`, and on
 Android 11 and older `BLUETOOTH`, `BLUETOOTH_ADMIN`, `ACCESS_FINE_LOCATION`
-(maxSdkVersion 30, BLE scanning there requires it). No `UWB_RANGING`
-(Android UWB is not implemented). iOS: `NSBluetoothAlwaysUsageDescription`,
+(maxSdkVersion 30, BLE scanning there requires it). From 0.3.3+29 also
+`UWB_RANGING` (Android-Android UWB, see below). iOS: `NSBluetoothAlwaysUsageDescription`,
 `NSNearbyInteractionUsageDescription`, `NSLocationWhenInUseUsageDescription`,
 `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace` (recordings in
 Files / Finder); no background modes. The camera string now mentions that
@@ -157,3 +157,25 @@ The radar only reads what table nights already upload (per-minute
 `radar` event with the table setup (shape, size, player count, which end
 seats are used, the organizer's seat number): no personal data. Players'
 phones do nothing new.
+
+## 0.3.3+29: Android-Android UWB (no new data types)
+
+* New permission: `android.permission.UWB_RANGING` (runtime, "Nearby
+  devices" group) and `uses-feature android.hardware.uwb` (not required).
+  Asked just in time, with an in-app explanation first, only on phones
+  with UWB hardware and Android 12+, and only when joining or hosting a
+  game with Bluetooth already allowed. Other phones never see a prompt.
+* New library: `androidx.core.uwb:uwb:1.0.0` (it brings Google Play
+  services' nearby module as the UWB backend). No ads or analytics SDK;
+  check the merged manifest of the release build for any permission it
+  adds before submitting.
+* Data: UWB distances between Android phones join the iPhone ones in the
+  `sense` events (already declared as Diagnostics on both stores). The
+  same events now may carry `ua` / `uaN`: counts of UWB attempts,
+  results and failure reasons (error class names, no personal data),
+  under the same sharing switch.
+* The BLE advert of a UWB-capable Android phone in a game becomes
+  connectable (for the short pairing exchange); its content is unchanged.
+* Store forms: no change (Diagnostics already covers UWB distances).
+* `web/privacy.html` now says UWB distances are measured iPhone-iPhone
+  and Android-Android.

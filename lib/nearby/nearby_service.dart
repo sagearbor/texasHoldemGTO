@@ -32,6 +32,7 @@ import '../sync/table_night_service.dart';
 import '../sync/table_sync.dart';
 import 'ble_payload.dart';
 import 'distance_test.dart' show HealAction, RadioHealth;
+import 'uwb_android.dart';
 import 'nearby_ble.dart';
 import 'sense.dart';
 
@@ -151,6 +152,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _go() async {
     poweredOn = await blePoweredOn();
     uwb = await uwbSupported();
+    if (!kIsWeb && Platform.isAndroid) unawaited(refreshUwb());
     _events ??= bleEvents().listen(_onEvent, onError: (_) {});
     await _onNightAsync();
     _schedule(Duration.zero);
@@ -259,7 +261,8 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
         await bleStopAdvertising();
         if (uwb) await uwbStop();
       } else {
-        advertiseFailed = !await bleAdvertise(want, name: name);
+        advertiseFailed = !await bleAdvertise(want,
+            name: name, connectable: uwb && !kIsWeb && Platform.isAndroid && n != null);
         if (uwb) await uwbStart(n?.deviceId ?? _selfDevice!);
       }
       notifyListeners();
@@ -325,7 +328,17 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
     if (n != null) {
       _window.addScan(peers, now);
       if (_window.startMs != null && now - _window.startMs! >= 55000) {
-        await n.appendEvent(EventKind.sense, _window.take(now, extra: state));
+        // Android UWB: the minute's counts, and every 10 minutes the night
+        // so far (only from phones with UWB hardware).
+        final ua = uwbTelemetry.takeMinute();
+        final hw = uwbTelemetry.capability?.hardware == true;
+        final nightDue = hw && now - _uwbNightAt >= 600000;
+        if (nightDue) _uwbNightAt = now;
+        await n.appendEvent(EventKind.sense, _window.take(now, extra: {
+          ...state,
+          if (ua != null) 'ua': ua,
+          if (nightDue) 'uaN': uwbTelemetry.night(),
+        }));
       }
     }
     if (_recording) await _checkDeaf(now);
@@ -371,6 +384,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _rangeNew(List<BleSighting> got) async {
     final me = _selfKey;
     if (me == null) return;
+    if (!kIsWeb && Platform.isAndroid) return _rangeAndroid(got, me);
     for (final s in got) {
       final a = s.advert;
       if (a == null || !a.uwb || !a.ios || me.compareTo(a.peerKey) >= 0) continue;
@@ -381,8 +395,61 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  // ------------------------------------------------ Android-Android UWB
+
+  final UwbTelemetry uwbTelemetry = UwbTelemetry();
+  final AndroidUwb _androidUwb = AndroidUwb();
+  final Set<String> _uwbPeersSeen = {};
+  final Map<String, int> _uwbLastRanged = {};
+  int _uwbNightAt = 0;
+
+  /// Android phones with UWB in the advert (and not iPhones: no
+  /// iPhone-Android UWB), the controller side only, a couple at a time,
+  /// longest-unranged first.
+  Future<void> _rangeAndroid(List<BleSighting> got, String me) async {
+    final uuidOf = <String, String>{};
+    for (final s in got) {
+      final a = s.advert;
+      if (a == null || !a.uwb || a.ios) continue;
+      if (_uwbPeersSeen.add(a.peerKey)) {
+        _line('uwb_android', {'stage': 'peer_seen', 'peer': a.peerKey, 'platform': 'android', 'uwb': true,
+          'controller': isController(me, a.peerKey)});
+      }
+      if (!isController(me, a.peerKey)) continue;
+      uuidOf[a.peerKey] = s.uuids.firstWhere((u) => parseAdvertUuid(u) != null).toLowerCase();
+    }
+    if (uuidOf.isEmpty) return;
+    final active = {for (final e in uuidOf.entries) if (_uwbAsked.contains(e.value)) e.key};
+    for (final peer in pickPeers(uuidOf.keys, active: active, lastRangedMs: _uwbLastRanged)) {
+      final uuid = uuidOf[peer]!;
+      _uwbAsked.add(uuid);
+      _uwbLastRanged[peer] = DateTime.now().millisecondsSinceEpoch;
+      _line('uwb_android', {'stage': 'range_request', 'peer': peer});
+      await _androidUwb.range(uuid, peer);
+    }
+  }
+
+  /// Android with UWB hardware: what it can do now (logged once a night,
+  /// and again after the permission was asked).
+  Future<void> refreshUwb() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final c = await _androidUwb.capability();
+    uwbTelemetry.capability = c;
+    if (c.hardware || c.feature) _line('uwb_android', {'stage': 'capability', ...c.toJson()});
+    final was = uwb;
+    uwb = c.usable;
+    if (uwb != was) {
+      advertising = null; // the advert's UWB bit and connectability change
+      _loopNight = '-';
+      await _onNightAsync();
+    }
+  }
+
   void _onEvent(Map<String, Object?> e) {
     switch (e['type']) {
+      case 'uwb_android':
+        uwbTelemetry.onStage(e);
+        _line('uwb_android', Map.of(e)..remove('type'));
       case 'uwb':
         final peer = '${e['peer']}';
         final m = (e['m'] as num?)?.toDouble();
@@ -391,7 +458,18 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
         final s = UwbSample('D:$peer', m, (e['t'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
             direction: dir);
         _window.addUwb(s);
-        if (_uwbThrottle.keep(s)) _line('uwb', {'p': s.peer, 'm': m, if (dir != null) 'dir': dir});
+        if (e['android'] == true) uwbTelemetry.onReading(s.peer, m);
+        final az = (e['az'] as num?)?.toDouble(), el = (e['el'] as num?)?.toDouble();
+        if (_uwbThrottle.keep(s)) {
+          _line('uwb', {
+            'p': s.peer,
+            'm': m,
+            if (dir != null) 'dir': dir,
+            if (az != null) 'az': az,
+            if (el != null) 'el': el,
+            if (e['android'] == true) 'android': true,
+          });
+        }
       case 'uwbState':
         _line('uwb_state', {
           if (e['peer'] != null) 'p': 'D:${e['peer']}',

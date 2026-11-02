@@ -2,6 +2,7 @@ package com.sagearbor.feltnotes.app
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
@@ -64,6 +65,15 @@ class BleChannel(
     private var lastRestartMs: Long? = null
 
     private fun now() = System.currentTimeMillis()
+
+    /** Advert UUID (lower case) -> the phone that sent it (UWB pairing). */
+    private val seenDevices = mutableMapOf<String, BluetoothDevice>()
+
+    /** Android-Android UWB (UwbChannel), made only when first used. */
+    private val uwbA: UwbChannel by lazy { UwbChannel(activity, { m -> emit(m) }, { u -> seenDevices[u.lowercase()] }) }
+
+    private fun uwbHardware(): Boolean =
+        Build.VERSION.SDK_INT >= 31 && activity.packageManager.hasSystemFeature("android.hardware.uwb")
 
     private fun emit(m: Map<String, Any?>) {
         main.post { sink?.success(m + ("t" to now())) }
@@ -157,9 +167,32 @@ class BleChannel(
                 }
                 "bleStatus" -> result.success(status())
                 "screenOn" -> result.success((activity.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive)
-                "uwbSupported" -> result.success(false)
-                "uwbStart", "uwbStop", "uwbRange" -> result.success(null)
-                "uwbPeers" -> result.success(emptyList<String>())
+                // Android-Android UWB: only on phones with the hardware; no-ops elsewhere.
+                "uwbSupported" -> result.success(uwbHardware() && uwbA.permitted())
+                "uwbStatus" -> if (!uwbHardware()) {
+                    result.success(
+                        mapOf(
+                            "feature" to activity.packageManager.hasSystemFeature("android.hardware.uwb"),
+                            "sdk" to Build.VERSION.SDK_INT, "lib" to true, "permission" to false, "available" to null,
+                        )
+                    )
+                } else {
+                    uwbA.capability { m -> main.post { result.success(m) } }
+                }
+                "uwbRequestPermission" -> if (!uwbHardware()) result.success(false) else uwbA.requestPermission { ok -> result.success(ok) }
+                "uwbStart" -> {
+                    if (uwbHardware()) uwbA.start(call.argument<String>("deviceId") ?: "")
+                    result.success(null)
+                }
+                "uwbStop" -> {
+                    if (uwbHardware()) uwbA.stop()
+                    result.success(null)
+                }
+                "uwbRange" -> {
+                    if (uwbHardware()) uwbA.rangeWith(call.argument<String>("uuid") ?: "", call.argument<String>("peer") ?: "")
+                    result.success(null)
+                }
+                "uwbPeers" -> result.success(if (uwbHardware()) uwbA.peers() else emptyList<String>())
                 else -> result.notImplemented()
             }
         } catch (e: SecurityException) {
@@ -189,7 +222,8 @@ class BleChannel(
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(power)
-            .setConnectable(false)
+            // Connectable only for UWB pairing (the GATT exchange).
+            .setConnectable(call.argument<Boolean>("connectable") == true)
             .setTimeout(0)
             .build()
         // 3 (flags) + 18 (128-bit UUID) + 3 (tx power) = 24 of 31 bytes.
@@ -316,6 +350,7 @@ class BleChannel(
             else -> null
         }
         val wallMinusBoot = System.currentTimeMillis() - SystemClock.elapsedRealtime()
+        for (u in uuids) if (u.replace("-", "").lowercase().startsWith(prefix)) seenDevices[u.lowercase()] = r.device
         return mapOf(
             "u" to uuids,
             "r" to r.rssi,

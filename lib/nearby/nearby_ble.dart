@@ -77,10 +77,12 @@ Future<bool> blePoweredOn() async => await _call<bool>('poweredOn') ?? false;
 /// [power]: Android advert power, `high` (the default, and always in a
 /// game), `medium` or `low` (the distance test alternates high and low).
 /// iOS has no such setting.
-Future<bool> bleAdvertise(String uuid, {String? name, String power = 'high'}) async =>
+Future<bool> bleAdvertise(String uuid, {String? name, String power = 'high', bool connectable = false}) async =>
     await _call<bool>('advertise', {
       'uuid': uuid,
       'power': power,
+      // Android UWB pairing needs a GATT connection.
+      'connectable': connectable,
       if (name != null) 'name': localNameFor(name),
       if (name != null) 'nameData': nameData(name),
       'company': nameCompanyId,

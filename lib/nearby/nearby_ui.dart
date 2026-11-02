@@ -4,8 +4,10 @@
 /// calibration diagram for the seating experiment.
 library;
 
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,6 +20,7 @@ import '../ui/theme.dart';
 import 'ble_payload.dart';
 import 'nearby_ble.dart';
 import 'nearby_service.dart';
+import 'uwb_android.dart';
 
 NearbyService get _near => NearbyService.instance;
 TableNightService get _tn => TableNightService.instance;
@@ -174,6 +177,8 @@ Future<void> joinNearbyGame(BuildContext context, NearbyGame g) async {
   }
   if (!context.mounted) return;
   final nav = Navigator.of(context);
+  await maybeAskUwb(context);
+  if (!context.mounted) return;
   await showSeatCalibration(context);
   await nav.push(MaterialPageRoute(builder: (_) => const PlayerPadScreen()));
 }
@@ -285,7 +290,9 @@ class NearbyHostTile extends StatelessWidget {
       builder: (context, _) {
         if (!_near.allowed) {
           return OutlinedButton.icon(
-            onPressed: () => askBluetooth(context, hosting: true),
+            onPressed: () async {
+              if (await askBluetooth(context, hosting: true) && context.mounted) await maybeAskUwb(context);
+            },
             icon: const Icon(Icons.bluetooth),
             label: const Text('Let phones nearby join (no internet needed)'),
           );
@@ -304,5 +311,35 @@ class NearbyHostTile extends StatelessWidget {
         ]);
       },
     );
+  }
+}
+
+/// Android phones with UWB hardware only, once in a game with Bluetooth
+/// allowed: explain, then ask for the UWB permission. Everyone else: no
+/// prompt, nothing happens.
+Future<void> maybeAskUwb(BuildContext context) async {
+  if (kIsWeb || !Platform.isAndroid || !_near.allowed) return;
+  try {
+    final c = await AndroidUwb().ensurePermission(() async {
+      if (!context.mounted) return false;
+      final yes = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: const Text('Measure distances with UWB?'),
+          content: const Text('This phone has UWB, which measures the distance to other Android phones with UWB in '
+              'this game to within a few centimetres, for the seat-finding experiment. Android asks for the '
+              '"Nearby devices" permission for it. Nothing changes in the game if you say no.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Not now')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Continue')),
+          ],
+        ),
+      );
+      return yes == true;
+    });
+    _near.uwbTelemetry.capability = c;
+    await _near.refreshUwb();
+  } catch (_) {
+    // Never in the way of joining.
   }
 }
