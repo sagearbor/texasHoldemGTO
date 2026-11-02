@@ -280,7 +280,7 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> {
     final out = File('${(await getTemporaryDirectory()).path}/$name');
     await out.writeAsString('${exportLines(await f.readAsLines()).join('\n')}\n');
     // The name survives into Messages / AirDrop / Quick Share.
-    await Share.shareXFiles([XFile(out.path, name: name, mimeType: 'application/x-ndjson')],
+    await Share.shareXFiles([XFile(out.path, name: name, mimeType: 'text/plain')],
         fileNameOverrides: [name], sharePositionOrigin: origin);
   }
 
