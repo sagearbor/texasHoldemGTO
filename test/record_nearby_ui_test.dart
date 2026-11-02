@@ -1,3 +1,4 @@
+import 'package:felt_notes/nearby/distance_test_screen.dart';
 import 'package:felt_notes/nearby/nearby_ui.dart';
 import 'package:felt_notes/record/record_screen.dart';
 import 'package:felt_notes/ui/app_settings.dart';
@@ -24,6 +25,28 @@ void main() {
     await t.tap(find.byTooltip('More'));
     await t.pump();
     expect(find.text('7'), findsOneWidget);
+  });
+
+  testWidgets('distance test: distance first and big, Record waits for it', (t) async {
+    SharedPreferences.setMockInitialValues({'bt_distance_unit_v1': 'feet'});
+    t.view.physicalSize = const Size(800, 3000);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await t.pumpWidget(const MaterialApp(home: DistanceTestScreen()));
+    await t.pump();
+    await t.pump();
+    // The just-in-time Bluetooth ask comes first; say not now.
+    await t.tap(find.text('Not now'));
+    await t.pumpAndSettle();
+    expect(find.text('Bluetooth is not allowed.'), findsOneWidget);
+    expect(find.text('1. True distance between the phones'), findsOneWidget);
+    expect(find.text('3 ft'), findsOneWidget); // the remembered unit
+    expect(find.text('Set the distance first'), findsOneWidget);
+    await t.tap(find.byTooltip('Farther'));
+    await t.pump();
+    expect(find.text('3 ft 6 in'), findsOneWidget);
+    expect(find.text('Set the distance first'), findsNothing);
+    expect(find.text('Export 0 runs'), findsOneWidget);
   });
 
   testWidgets('no nearby game, no card', (t) async {

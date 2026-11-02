@@ -25,29 +25,52 @@ import sys
 from collections import defaultdict
 
 
+def _name(label, model, key):
+    """How a phone is printed: its label from the app ("Asher's phone"),
+    else the model with the short id, else the id."""
+    key = key or "?"
+    short = key[-4:]
+    if label:
+        return label
+    return f"{short} ({model})" if model else key
+
+
 def load_samples(paths):
-    """Every sample line: dicts with obs, peer, rssi, d, place, run."""
+    """Every kept sample line: dicts with obs, peer, rssi, d, place, run.
+    Runs deleted in the app (a raw log with `deleted` markers) are left
+    out; app exports already leave them out."""
     out = []
     files = []
     for p in paths:
         files += sorted(glob.glob(os.path.join(p, "*.jsonl"))) if os.path.isdir(p) else [p]
     for f in files:
+        lines = []
         with open(f, encoding="utf-8") as fh:
             for raw in fh:
                 try:
-                    j = json.loads(raw)
+                    lines.append(json.loads(raw))
                 except ValueError:
                     continue  # a torn last line
-                if j.get("k") != "sample" or j.get("d_m") is None or j.get("rssi") is None:
-                    continue
-                out.append({
-                    "obs": j.get("obs_model") and f"{j['obs'][-4:]} ({j['obs_model']})" or j.get("obs", "?"),
-                    "peer": j.get("peer_model") and f"{j['peer'][-4:]} ({j['peer_model']})" or j.get("peer", "?"),
-                    "rssi": float(j["rssi"]),
-                    "d": float(j["d_m"]),
-                    "place": j.get("place", "?"),
-                    "run": j.get("run"),
-                })
+        deleted = set()
+        for j in lines:
+            runs = ([j["run"]] if isinstance(j.get("run"), int) else []) + list(j.get("runs") or [])
+            if j.get("k") == "deleted":
+                deleted.update(runs)
+            elif j.get("k") == "undeleted":
+                deleted.difference_update(runs)
+        # A peer's label as it advertised it; the observer's own label is
+        # on every line it wrote.
+        for j in lines:
+            if j.get("k") != "sample" or j.get("d_m") is None or j.get("rssi") is None or j.get("run") in deleted:
+                continue
+            out.append({
+                "obs": _name(j.get("observerLabel"), j.get("obs_model"), j.get("obs")),
+                "peer": _name(j.get("peer_label"), j.get("peer_model"), j.get("peer")),
+                "rssi": float(j["rssi"]),
+                "d": float(j["d_m"]),
+                "place": j.get("place", "?"),
+                "run": j.get("run"),
+            })
     return out
 
 
@@ -111,6 +134,14 @@ def report(samples, out=sys.stdout):
     if not pairs:
         print("no samples found", file=out)
         return 1
+    # Both directions of a pair together too (two phones is the usual
+    # test: A hearing B and B hearing A).
+    both = defaultdict(list)
+    for (obs, peer), ss in pairs.items():
+        both[tuple(sorted((obs, peer)))] += ss
+    for (x, y), ss in sorted(both.items()):
+        if (y, x) in pairs and (x, y) in pairs:
+            pairs[(x, f"{y} (both directions)")] = ss
     for (obs, peer), ss in sorted(pairs.items()):
         print(f"\n{obs} hearing {peer}: {len(ss)} samples, "
               f"distances {sorted({s['d'] for s in ss})}", file=out)

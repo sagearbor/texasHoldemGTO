@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 import calibrate as C  # noqa: E402
 
 
-def synth_file(path, a=-55.0, n=2.0, sigma=3.0, seed=1, place_off=None):
+def synth_file(path, a=-55.0, n=2.0, sigma=3.0, seed=1, place_off=None, obs="AAAAAAAAAAAA", peer="D:BBBBBBBBBBBB",
+               obs_label=None, peer_label=None):
     rng = random.Random(seed)
     place_off = place_off or {"tableUp": 0.0}
     run = 0
@@ -26,8 +27,10 @@ def synth_file(path, a=-55.0, n=2.0, sigma=3.0, seed=1, place_off=None):
                     for _ in range(300):
                         r = a - 10 * n * math.log10(d) + off + rng.gauss(0, sigma)
                         f.write(json.dumps({"t": "2026-11-01T20:00:00.000Z", "m": 1, "r": 1, "k": "sample", "run": run,
-                                            "obs": "AAAAAAAAAAAA", "obs_model": "Pixel 10", "peer": "D:BBBBBBBBBBBB",
-                                            "peer_model": "Pixel 10", "rssi": round(r), "d_m": d, "place": place}) + "\n")
+                                            "obs": obs, "obs_model": "Pixel 10", "peer": peer,
+                                            "peer_model": "Pixel 10", "rssi": round(r), "d_m": d, "place": place,
+                                            **({"observerLabel": obs_label} if obs_label else {}),
+                                            **({"peer_label": peer_label} if peer_label else {})}) + "\n")
         f.write('{"k": "sample", "rssi": ')  # torn last line
 
 
@@ -69,6 +72,29 @@ class Calibrate(unittest.TestCase):
         self.assertIn("A = ", buf.getvalue())
         self.assertIn("BBBB (Pixel 10)", buf.getvalue())
         self.assertEqual(C.report([], out=io.StringIO()), 1)
+
+    def test_two_phones_labels_and_both_directions(self):
+        tmp = tempfile.mkdtemp()
+        synth_file(os.path.join(tmp, "a.jsonl"), obs="AAAAAAAAAAAA", peer="D:BBBBBBBBBBBB",
+                   obs_label="Asher's phone", peer_label="Sage's phone")
+        synth_file(os.path.join(tmp, "b.jsonl"), obs="BBBBBBBBBBBB", peer="D:AAAAAAAAAAAA", seed=2,
+                   obs_label="Sage's phone", peer_label="Asher's phone")
+        buf = io.StringIO()
+        self.assertEqual(C.report(C.load_samples([tmp]), out=buf), 0)
+        out = buf.getvalue()
+        self.assertIn("Asher's phone hearing Sage's phone", out)
+        self.assertIn("Sage's phone hearing Asher's phone", out)
+        self.assertIn("(both directions)", out)
+
+    def test_deleted_runs_are_left_out(self):
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "x.jsonl")
+        synth_file(path)
+        with open(path, "a") as f:
+            f.write("\n" + json.dumps({"k": "deleted", "runs": [1, 2]}) + "\n")
+        s = C.load_samples([tmp])
+        self.assertEqual(len(s), 4 * 2 * 300 - 600)
+        self.assertFalse(any(x["run"] in (1, 2) for x in s))
 
 
 if __name__ == "__main__":
