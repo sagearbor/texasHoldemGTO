@@ -140,4 +140,47 @@ void main() {
     });
     expect(shortPeer('D:BBBBBBBBWXYZ'), 'WXYZ');
   });
+
+  group('radio health', () {
+    Map<String, Object?> st({bool scan = true, bool advert = true, String adapter = 'on', int all = 0, int felt = 0}) =>
+        {'scan': scan, 'advert': advert, 'adapter': adapter, 'heard_all': all, 'heard_felt': felt};
+
+    test('heard in the last 5 s from cumulative counters', () {
+      final h = RadioHealth();
+      expect(h.heard(st(all: 100, felt: 10)), (0, 0)); // first reading: no baseline
+      expect(h.heard(st(all: 160, felt: 25)), (60, 15));
+      expect(h.heard(st(all: 7, felt: 2)), (7, 2)); // native counters reset
+    });
+
+    test('restart a stopped scan or advert, at most once per cooldown', () {
+      final h = RadioHealth(cooldownMs: 30000);
+      expect(h.check(st(), nowMs: 0, heardAll: 5), isEmpty);
+      expect(h.check(st(scan: false), nowMs: 5000, heardAll: 0), [(HealAction.scan, 'scan_not_running')]);
+      expect(h.check(st(scan: false), nowMs: 10000, heardAll: 0), isEmpty); // cooling down
+      expect(h.check(st(scan: false, advert: false), nowMs: 36000, heardAll: 0),
+          [(HealAction.scan, 'scan_not_running'), (HealAction.advert, 'advert_not_running')]);
+      // Bluetooth off: nothing to restart.
+      expect(h.check(st(scan: false, advert: false, adapter: 'off'), nowMs: 90000, heardAll: 0), isEmpty);
+    });
+
+    test('a running scan that hears nothing for 30 s is restarted', () {
+      final h = RadioHealth(cooldownMs: 30000, silenceMs: 30000);
+      expect(h.check(st(), nowMs: 0, heardAll: 0), isEmpty);
+      expect(h.check(st(), nowMs: 25000, heardAll: 0), isEmpty);
+      expect(h.check(st(), nowMs: 30000, heardAll: 0), [(HealAction.scan, 'no_adverts_30s')]);
+      expect(h.check(st(), nowMs: 35000, heardAll: 0), isEmpty); // quiet clock restarted
+      expect(h.check(st(), nowMs: 40000, heardAll: 3), isEmpty);
+      expect(h.check(st(), nowMs: 69000, heardAll: 0), isEmpty);
+    });
+
+    test('status lines stay in the export, run filtering untouched', () {
+      final lines = [
+        jsonEncode({'k': 'status', 'scan': true, 'recording_run': 5}),
+        jsonEncode({'k': 'run_start', 'run': 5, 'd_m': 1.0, 'place': 'held'}),
+        jsonEncode({'k': 'deleted', 'runs': [5]}),
+      ];
+      expect(exportLines(lines), [lines.first]);
+      expect(runsFromLog(lines).single.deleted, isTrue);
+    });
+  });
 }

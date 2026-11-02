@@ -129,3 +129,9 @@ Stream<Map<String, Object?>> bleEvents() {
 Future<bool> bleScanStart() async => await _call<bool>('scanStart', {'prefix': advertUuidPrefix}) ?? false;
 
 Future<void> bleScanStop() => _call<void>('scanStop');
+
+/// Distance test diagnostics: the native side's current picture
+/// (`interactive, adapter, scan, advert, heard_all, heard_felt`, last scan
+/// failure and advert result with times, scan restarts). Null when there
+/// is no native side.
+Future<Map<String, Object?>?> bleStatus() async => (await _call<Map>('bleStatus'))?.cast<String, Object?>();

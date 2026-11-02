@@ -41,6 +41,10 @@ final class NearbyChannel: NSObject, FlutterStreamHandler, CBCentralManagerDeleg
   private var scanPrefix = ""
   private var scanWanted = false
   private var streaming = false
+  // Distance test diagnostics ("bleStatus").
+  private var heardAll = 0
+  private var heardFelt = 0
+  private var lastResultMs: Int64?
   private var streamPrefix = ""
   private var scanMs = 4000
   /// Advert UUID (lowercase) -> the peripheral that sent it, for UWB.
@@ -150,6 +154,19 @@ final class NearbyChannel: NSObject, FlutterStreamHandler, CBCentralManagerDeleg
       streaming = false
       if scanReply == nil { central?.stopScan() }
       result(nil)
+    case "bleStatus":
+      let states = ["unknown", "resetting", "unsupported", "unauthorized", "off", "on"]
+      let st = central.map { states[min(max($0.state.rawValue, 0), states.count - 1)] } ?? "none"
+      result([
+        "interactive": UIApplication.shared.applicationState == .active,
+        "adapter": st,
+        "scan": central?.isScanning ?? false,
+        "advert": peripheral?.isAdvertising ?? false,
+        "heard_all": heardAll,
+        "heard_felt": heardFelt,
+        "last_result_ms": lastResultMs as Any,
+        "restarts": 0,
+      ])
     case "screenOn":
       result(UIApplication.shared.applicationState == .active ? true : nil)
     case "uwbSupported":
@@ -187,7 +204,8 @@ final class NearbyChannel: NSObject, FlutterStreamHandler, CBCentralManagerDeleg
       authWaiters.removeAll()
       for w in waiters { w(Self.authorization) }
     }
-    emit(["type": "bt", "on": c.state == .poweredOn])
+    emit(["type": "bt", "on": c.state == .poweredOn, "state": c.state.rawValue,
+          "t": Int64(Date().timeIntervalSince1970 * 1000)])
     if c.state == .poweredOn && (scanWanted || streaming) { beginScan() }
   }
 
@@ -244,12 +262,15 @@ final class NearbyChannel: NSObject, FlutterStreamHandler, CBCentralManagerDeleg
     _ c: CBCentralManager, didDiscover p: CBPeripheral, advertisementData ad: [String: Any], rssi: NSNumber
   ) {
     guard scanReply != nil || streaming, rssi.intValue != 127 else { return }
+    heardAll += 1
+    lastResultMs = Int64(Date().timeIntervalSince1970 * 1000)
     let prefix = scanReply != nil ? scanPrefix : streamPrefix
     var uuids = (ad[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]) ?? []
     uuids += (ad[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID]) ?? []
     let ours = uuids.map { $0.uuidString.lowercased() }
       .filter { $0.replacingOccurrences(of: "-", with: "").hasPrefix(prefix) }
     if ours.isEmpty { return } // nobody else's devices are logged
+    heardFelt += 1
     for u in ours { seen[u] = p }
     var e: [String: Any] = [
       "u": ours,

@@ -48,12 +48,70 @@ class BleChannel(
     private val adapter: BluetoothAdapter?
         get() = (activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager?)?.adapter
 
+    // ------------------------------------------------- diagnostics
+    // Field data showed both phones going silent for minutes mid-run: every
+    // state change is sent to Dart as it happens, and "bleStatus" gives the
+    // current picture for the distance test's 5-second status lines.
+    private var lastScanFailCode: Int? = null
+    private var lastScanFailMs: Long? = null
+    private var advertOk = false
+    private var lastAdvertCode: Int? = null // null: success
+    private var lastAdvertMs: Long? = null
+    private var heardAll = 0L
+    private var heardFelt = 0L
+    private var lastResultMs: Long? = null
+    private var restarts = 0
+    private var lastRestartMs: Long? = null
+
+    private fun now() = System.currentTimeMillis()
+
+    private fun emit(m: Map<String, Any?>) {
+        main.post { sink?.success(m + ("t" to now())) }
+    }
+
     private val btState = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
             val s = i?.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) ?: return
-            sink?.success(mapOf("type" to "bt", "on" to (s == BluetoothAdapter.STATE_ON)))
+            if (s != BluetoothAdapter.STATE_ON) {
+                // The stack drops every scan and advert when it goes down.
+                advertOk = false
+                stream = null
+                main.removeCallbacks(restart)
+            }
+            emit(mapOf("type" to "bt", "on" to (s == BluetoothAdapter.STATE_ON), "state" to stateName(s)))
         }
     }
+
+    private val screen = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            emit(mapOf("type" to "screen", "on" to (i?.action == Intent.ACTION_SCREEN_ON)))
+        }
+    }
+
+    private fun stateName(s: Int) = when (s) {
+        BluetoothAdapter.STATE_ON -> "on"
+        BluetoothAdapter.STATE_OFF -> "off"
+        BluetoothAdapter.STATE_TURNING_ON -> "turning_on"
+        BluetoothAdapter.STATE_TURNING_OFF -> "turning_off"
+        else -> "unknown:$s"
+    }
+
+    private fun status(): Map<String, Any?> = mapOf(
+        "interactive" to (activity.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive,
+        "adapter" to (adapter?.state?.let { stateName(it) } ?: "none"),
+        "scan" to (stream != null),
+        "advert" to (advertiser != null && advertOk),
+        "scan_fail_code" to lastScanFailCode,
+        "scan_fail_ms" to lastScanFailMs,
+        "advert_code" to lastAdvertCode,
+        "advert_ok" to advertOk,
+        "advert_ms" to lastAdvertMs,
+        "heard_all" to heardAll,
+        "heard_felt" to heardFelt,
+        "last_result_ms" to lastResultMs,
+        "restarts" to restarts,
+        "last_restart_ms" to lastRestartMs,
+    )
 
     init {
         channel.setMethodCallHandler(this)
@@ -63,12 +121,17 @@ class BleChannel(
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         sink = events
         activity.registerReceiver(btState, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        activity.registerReceiver(screen, IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        })
     }
 
     override fun onCancel(arguments: Any?) {
         sink = null
         try {
             activity.unregisterReceiver(btState)
+            activity.unregisterReceiver(screen)
         } catch (_: Exception) {
         }
     }
@@ -92,6 +155,7 @@ class BleChannel(
                     stopStream()
                     result.success(null)
                 }
+                "bleStatus" -> result.success(status())
                 "screenOn" -> result.success((activity.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive)
                 "uwbSupported" -> result.success(false)
                 "uwbStart", "uwbStop", "uwbRange" -> result.success(null)
@@ -133,6 +197,10 @@ class BleChannel(
         var answered = false
         val cb = object : AdvertiseCallback() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+                advertOk = true
+                lastAdvertCode = null
+                lastAdvertMs = now()
+                emit(mapOf("type" to "advert", "ok" to true))
                 if (!answered) {
                     answered = true
                     result.success(true)
@@ -141,6 +209,10 @@ class BleChannel(
 
             override fun onStartFailure(errorCode: Int) {
                 advertiser = null
+                advertOk = false
+                lastAdvertCode = errorCode
+                lastAdvertMs = now()
+                emit(mapOf("type" to "advert", "ok" to false, "code" to errorCode))
                 if (!answered) {
                     answered = true
                     result.success(false)
@@ -154,6 +226,7 @@ class BleChannel(
     private fun stopAdvertising() {
         val cb = advertiser ?: return
         advertiser = null
+        advertOk = false
         try {
             adapter?.bluetoothLeAdvertiser?.stopAdvertising(cb)
         } catch (_: Exception) {
@@ -173,8 +246,21 @@ class BleChannel(
         streamPrefix = prefix
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, r: ScanResult) {
+                heardAll++
+                lastResultMs = now()
                 val m = sighting(r, streamPrefix) ?: return
+                heardFelt++
                 main.post { sink?.success(m + ("type" to "adv")) }
+            }
+
+            override fun onScanFailed(errorCode: Int) {
+                // 1 already started, 2 app registration failed, 3 internal
+                // error, 4 unsupported, 5 out of hardware, 6 scanning too
+                // frequently.
+                lastScanFailCode = errorCode
+                lastScanFailMs = now()
+                if (stream === this) stream = null
+                emit(mapOf("type" to "scanFailed", "code" to errorCode))
             }
         }
         val settings = ScanSettings.Builder()
@@ -188,13 +274,18 @@ class BleChannel(
             // Android turns a scan running over 30 minutes into a slow
             // opportunistic one: start it again every 10.
             main.postDelayed(restart, 10 * 60 * 1000L)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             stream = null
+            emit(mapOf("type" to "scanFailed", "code" to -1, "error" to e.toString()))
         }
     }
 
     private fun restartStream() {
-        if (stream != null) startStream(streamPrefix)
+        if (stream == null) return
+        restarts++
+        lastRestartMs = now()
+        emit(mapOf("type" to "scanRestart", "reason" to "every_10_min"))
+        startStream(streamPrefix)
     }
 
     private fun stopStream() {

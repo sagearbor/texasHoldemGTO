@@ -42,7 +42,15 @@ class DistanceTestScreen extends StatefulWidget {
   State<DistanceTestScreen> createState() => _DistanceTestScreenState();
 }
 
-class _DistanceTestScreenState extends State<DistanceTestScreen> {
+class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBindingObserver {
+  // Radio health: a status line every 5 s, restarts when something stopped.
+  Timer? _statusTimer;
+  final RadioHealth _health = RadioHealth();
+  AppLifecycleState? _lifecycle;
+  Map<String, Object?>? _status;
+  (int, int) _heard5 = (0, 0);
+  bool _healing = false;
+
   String? _error;
   String? _me;
   String? _model;
@@ -76,6 +84,8 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _lifecycle = WidgetsBinding.instance.lifecycleState;
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
   }
 
@@ -86,6 +96,8 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> {
     final run = _run;
     if (run != null) _write('run_end', {'run': run, 'complete': false, 'reason': 'left', 'secs': _runSeconds - _left});
     _tick?.cancel();
+    _statusTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _sub?.cancel();
     _labelCtl.dispose();
     bleScanStop();
@@ -140,6 +152,8 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> {
               ? null
               : 'Scanning, but this phone could not advertise.');
       _tick = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
+      _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) => _statusLine());
+      unawaited(_statusLine());
     } catch (e) {
       if (mounted) setState(() => _error = 'Could not start ($e)');
     }
@@ -167,8 +181,58 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> {
 
   List<RunRecord> get _kept => [for (final r in _runs) if (!r.deleted) r];
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycle = state;
+    _write('ble_event', {'type': 'lifecycle', 'state': state.name});
+  }
+
+  /// Every 5 s: what the radio is doing, and restarts where it stopped.
+  Future<void> _statusLine() async {
+    final st = await bleStatus();
+    if (st == null || !mounted) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final heard = _health.heard(st);
+    final heals = _healing ? const <(HealAction, String)>[] : _health.check(st, nowMs: now, heardAll: heard.$1);
+    _write('status', {
+      ...st,
+      'lifecycle': _lifecycle?.name,
+      'heard_5s': heard.$1,
+      'heard_felt_5s': heard.$2,
+      'peers_5s': {
+        for (final e in _peers.entries)
+          if (e.value.latestMs != null && now - e.value.latestMs! <= 5000) e.key: e.value.latest,
+      },
+      'recording_run': _run,
+    });
+    setState(() {
+      _status = st;
+      _heard5 = heard;
+    });
+    if (heals.isEmpty) return;
+    _healing = true;
+    try {
+      for (final (a, why) in heals) {
+        _write('self_heal', {'what': a.name, 'reason': why});
+        if (a == HealAction.scan) {
+          await bleScanStop();
+          _scanning = await bleScanStart();
+        } else {
+          await _advertise();
+        }
+      }
+    } finally {
+      _healing = false;
+    }
+  }
+
   void _onEvent(Map<String, Object?> e) {
-    if (e['type'] != 'adv') return;
+    if (e['type'] != 'adv') {
+      // Native radio events (scan failed, advert result, Bluetooth and
+      // screen on/off, scan restarts), logged as they happen.
+      if (e['type'] != 'uwb') _write('ble_event', e);
+      return;
+    }
     final s = BleSighting.fromMap(e);
     final a = s?.advert;
     if (s == null || a == null || a.peerKey == 'D:$_me') return;
@@ -337,6 +401,32 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> {
     return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 
+  /// Live: Scan ✓/✗, Advert ✓/✗, heard in the last 5 s.
+  Widget _radioRow(TextTheme t) {
+    final st = _status;
+    Widget chip(String label, bool? ok) => Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: Text('$label ${ok == null ? '?' : ok ? '✓' : '✗'}',
+              style: t.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: ok == false ? Theme.of(context).colorScheme.error : null)),
+        );
+    final quiet = st != null && _heard5.$2 == 0;
+    return Row(key: const Key('bt-radio-row'), children: [
+      chip('Scan', st?['scan'] as bool?),
+      chip('Advert', st?['advert'] as bool?),
+      Expanded(
+        child: Text(
+            st == null
+                ? 'radio status…'
+                : 'heard/5s: ${_heard5.$2} Felt Notes · ${_heard5.$1} all'
+                    '${st['adapter'] == 'on' ? '' : ' · Bluetooth ${st['adapter']}'}',
+            style: t.bodySmall?.copyWith(color: quiet ? Colors.amber.shade800 : null),
+            textAlign: TextAlign.right),
+      ),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
@@ -464,6 +554,8 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> {
             const SizedBox(height: 8),
             Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ],
+          const SizedBox(height: 8),
+          _radioRow(t),
           const SizedBox(height: 12),
           Text(
               'Felt Notes phones heard (this phone: ${_me == null ? '…' : shortPeer(_me!)}'

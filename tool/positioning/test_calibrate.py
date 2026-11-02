@@ -92,8 +92,11 @@ class Calibrate(unittest.TestCase):
         synth_file(path)
         with open(path, "a") as f:
             f.write("\n" + json.dumps({"k": "deleted", "runs": [1, 2]}) + "\n")
+        with open(path, "a") as f:
+            f.write(json.dumps({"k": "status", "scan": True, "heard_5s": 40, "run": 3}) + "\n")
+            f.write(json.dumps({"k": "self_heal", "what": "scan", "reason": "no_adverts_30s"}) + "\n")
         s = C.load_samples([tmp])
-        self.assertEqual(len(s), 4 * 2 * 300 - 600)
+        self.assertEqual(len(s), 4 * 2 * 300 - 600)  # status / self_heal lines ignored
         self.assertFalse(any(x["run"] in (1, 2) for x in s))
 
 

@@ -267,3 +267,59 @@ List<String> exportLines(Iterable<String> lines) {
         if (j['k'] != 'deleted' && j['k'] != 'undeleted' && !(j['run'] is int && del.contains(j['run']))) l,
   ];
 }
+
+// ------------------------------------------------------- radio health
+
+/// What to restart, and why, from one 5-second status reading.
+enum HealAction { scan, advert }
+
+/// Turns the native side's cumulative counters into "heard in the last 5
+/// seconds" and decides when to restart our scan or advert while the
+/// screen is open (field data: whole minutes of silence mid-run). At most
+/// one restart of each per [cooldownMs].
+class RadioHealth {
+  final int cooldownMs;
+  final int silenceMs;
+  RadioHealth({this.cooldownMs = 30000, this.silenceMs = 30000});
+
+  int? _all, _felt;
+  int? _quietSince;
+  final Map<HealAction, int> _lastHeal = {};
+
+  /// Adverts heard since the previous reading: (all devices, Felt Notes).
+  /// A counter that went back (native side restarted) counts from zero.
+  (int, int) heard(Map<String, Object?> st) {
+    final all = (st['heard_all'] as num?)?.toInt() ?? 0, felt = (st['heard_felt'] as num?)?.toInt() ?? 0;
+    final pa = _all, pf = _felt;
+    _all = all;
+    _felt = felt;
+    if (pa == null || pf == null) return (0, 0);
+    return (all >= pa ? all - pa : all, felt >= pf ? felt - pf : felt);
+  }
+
+  /// Restarts due now, with their reasons. [heardAll] is this reading's
+  /// [heard] count; nothing is restarted while Bluetooth is off.
+  List<(HealAction, String)> check(Map<String, Object?> st, {required int nowMs, required int heardAll}) {
+    final out = <(HealAction, String)>[];
+    final on = st['adapter'] == 'on';
+    if (heardAll > 0 || !on) {
+      _quietSince = null;
+    } else {
+      _quietSince ??= nowMs;
+    }
+    if (!on) return out;
+    bool may(HealAction a) => nowMs - (_lastHeal[a] ?? -cooldownMs) >= cooldownMs;
+    if (st['scan'] != true && may(HealAction.scan)) {
+      out.add((HealAction.scan, 'scan_not_running'));
+    } else if (_quietSince != null && nowMs - _quietSince! >= silenceMs && may(HealAction.scan)) {
+      // Running by our books, yet not one advert from any device.
+      out.add((HealAction.scan, 'no_adverts_${silenceMs ~/ 1000}s'));
+    }
+    if (st['advert'] != true && may(HealAction.advert)) out.add((HealAction.advert, 'advert_not_running'));
+    for (final (a, _) in out) {
+      _lastHeal[a] = nowMs;
+      if (a == HealAction.scan) _quietSince = null;
+    }
+    return out;
+  }
+}
