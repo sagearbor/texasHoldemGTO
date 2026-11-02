@@ -4,6 +4,7 @@ import 'package:felt_notes/record/record_screen.dart';
 import 'package:felt_notes/ui/app_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -29,6 +30,8 @@ void main() {
 
   testWidgets('distance test: distance first and big, Record waits for it', (t) async {
     SharedPreferences.setMockInitialValues({'bt_distance_unit_v1': 'feet'});
+    PackageInfo.setMockInitialValues(
+        appName: 'Felt Notes', packageName: 'x', version: '0.3.3', buildNumber: '26', buildSignature: '');
     t.view.physicalSize = const Size(800, 3000);
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.reset);

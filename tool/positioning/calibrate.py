@@ -161,10 +161,26 @@ def level_fits(samples):
     return out
 
 
+LEVELS = ("ultra_low", "low", "medium", "high")
+
+
+def level_share(samples):
+    """Per distance: each sender level's share of the samples heard. The
+    sender spends equal time at each level, so with nothing lost every
+    level heard gets 1/k; a level that fades out drops below that."""
+    acc = defaultdict(lambda: defaultdict(int))
+    for s in samples:
+        if s["level"] in LEVELS:
+            acc[s["d"]][s["level"]] += 1
+    out = {}
+    for d, c in sorted(acc.items()):
+        tot = sum(c.values())
+        out[d] = {lv: (c[lv] / tot, c[lv]) for lv in LEVELS if lv in c or tot}
+    return out
+
+
 def low_fraction(samples):
-    """Per distance: the share of samples heard from low-power adverts out
-    of high + low (0.5 if every low advert got through, as the sender
-    spends equal time at each)."""
+    """Per distance: low / (high + low), from the two-level runs."""
     acc = defaultdict(lambda: [0, 0])
     for s in samples:
         if s["level"] in ("high", "low"):
@@ -203,10 +219,13 @@ def report(samples, out=sys.stdout):
             for lv, (free, a_fixed, k) in levels.items():
                 f = "one distance only" if free is None else f"A = {free[0]:.1f}  n = {free[1]:.2f}  sigma = {free[2]:.1f} dB"
                 print(f"  sender at {lv:9s} {k:6d} samples  {f}", file=out)
-            if "high" in levels and "low" in levels and levels["high"][1] is not None:
-                print(f"  high - low offset (same n): {levels['high'][1] - levels['low'][1]:.1f} dB", file=out)
-            for d, (frac, hi, lo) in low_fraction(ss).items():
-                print(f"  {d:.2f} m heard at low power: {frac:.0%} ({lo} low / {hi} high)", file=out)
+            fitted = [lv for lv in LEVELS if lv in levels and levels[lv][1] is not None]
+            for lv in fitted:
+                if lv != "high" and "high" in fitted:
+                    print(f"  high - {lv} offset (same n): {levels['high'][1] - levels[lv][1]:.1f} dB", file=out)
+            for d, share in level_share(ss).items():
+                parts = "  ".join(f"{lv} {sh:.0%} ({n})" for lv, (sh, n) in share.items())
+                print(f"  {d:.2f} m share heard per sender level: {parts}", file=out)
         for (d, place), (meds, sd) in run_median_spread(ss).items():
             tail = f"sd of run medians {sd:.1f} dB" if len(meds) > 1 else "(1 run)"
             print(f"  {d:.2f} m {place:10s} run medians {[round(m, 1) for m in meds]} {tail}", file=out)

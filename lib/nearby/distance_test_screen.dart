@@ -17,6 +17,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -107,6 +108,10 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
   }
 
   Future<void> _start() async {
+    try {
+      final info = await PackageInfo.fromPlatform().timeout(const Duration(seconds: 2));
+      _app = '${info.version}+${info.buildNumber}';
+    } catch (_) {}
     try {
       final p = await SharedPreferences.getInstance();
       final saved = p.getString(_labelKey);
@@ -213,6 +218,9 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
     final now = DateTime.now().millisecondsSinceEpoch;
     final heard = _health.heard(st);
     final heals = _healing ? const <(HealAction, String)>[] : _health.check(st, nowMs: now, heardAll: heard.$1);
+    for (final (k, f) in _healing ? const <(String, Map<String, Object?>)>[] : _health.events) {
+      _write(k, f);
+    }
     _write('status', {
       ...st,
       'lifecycle': _lifecycle?.name,
@@ -224,6 +232,7 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
       },
       'recording_run': _run,
       'tx_level_self': _power,
+      'deaf': _health.deaf,
     });
     setState(() {
       _status = st;
@@ -310,8 +319,31 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
       'place': _placement.name,
       'obs': _me,
       'obs_model': _model,
+      'app': _app,
     });
     setState(() {});
+  }
+
+  /// This build, on every run (older runs said nothing).
+  String? _app;
+
+  List<RunRecord> get _oldRuns => [for (final r in _kept) if (r.app != _app) r];
+
+  Future<void> _clearOld() async {
+    final ids = [for (final r in _oldRuns) r.id];
+    if (ids.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Clear old runs?'),
+        content: Text('${ids.length} runs recorded by an older version of the app are left out of the export.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Keep')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Clear old runs')),
+        ],
+      ),
+    );
+    if (ok == true) _setDeleted(ids, true);
   }
 
   /// [complete]: ran its time or was stopped by the owner; false when the
@@ -615,6 +647,14 @@ class _DistanceTestScreenState extends State<DistanceTestScreen> with WidgetsBin
             TextButton(onPressed: kept.isEmpty || recording ? null : _clearAll, child: const Text('Clear all runs')),
           ]),
           if (kept.isEmpty) Text('None yet. Swipe a run to delete it.', style: t.bodySmall),
+          if (_app != null && _oldRuns.isNotEmpty)
+            Row(children: [
+              Expanded(
+                child: Text('${_oldRuns.length} run${_oldRuns.length == 1 ? '' : 's'} from an older app version.',
+                    style: t.bodySmall),
+              ),
+              TextButton(onPressed: recording ? null : _clearOld, child: const Text('Clear old runs?')),
+            ]),
           for (final r in kept)
             Dismissible(
               key: ValueKey('run-${r.id}'),

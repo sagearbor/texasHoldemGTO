@@ -112,8 +112,9 @@ class RunStats {
 }
 
 /// The sender's advert power from the transmit level its advert carries.
-/// Pixels report about +1 dBm (high), -7 (medium), -15 (low), -21 (ultra
-/// low); the cut points sit between them. Null when the advert had none
+/// Pixels were seen to send +1 dBm at high and -15 at low; medium (about
+/// -7) and ultra low (about -21) are the documented steps between and
+/// below. The cut points sit halfway. Null when the advert had none
 /// (iPhones).
 String? txLevelOf(int? txDbm) {
   if (txDbm == null) return null;
@@ -123,8 +124,9 @@ String? txLevelOf(int? txDbm) {
   return 'ultra_low';
 }
 
-/// The distance test alternates its own advert between these every 5 s.
-const testPowers = ['high', 'low'];
+/// The distance test cycles its own advert through these, 5 s each (3
+/// full cycles in a 60 s run).
+const testPowers = ['ultra_low', 'low', 'medium', 'high'];
 
 /// One raw advert of a recorded run (fields after `t`/`m`/`k`, which the
 /// log writer adds).
@@ -186,13 +188,17 @@ class RunRecord {
   final bool complete;
   final bool deleted;
 
+  /// App version that recorded it (null: before 0.3.3+26, which did not
+  /// say).
+  final String? app;
+
   /// Per peer.
   final Map<String, RunStats> stats;
 
   /// All peers, per sender advert level (`high`, `low`, `unknown`).
   final Map<String, RunStats> byLevel;
   const RunRecord(this.id, this.metres, this.unit, this.entered, this.place,
-      {this.complete = false, this.deleted = false, this.stats = const {}, this.byLevel = const {}});
+      {this.complete = false, this.deleted = false, this.stats = const {}, this.byLevel = const {}, this.app});
 
   int get samples => stats.values.fold(0, (a, s) => a + s.n);
 
@@ -269,6 +275,7 @@ List<RunRecord> runsFromLog(Iterable<String> lines) {
       (j['entered'] as num?)?.toDouble() ?? m,
       '${j['place']}',
       complete: ended[e.key] ?? false,
+      app: j['app'] as String?,
       deleted: del.contains(e.key),
       stats: {
         for (final p in (samples[e.key] ?? const <String, List<int>>{}).entries)
@@ -314,6 +321,19 @@ class RadioHealth {
   int? _quietSince;
   final Map<HealAction, int> _lastHeal = {};
 
+  /// Deaf spells: heard_all per reading over the last minute (outside
+  /// spells), and the spell in progress.
+  final List<int> _hist = [];
+  int? _spellStart;
+  double _spellBase = 0;
+  int? _spellRestartMs;
+
+  /// What [check] noticed this time, for the log: `deaf_spell_start` /
+  /// `deaf_spell_end` lines (kind + fields).
+  final List<(String, Map<String, Object?>)> events = [];
+
+  bool get deaf => _spellStart != null;
+
   /// Adverts heard since the previous reading: (all devices, Felt Notes).
   /// A counter that went back (native side restarted) counts from zero.
   (int, int) heard(Map<String, Object?> st) {
@@ -329,6 +349,7 @@ class RadioHealth {
   /// [heard] count; nothing is restarted while Bluetooth is off.
   List<(HealAction, String)> check(Map<String, Object?> st, {required int nowMs, required int heardAll}) {
     final out = <(HealAction, String)>[];
+    events.clear();
     final on = st['adapter'] == 'on';
     if (heardAll > 0 || !on) {
       _quietSince = null;
@@ -342,6 +363,34 @@ class RadioHealth {
     } else if (_quietSince != null && nowMs - _quietSince! >= silenceMs && may(HealAction.scan)) {
       // Running by our books, yet not one advert from any device.
       out.add((HealAction.scan, 'no_adverts_${silenceMs ~/ 1000}s'));
+    }
+    // A deaf spell: the scan says it runs but hears under 10% of the last
+    // minute's rate. Restart once (does that cure it: software, or not:
+    // the radio / interference), and note when it recovers.
+    final scanning = st['scan'] == true;
+    if (_spellStart == null) {
+      final base = _hist.length >= 6 ? _hist.reduce((a, b) => a + b) / _hist.length : 0.0;
+      if (scanning && base >= 5 && heardAll < 0.1 * base) {
+        _spellStart = nowMs;
+        _spellBase = base;
+        _spellRestartMs = null;
+        events.add(('deaf_spell_start', {'baseline_5s': double.parse(base.toStringAsFixed(1)), 'heard_5s': heardAll}));
+      } else {
+        _hist.add(heardAll);
+        if (_hist.length > 12) _hist.removeAt(0);
+      }
+    } else if (heardAll >= 0.5 * _spellBase) {
+      events.add(('deaf_spell_end', {
+        'ms': nowMs - _spellStart!,
+        'restarted': _spellRestartMs != null,
+        if (_spellRestartMs != null) 'after_restart_ms': nowMs - _spellRestartMs!,
+        'heard_5s': heardAll,
+      }));
+      _spellStart = null;
+    }
+    if (_spellStart != null && _spellRestartMs == null && scanning && may(HealAction.scan) && out.every((x) => x.$1 != HealAction.scan)) {
+      out.add((HealAction.scan, 'deaf_spell'));
+      _spellRestartMs = nowMs;
     }
     if (st['advert'] != true && may(HealAction.advert)) out.add((HealAction.advert, 'advert_not_running'));
     for (final (a, _) in out) {

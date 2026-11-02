@@ -179,7 +179,8 @@ class BleChannel(
         val company = call.argument<Int>("company") ?: 0xFFFF
         // High in games; the distance test alternates high and low. The
         // advert carries the level (includeTxPowerLevel) so receivers log it.
-        val power = when (call.argument<String>("power")) {
+        val requested = call.argument<String>("power") ?: "high"
+        val power = when (requested) {
             "low" -> AdvertiseSettings.ADVERTISE_TX_POWER_LOW
             "medium" -> AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM
             "ultra_low" -> AdvertiseSettings.ADVERTISE_TX_POWER_ULTRA_LOW
@@ -206,7 +207,7 @@ class BleChannel(
                 advertOk = true
                 lastAdvertCode = null
                 lastAdvertMs = now()
-                emit(mapOf("type" to "advert", "ok" to true, "tx_dbm" to settingsInEffect?.txPowerLevel))
+                emit(mapOf("type" to "advert", "ok" to true, "requested" to requested, "tx_dbm" to settingsInEffect?.txPowerLevel))
                 if (!answered) {
                     answered = true
                     result.success(true)
@@ -218,7 +219,7 @@ class BleChannel(
                 advertOk = false
                 lastAdvertCode = errorCode
                 lastAdvertMs = now()
-                emit(mapOf("type" to "advert", "ok" to false, "code" to errorCode))
+                emit(mapOf("type" to "advert", "ok" to false, "requested" to requested, "code" to errorCode))
                 if (!answered) {
                     answered = true
                     result.success(false)

@@ -208,4 +208,60 @@ void main() {
     expect(r.byLevel['low']!.median, -75);
     expect(r.byLevel['unknown']!.n, 1);
   });
+
+  test('four power levels in a 60 s run: 3 cycles of 5 s each', () {
+    expect(testPowers, ['ultra_low', 'low', 'medium', 'high']);
+    expect(60 ~/ (5 * testPowers.length), 3);
+  });
+
+  group('deaf spells', () {
+    Map<String, Object?> st({int all = 0}) => {'scan': true, 'advert': true, 'adapter': 'on', 'heard_all': all};
+
+    test('start under 10% of the last minute, one restart, end with its duration', () {
+      final h = RadioHealth(cooldownMs: 30000, silenceMs: 1000000);
+      var t = 0;
+      for (var i = 0; i < 12; i++) {
+        expect(h.check(st(), nowMs: t += 5000, heardAll: 100), isEmpty);
+      }
+      expect(h.deaf, isFalse);
+      final heals = h.check(st(), nowMs: t += 5000, heardAll: 5);
+      expect(h.deaf, isTrue);
+      expect(h.events.single.$1, 'deaf_spell_start');
+      expect(h.events.single.$2['baseline_5s'], 100.0);
+      expect(heals, [(HealAction.scan, 'deaf_spell')]);
+      // Still deaf: no second restart.
+      expect(h.check(st(), nowMs: t += 5000, heardAll: 3), isEmpty);
+      expect(h.check(st(), nowMs: t += 40000, heardAll: 2), isEmpty);
+      expect(h.events, isEmpty);
+      // Recovers at half the baseline.
+      h.check(st(), nowMs: t += 5000, heardAll: 60);
+      expect(h.deaf, isFalse);
+      expect(h.events.single.$1, 'deaf_spell_end');
+      expect(h.events.single.$2['ms'], 50000);
+      expect(h.events.single.$2['restarted'], isTrue);
+      expect(h.events.single.$2['after_restart_ms'], 50000);
+    });
+
+    test('no spell without a baseline, or with a quiet room', () {
+      final h = RadioHealth(silenceMs: 1000000);
+      expect(h.check(st(), nowMs: 5000, heardAll: 100), isEmpty);
+      expect(h.check(st(), nowMs: 10000, heardAll: 0), isEmpty); // only 1 reading before
+      expect(h.deaf, isFalse);
+      final q = RadioHealth(silenceMs: 1000000);
+      for (var i = 1; i <= 12; i++) {
+        q.check(st(), nowMs: i * 5000, heardAll: 3); // under 5 a window: too quiet to judge
+      }
+      q.check(st(), nowMs: 70000, heardAll: 0);
+      expect(q.deaf, isFalse);
+    });
+  });
+
+  test('runs say which app version recorded them', () {
+    final r = runsFromLog([
+      jsonEncode({'k': 'run_start', 'run': 1, 'd_m': 1.0, 'place': 'held'}),
+      jsonEncode({'k': 'run_start', 'run': 2, 'd_m': 1.0, 'place': 'held', 'app': '0.3.3+26'}),
+    ]);
+    expect(r.firstWhere((x) => x.id == 1).app, isNull);
+    expect(r.firstWhere((x) => x.id == 2).app, '0.3.3+26');
+  });
 }

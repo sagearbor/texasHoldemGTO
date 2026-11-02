@@ -126,7 +126,10 @@ class Calibrate(unittest.TestCase):
         buf = io.StringIO()
         C.report(s, out=buf)
         self.assertIn("high - low offset", buf.getvalue())
-        self.assertIn("heard at low power", buf.getvalue())
+        self.assertIn("share heard per sender level", buf.getvalue())
+        share = C.level_share(s)
+        self.assertAlmostEqual(share[1.0]["low"][0], 0.5, delta=0.05)
+        self.assertEqual(share[1.0]["ultra_low"][1], 0)
         self.assertEqual(C.tx_level(-7), "medium")
         self.assertIsNone(C.tx_level(None))
 
