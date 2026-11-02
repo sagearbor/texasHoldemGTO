@@ -93,12 +93,12 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
   /// hosting phones nearby: no seats and no hands, just a night that
   /// others can join and log into. Already in a night: that one (a player
   /// cannot host, and an organizer's own night is the one to share).
-  Future<LocalTableSync> organizeStandalone(String name) async {
+  Future<LocalTableSync> organizeStandalone(String name, {String? role}) async {
     final have = night;
     if (have != null) return have;
     final store = _store ??= await SharedPrefsStore.open();
     final cloud = await openCloud();
-    final sync = await LocalTableSync.organize(store, organizerName: name, selfPid: 'host', cloud: cloud);
+    final sync = await LocalTableSync.organize(store, organizerName: name, selfPid: 'host', cloud: cloud, role: role);
     await sync.log.setMeta('standalone', true);
     await _attach(sync);
     return sync;
@@ -106,6 +106,16 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
 
   /// The current night is a standalone one ([organizeStandalone]).
   bool get standalone => night?.log.meta['standalone'] == true;
+
+  /// This phone is in the night as a camera (Record the table), not a player.
+  bool get isCamera {
+    final s = night;
+    if (s == null) return false;
+    for (final e in s.log.events) {
+      if (e.kind == EventKind.join) return e.data['role'] == 'camera';
+    }
+    return false;
+  }
 
   /// Ends a standalone night (the recording that hosted it stopped).
   Future<void> endStandalone() async {
@@ -118,12 +128,12 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
   // --------------------------------------------------------------- player
 
   Future<LocalTableSync> join(JoinTicket t,
-      {required String name, String? claimPid, required int scannedAtMs, required bool sharing}) async {
+      {required String name, String? claimPid, required int scannedAtMs, required bool sharing, String? role}) async {
     await _detach();
     final store = _store ??= await SharedPrefsStore.open();
     final cloud = await openCloud();
     final sync = await LocalTableSync.join(store, t,
-        name: name, claimPid: claimPid, scannedAtMs: scannedAtMs, sharing: sharing, cloud: cloud);
+        name: name, claimPid: claimPid, scannedAtMs: scannedAtMs, sharing: sharing, cloud: cloud, role: role);
     await _attach(sync);
     return sync;
   }

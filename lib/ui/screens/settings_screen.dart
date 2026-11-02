@@ -186,7 +186,7 @@ class SettingsScreen extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.bluetooth_searching),
                   title: const Text('Bluetooth distance test'),
-                  subtitle: const Text('Signal strength between phones at known distances, for the seating experiment'),
+                  subtitle: const Text('For testing only, not needed to play'),
                   onTap: () => Navigator.of(context)
                       .push(MaterialPageRoute(builder: (_) => const DistanceTestScreen())),
                 ),

@@ -22,6 +22,7 @@ import '../../sync/night_events.dart';
 import '../../sync/organizer_bridge.dart';
 import '../../sync/table_night_service.dart';
 import '../../nearby/nearby_service.dart';
+import '../../nearby/table_mode_screen.dart';
 import '../../nearby/nearby_ui.dart' show FindNearbyButton, NearbyHostTile, showSeatCalibration;
 import '../app_settings.dart';
 import '../theme.dart';
@@ -291,6 +292,12 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
           appBar: AppBar(
             title: Text(_svc.tableName()),
             actions: [
+              if (NearbyService.instance.allowed)
+                IconButton(
+                  tooltip: 'Leave on the table',
+                  icon: const Icon(Icons.dark_mode_outlined),
+                  onPressed: () => openTableMode(context),
+                ),
               IconButton(
                 tooltip: 'Show the table on this screen (TV)',
                 icon: const Icon(Icons.tv),
@@ -300,6 +307,21 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
             ],
           ),
           body: ListView(padding: const EdgeInsets.all(16), children: [
+            if (_svc.isCamera)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text('This phone is in the game as the camera (Record the table), not as a player.',
+                    style: t.bodyMedium),
+              ),
+            if (NearbyService.instance.allowed) ...[
+              FilledButton.tonalIcon(
+                key: const Key('table-mode'),
+                onPressed: () => openTableMode(context),
+                icon: const Icon(Icons.dark_mode_outlined),
+                label: const Text('Leave it on the table (screen off, keeps logging)'),
+              ),
+              const SizedBox(height: 12),
+            ],
             Text('Tap only when you put money in. Every other hand counts as a fold.', style: t.bodyLarge),
             const SizedBox(height: 16),
             Row(children: [

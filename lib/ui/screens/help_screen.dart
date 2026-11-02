@@ -187,7 +187,8 @@ const _topics = {
           'name you gave at the start (Settings → Your name at the table). While you are in a '
           'game the phone also notes how strong the other Felt Notes phones\' Bluetooth signals '
           'are, for a seat-finding experiment; that is never shown and stays on the phone with '
-          'sharing off. The QR still works too.',
+          'sharing off. The QR still works too. "Leave it on the table" on the pad turns the screen '
+          'black and keeps the phone logging; tap it for the status and Exit.',
       'Record the table: prop the phone where it sees the whole table, plugged in, and tap '
           'Record the table. It uses the widest lens, checks the framing for 10 seconds with a '
           'box per seat, then saves 1 to 2 photos a second and a log on this phone only (about '

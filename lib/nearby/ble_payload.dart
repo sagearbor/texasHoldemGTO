@@ -34,12 +34,14 @@ const nameCompanyId = 0xFFFF;
 
 const flagUwb = 0x1; // iPhone with Nearby Interaction (UWB) ranging
 const flagIos = 0x2;
+const flagCamera = 0x4; // a Record-the-table phone: a fixed anchor, not a seat
 
 sealed class BleAdvert {
   final int flags;
   const BleAdvert(this.flags);
   bool get uwb => flags & flagUwb != 0;
   bool get ios => flags & flagIos != 0;
+  bool get camera => flags & flagCamera != 0;
 
   /// Stable key for logs: `H:<night id>` for a host, `D:<install id>` for
   /// a player phone.

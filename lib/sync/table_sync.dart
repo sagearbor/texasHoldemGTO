@@ -155,6 +155,7 @@ class LocalTableSync implements TableSync {
     CloudLogs? cloud,
     int Function()? now,
     Random? rng,
+    String? role,
   }) async {
     rng ??= Random.secure();
     final device = await deviceIdFor(store, rng: rng);
@@ -167,7 +168,7 @@ class LocalTableSync implements TableSync {
     final log = await EventLog.open(store, ticket.nightId, device);
     final s = LocalTableSync._(log, role: NightRole.organizer, ticket: ticket, myName: organizerName, cloud: cloud, now: now);
     await s._saveMeta();
-    await s._append(EventKind.join, {'name': organizerName, 'claim': selfPid, 'offset': 0});
+    await s._append(EventKind.join, {'name': organizerName, 'claim': selfPid, 'offset': 0, if (role != null) 'role': role});
     await s._append(EventKind.share, {'on': sharing});
     if (roster.isNotEmpty) await s.setSeats(roster);
     return s;
@@ -183,6 +184,7 @@ class LocalTableSync implements TableSync {
     bool sharing = true,
     CloudLogs? cloud,
     int Function()? now,
+    String? role,
   }) async {
     final device = await deviceIdFor(store);
     final log = await EventLog.open(store, t.nightId, device);
@@ -193,6 +195,8 @@ class LocalTableSync implements TableSync {
       'name': name,
       if (claimPid != null) 'claim': claimPid,
       if (offset != null) 'offset': offset,
+      // "camera": a Record-the-table phone, never counted as a player.
+      if (role != null) 'role': role,
     }, ms: scannedAtMs);
     await s._append(EventKind.share, {'on': sharing});
     return s;

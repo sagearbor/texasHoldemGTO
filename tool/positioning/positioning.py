@@ -99,6 +99,10 @@ def load_jsonl(path, data):
         if k == "device" and j.get("device"):
             me = j["device"]
             data.add_device(me, j)
+        elif k == "role" and j.get("role") == "camera" and j.get("device"):
+            # Record the table: a fixed anchor, never a seat.
+            me = me or j["device"]
+            data.add_device(j["device"], {"role": "camera"})
         elif k in ("nearby_host", "nearby_night") and j.get("device"):
             # Record the table: this phone's own ids.
             me = me or j["device"]
@@ -458,6 +462,8 @@ def render_html(result, data, path):
         label = dev.get("model") or d[:6]
         if d == result["host"]:
             label += " (host)"
+        if dev.get("role") == "camera":
+            label += " (camera)"  # an anchor, not a seat
         meta[d] = {"label": label, "color": PALETTE[i % len(PALETTE)],
                    "tx": round(result["tx"].get(d, 0.0), 1), "rx": round(result["rx"].get(d, 0.0), 1)}
     payload = {

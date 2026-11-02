@@ -157,6 +157,33 @@ void main() {
       expect(r.localEvents.length, 3); // join, share, play
     });
 
+    test('a camera phone joins but is never a player, seat or stats row', () async {
+      final p = await player();
+      final cam = await LocalTableSync.join(MemoryStore(), org.qrTicket(),
+          name: 'Table camera', scannedAtMs: clock.ms, now: clock.call, role: 'camera');
+      expect(cam.localEvents.first.data['role'], 'camera');
+      await org.setSeats(const [sage, john, joe]);
+      await org.startHand(1, 'p1');
+      clock.advance(5000);
+      await p.tap(PreAction.call);
+      await cam.tap(PreAction.raise); // even a stray tap on the camera counts for nothing
+      clock.advance(60000);
+      await org.startHand(2, 'p2');
+      clock.advance(1000);
+      org.addRemote([DeviceLog(p.deviceId, p.localEvents), DeviceLog(cam.deviceId, cam.localEvents)]);
+      final m = org.merged();
+      final d = m.devices.firstWhere((x) => x.deviceId == cam.deviceId);
+      expect(d.camera, isTrue);
+      expect(d.linked, isFalse);
+      expect(m.devices.firstWhere((x) => x.deviceId == p.deviceId).camera, isFalse);
+      for (final h in m.hands) {
+        expect(h.players.values.any((x) => x.deviceId == cam.deviceId), isFalse);
+      }
+      expect(m.hands.first.players['p2']?.action, PreAction.call);
+      final rows = liveRows(m, nowMs: clock.ms + (1 << 40));
+      expect(rows.any((r) => r.pid == d.pid), isFalse);
+    });
+
     test('nextDealer walks clockwise and wraps', () {
       expect(nextDealer(const [sage, john, joe], 'p1'), 'p2');
       expect(nextDealer(const [sage, john, joe], 'p3'), 'p1');

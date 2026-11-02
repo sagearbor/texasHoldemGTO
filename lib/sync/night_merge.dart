@@ -197,6 +197,10 @@ class DeviceInfo {
 
   final int? uploadedAtMs;
 
+  /// A Record-the-table phone (joined with role "camera"): a fixed anchor
+  /// for the seating experiment, never a player, seat or TV row.
+  final bool camera;
+
   const DeviceInfo({
     required this.deviceId,
     required this.name,
@@ -209,6 +213,7 @@ class DeviceInfo {
     this.private = false,
     this.left = false,
     this.uploadedAtMs,
+    this.camera = false,
   });
 
   bool presentAt(TimelineHand h) => present.any((p) => p.$1 < h.endMs && p.$2 > h.startMs);
@@ -401,13 +406,14 @@ MergedNight mergeNight({
     } else {
       warnings.add('No clock offset for $name; assuming the clocks agree.');
     }
-    // Link to a roster seat.
-    String? pid = links[id];
+    final camera = lastJoin?.data['role'] == 'camera';
+    // Link to a roster seat (never for a camera).
+    String? pid = camera ? null : links[id];
     final claim = lastJoin?.data['claim'] as String?;
-    if (pid == null && claim != null && (seatedEver.contains(claim) || timeline.names.containsKey(claim))) {
+    if (!camera && pid == null && claim != null && (seatedEver.contains(claim) || timeline.names.containsKey(claim))) {
       pid = claim;
     }
-    if (pid == null) {
+    if (!camera && pid == null) {
       final cands = (byName[_norm(name)] ?? const []).where((p) => !claimed.contains(p)).toList();
       if (cands.length == 1) pid = cands.single;
     }
@@ -448,6 +454,7 @@ MergedNight mergeNight({
       private: !sharing && id != selfDeviceId,
       left: open == null && present.isNotEmpty,
       uploadedAtMs: uploaded[id],
+      camera: camera,
     ));
   }
 
@@ -455,7 +462,7 @@ MergedNight mergeNight({
   final assigned = <String, Map<int, Entry>>{}; // deviceId -> hand n -> entry
   final unassigned = <Unassigned>[];
   for (final d in devices) {
-    if (d.private) continue;
+    if (d.private || d.camera) continue;
     final entries = _entries(d, byDevice[d.deviceId]!.values);
     final eligible = [
       for (final h in timeline.hands)
@@ -492,7 +499,7 @@ MergedNight mergeNight({
   for (final h in timeline.hands) {
     final players = <String, PlayerHand>{};
     for (final d in devices) {
-      if (d.private || !d.presentAt(h)) continue;
+      if (d.private || d.camera || !d.presentAt(h)) continue;
       final seated = h.seatOf(d.pid) >= 0;
       if (!seated && seatedEver.contains(d.pid)) continue; // sat out / gone
       final e = assigned[d.deviceId]![h.n];
@@ -772,6 +779,7 @@ List<LiveRow> liveRows(MergedNight night, {required int nowMs, int delayMs = 0})
   }
   final rows = [
     for (final d in night.devices)
+      if (!d.camera)
       LiveRow(d.pid, night.nameOf(d.pid), acc[d.pid]?[0] ?? 0, acc[d.pid]?[1] ?? 0, acc[d.pid]?[2] ?? 0,
           acc[d.pid]?[3] ?? 0,
           private: d.private)

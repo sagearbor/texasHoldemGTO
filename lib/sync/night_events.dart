@@ -37,7 +37,8 @@ bool isCode(String s, int length) => RegExp('^[A-HJ-NP-Z2-9]{$length}\$').hasMat
 enum EventKind {
   // ---- any phone (player side)
   /// Joined tonight's table by scanning the organizer's QR.
-  /// `{name, claim?, offset?}`: [claim] is the organizer's roster id the
+  /// `{name, claim?, offset?, role?}`: [role] "camera" is a Record-the-
+  /// table phone (not a player). [claim] is the organizer's roster id the
   /// player picked ("I'm John"); [offset] = organizer clock - this clock, ms.
   join,
 

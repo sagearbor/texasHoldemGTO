@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:felt_notes/nearby/ble_payload.dart';
 import 'package:felt_notes/nearby/sense.dart';
+import 'package:felt_notes/nearby/table_mode_screen.dart';
 import 'package:felt_notes/sync/cloud_logs.dart';
 import 'package:felt_notes/sync/night_events.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -153,5 +154,23 @@ void main() {
     ];
     expect(cloudEvents(evs, sharing: false).map((e) => e.kind), [EventKind.join]);
     expect(cloudEvents(evs, sharing: true), hasLength(4));
+  });
+
+  test('camera flag round trips with the others', () {
+    final a = parseAdvertUuid(advertUuid(const PresenceAdvert('AAAAAAAAAAAA', 0, flags: flagCamera | flagIos)))!;
+    expect(a.camera, isTrue);
+    expect(a.ios, isTrue);
+    expect(a.uwb, isFalse);
+    final g = parseAdvertUuid(advertUuid(const GameAdvert('ABCD2345', 'WXYZ6789', flags: flagCamera)))!;
+    expect(g.camera, isTrue);
+    expect(parseAdvertUuid(advertUuid(const GameAdvert('ABCD2345', 'WXYZ6789')))!.camera, isFalse);
+  });
+
+  test('battery warning: under 20% and not charging', () {
+    expect(batteryWarning(19, false), isTrue);
+    expect(batteryWarning(19, null), isTrue);
+    expect(batteryWarning(19, true), isFalse);
+    expect(batteryWarning(20, false), isFalse);
+    expect(batteryWarning(null, false), isFalse);
   });
 }

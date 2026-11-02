@@ -163,7 +163,7 @@ TvBoard buildTvBoard(MergedNight m, {required int nowMs, TvOptions opts = const 
   final rows = <TvRow>[];
   final seen = <String>{};
   for (final d in m.devices) {
-    if (!seen.add(d.pid)) continue;
+    if (d.camera || !seen.add(d.pid)) continue; // a recording phone is not a player
     final a = acc[d.pid];
     final status = d.private ? TvStatus.private : (d.left ? TvStatus.left : TvStatus.sharing);
     rows.add(TvRow(

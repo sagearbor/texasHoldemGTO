@@ -132,3 +132,20 @@ Add:
 Location: **not collected** (stays in the recording on the phone). The
 seat tap on the calibration drawing is user-entered game content, already
 covered by User Content → Gameplay Content.
+
+## 0.3.3+27 additions (no form changes)
+
+* **Record the table as a camera:** while recording, if Bluetooth was
+  already allowed, the phone advertises its install id with a camera flag
+  and logs every scan (other Felt Notes phones' signal strength, all-device
+  advert counts) into the recording, on the phone only. If the recording
+  hosts or joins a game, the join event says `role: camera` and the merge,
+  TV and stats leave that phone out of the players. It never asks for
+  Bluetooth by itself.
+* **Leave on the table:** a black, kept-awake screen for joined players so
+  the seating experiment keeps logging; nothing new is collected.
+* **Bluetooth distance test** (Settings → Diagnostics): local files the
+  owner exports himself; nothing is uploaded.
+* The data types above are unchanged (Diagnostics already covers the
+  signal strengths, model / OS and battery in table-night events).
+* iOS purpose strings were reworded for review; no background modes.

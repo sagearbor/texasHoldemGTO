@@ -193,6 +193,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     }
     WakelockPlus.disable();
     NearbyService.instance.mirror = null;
+    unawaited(NearbyService.instance.stopRecording());
     // Leaving without "hold to stop" (back gesture): the session stays
     // open and is offered for resume at the next launch, like a kill.
     final s = _session;
@@ -398,6 +399,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         'quality': _quality,
         'preset': _preset.name,
         'seats': 'seat 0 = the phone owner (out of view), then clockwise from above',
+        'role': 'camera',
         'tz_offset_min': now.timeZoneOffset.inMinutes,
       });
     } else {
@@ -441,7 +443,8 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     if (_host && mounted && await askBluetooth(context, hosting: true)) {
       try {
         final had = tn.night;
-        final n = await tn.organizeStandalone(AppSettings.playerName.value.isEmpty ? 'Host' : AppSettings.playerName.value);
+        final n = await tn.organizeStandalone(AppSettings.playerName.value.isEmpty ? 'Host' : AppSettings.playerName.value,
+            role: 'camera');
         _hostedStandalone = had == null && tn.standalone;
         log.write('nearby_host', {
           'night': n.nightId,
@@ -455,8 +458,19 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     } else if (tn.night != null) {
       log.write('nearby_night', {'night': tn.night!.nightId, 'device': tn.night!.deviceId, 'organizer': tn.isOrganizer});
     }
-    // The seating experiment's readings also land in this log.
+    // The seating experiment's readings also land in this log, and this
+    // phone advertises as a camera. Only if Bluetooth was already allowed:
+    // nothing is asked here, and recording works without it.
     NearbyService.instance.mirror = (k, f) => _write((k, f));
+    if (NearbyService.instance.allowed) {
+      try {
+        await NearbyService.instance.startRecording();
+      } catch (e) {
+        log.write('nearby_error', {'error': '$e'});
+      }
+    } else {
+      log.write('nearby_off', {'reason': 'Bluetooth not allowed in this app'});
+    }
   }
 
   /// Just in time, once: ask before the OS prompt, in plain words. Later
@@ -590,7 +604,10 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _tick?.cancel();
     WakelockPlus.disable();
     NearbyService.instance.mirror = null;
+    unawaited(NearbyService.instance.stopRecording());
     if (_hostedStandalone) unawaited(TableNightService.instance.endStandalone());
+    // A camera that joined someone's game leaves it with the recording.
+    if (!_hostedStandalone && TableNightService.instance.isCamera) unawaited(TableNightService.instance.leave());
     HapticFeedback.heavyImpact();
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -786,6 +803,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
           title: const Text('Let phones nearby join'),
           subtitle: const Text('Players with Felt Notes see a one-tap "Nearby game" card. Bluetooth, no internet.'),
         ),
+      const _JoinAsCamera(),
       Text('Photos a second', style: t.labelLarge),
       Wrap(spacing: 8, children: [
         for (final r in recordRates)
@@ -1275,4 +1293,51 @@ Future<void> shareRecordingFile(BuildContext context, File f) async {
   final box = context.findRenderObject() as RenderBox?;
   final origin = box == null || !box.hasSize ? null : box.localToGlobal(Offset.zero) & box.size;
   await Share.shareXFiles([XFile(f.path, mimeType: 'application/zip')], sharePositionOrigin: origin);
+}
+
+/// A second recording phone: join the game hosted nearby as a camera (a
+/// fixed anchor for the seating experiment, never a player or a seat).
+/// Shown only when Bluetooth is already allowed and a game is heard.
+class _JoinAsCamera extends StatelessWidget {
+  const _JoinAsCamera();
+
+  @override
+  Widget build(BuildContext context) {
+    final near = NearbyService.instance, tn = TableNightService.instance;
+    return ListenableBuilder(
+      listenable: Listenable.merge([near, tn]),
+      builder: (context, _) {
+        if (!near.allowed || tn.night != null || near.games.isEmpty) {
+          if (tn.night != null && tn.isCamera) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text('In ${tn.tableName()} as the camera.', style: Theme.of(context).textTheme.bodySmall),
+            );
+          }
+          return const SizedBox.shrink();
+        }
+        final g = near.games.first;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.videocam_outlined),
+            label: Text('Join ${g.label} as the camera'),
+            onPressed: () async {
+              final me = AppSettings.playerName.value;
+              var name = '${me.isEmpty ? 'Table' : me} camera';
+              if (name.length > 24) name = name.substring(0, 24).trim();
+              try {
+                await tn.join(g.ticket,
+                    name: name, scannedAtMs: DateTime.now().millisecondsSinceEpoch, sharing: true, role: 'camera');
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not join ($e)')));
+                }
+              }
+            },
+          ),
+        );
+      },
+    );
+  }
 }

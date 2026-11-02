@@ -54,11 +54,11 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Felt Notes (beta) can read your own two hole cards with the camera: from one photo you take, or, with Watch my cards on, from the live view while you peek. It also reads the organizer's table-night QR code from a photo. Those images are read on your phone, never saved and never uploaded. Only if you start Record the table does it save photos of the table, on this iPhone, for you to export yourself.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Record the table can note your approximate area once when a recording starts, so recordings from different venues can be told apart. It stays in the recording on this iPhone.</string>
+	<string>Optional: tags a table recording with roughly where it was made, so you can tell your recordings apart. It stays on this iPhone.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Felt Notes uses Bluetooth to find a home game hosted by a phone at your table, so you can join with one tap and no internet. While you are in a game it also notes how strong the other Felt Notes phones' signals are, for a seating experiment. Only Felt Notes phones are noted.</string>
+	<string>Felt Notes uses Bluetooth to find a home game hosted by a phone at your table, so you can join it with one tap without internet, and to measure how far apart the phones in that game are. It only looks for other phones running Felt Notes.</string>
 	<key>NSNearbyInteractionUsageDescription</key>
-	<string>While you are in a home game, Felt Notes measures the distance to the other iPhones in the game for a seating experiment. It only goes into the game's notes; the app never shows it.</string>
+	<string>While you are in a home game, Felt Notes measures how far apart the iPhones in that game are, to test working out who sits where. It is only used during a game or while recording the table.</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

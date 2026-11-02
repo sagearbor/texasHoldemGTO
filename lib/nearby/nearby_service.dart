@@ -26,10 +26,12 @@ import 'package:path_provider/path_provider.dart';
 
 import '../record/record_log.dart';
 import '../record/record_native.dart' show deviceInfo;
+import '../sync/event_log.dart';
 import '../sync/night_events.dart';
 import '../sync/table_night_service.dart';
 import '../sync/table_sync.dart';
 import 'ble_payload.dart';
+import 'distance_test.dart' show HealAction, RadioHealth;
 import 'nearby_ble.dart';
 import 'sense.dart';
 
@@ -74,6 +76,43 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
 
   TableNightService get _tn => TableNightService.instance;
 
+  // ---------------------------------------- Record the table (camera)
+
+  /// A recording runs on this phone: it advertises with the camera flag
+  /// (a fixed anchor, never a seat) and logs every scan into the recording
+  /// even outside a game. Only if Bluetooth was already allowed: a
+  /// recording never asks, and works the same with Bluetooth off.
+  bool _recording = false;
+  bool _soon = false;
+  String? _selfDevice;
+  final RadioHealth _health = RadioHealth(cooldownMs: 30000, silenceMs: 1 << 30);
+
+  bool get camera => _recording;
+
+  Future<void> startRecording() async {
+    if (!bleSupported || _recording) return;
+    try {
+      _selfDevice ??= await deviceIdFor(await SharedPrefsStore.open());
+    } catch (_) {
+      return;
+    }
+    _recording = true;
+    _line('role', {'role': 'camera', 'device': _selfDevice, 'allowed': allowed});
+    _loopNight = '-'; // re-evaluate the advert and restart the loop
+    await _onNightAsync();
+  }
+
+  Future<void> stopRecording() async {
+    if (!_recording) return;
+    _recording = false;
+    _loopNight = '-';
+    await _onNightAsync();
+  }
+
+  /// A line in the experiment's logs (local JSONL and, while recording,
+  /// the recording), e.g. Leave-on-the-table enter / exit.
+  void note(String kind, Map<String, Object?> fields) => _line(kind, fields);
+
   /// After TableNightService.init. Starts scanning only if Bluetooth was
   /// already allowed on an earlier run. Never throws.
   Future<void> init() async {
@@ -111,8 +150,11 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
 
   bool get _inGame => _tn.night != null;
 
+  /// Scans are readings (logged), not just a search for games.
+  bool get _sensing => _inGame || _recording;
+
   Duration get _interval {
-    if (_inGame) return const Duration(seconds: 30);
+    if (_sensing) return const Duration(seconds: 30);
     // Nobody hosting for a while: look less often.
     return _quietScans > 9 ? const Duration(seconds: 60) : const Duration(seconds: 20);
   }
@@ -139,10 +181,12 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
     _timer?.cancel();
     if (!allowed || _paused) return;
     // Out of a game, only look while the app is on screen.
-    if (!_foreground && !_inGame) return;
+    if (!_foreground && !_sensing) return;
     _timer = Timer(d, () async {
       await _scanOnce();
-      _schedule(_interval);
+      final soon = _soon;
+      _soon = false;
+      _schedule(soon ? const Duration(seconds: 2) : _interval);
     });
   }
 
@@ -163,7 +207,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
       final changed = g.length != games.length || [for (var i = 0; i < g.length; i++) g[i].advert.nightId != games[i].advert.nightId].any((x) => x);
       games = g;
       if (changed) notifyListeners();
-      if (_inGame) await _sense(got, scanMs: now - t0);
+      if (_sensing) await _sense(got, scanMs: now - t0);
     } catch (e) {
       debugPrint('nearby scan: $e');
     } finally {
@@ -175,11 +219,12 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
 
   String? get _selfKey {
     final n = _tn.night;
-    if (n == null) return null;
+    if (n == null) return _recording && _selfDevice != null ? 'D:$_selfDevice' : null;
     return n.isOrganizer ? 'H:${n.nightId}' : 'D:${n.deviceId}';
   }
 
-  int get _flags => (uwb ? flagUwb : 0) | (!kIsWeb && Platform.isIOS ? flagIos : 0);
+  int get _flags =>
+      (uwb ? flagUwb : 0) | (!kIsWeb && Platform.isIOS ? flagIos : 0) | (_recording || _tn.isCamera ? flagCamera : 0);
 
   void _onNight() => unawaited(_onNightAsync());
 
@@ -193,6 +238,9 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
           ? advertUuid(GameAdvert(n.nightId, n.ticket.secret, flags: _flags))
           : advertUuid(PresenceAdvert(n.deviceId, nightTagOf(n.nightId), flags: _flags));
       if (n.isOrganizer) name = n.ticket.organizerName;
+    } else if (_recording && _selfDevice != null) {
+      // Recording outside a game: presence only (night tag 0), as a camera.
+      want = advertUuid(PresenceAdvert(_selfDevice!, 0, flags: _flags));
     }
     if (want != advertising) {
       advertising = want;
@@ -201,7 +249,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
         if (uwb) await uwbStop();
       } else {
         advertiseFailed = !await bleAdvertise(want, name: name);
-        if (uwb) await uwbStart(n!.deviceId);
+        if (uwb) await uwbStart(n?.deviceId ?? _selfDevice!);
       }
       notifyListeners();
     }
@@ -214,7 +262,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
       _senseNight = null;
       _senseLog = null;
     }
-    if (changed) _schedule(_inGame ? const Duration(seconds: 2) : _interval);
+    if (changed) _schedule(_sensing ? const Duration(seconds: 2) : _interval);
   }
 
   // ----------------------------------------------- seating experiment
@@ -243,6 +291,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
         'app': app,
         'uwb': uwb,
         'key': _selfKey,
+        if (_recording || _tn.isCamera) 'role': 'camera',
       };
       await n.appendEvent(EventKind.device, data);
       _line('device', {'night': n.nightId, 'device': n.deviceId, ...data});
@@ -258,16 +307,39 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _sense(List<BleSighting> got, {required int scanMs}) async {
     final n = _tn.night;
-    if (n == null) return;
     final peers = scanPeers(got, selfKey: _selfKey);
     final state = await _phoneState();
-    _line('scan', {...scanLine(peers, scanMs: scanMs), ...state});
+    _line('scan', {...scanLine(peers, scanMs: scanMs), ...state, if (_recording) 'role': 'camera'});
     final now = DateTime.now().millisecondsSinceEpoch;
-    _window.addScan(peers, now);
-    if (_window.startMs != null && now - _window.startMs! >= 55000) {
-      await n.appendEvent(EventKind.sense, _window.take(now, extra: state));
+    if (n != null) {
+      _window.addScan(peers, now);
+      if (_window.startMs != null && now - _window.startMs! >= 55000) {
+        await n.appendEvent(EventKind.sense, _window.take(now, extra: state));
+      }
     }
+    if (_recording) await _checkDeaf(now);
     if (uwb) await _rangeNew(got);
+  }
+
+  /// While recording: the distance test's deaf-spell logic, per scan. A
+  /// scan that hears under 10% of the last few scans' average (all
+  /// devices, not just Felt Notes) starts a spell; the next scan comes at
+  /// once instead of in 30 s (a fresh scan is the restart), and the spell
+  /// ends, with its duration, when the count is back to half.
+  Future<void> _checkDeaf(int now) async {
+    final st = await bleStatus();
+    if (st == null) return;
+    final heard = _health.heard(st);
+    // Bursts: each scan is a new one, so "scan running" is true by design.
+    final heals = _health.check({...st, 'scan': true, 'advert': true}, nowMs: now, heardAll: heard.$1);
+    for (final (k, f) in _health.events) {
+      _line(k, {...f, 'heard_felt': heard.$2});
+    }
+    for (final (a, why) in heals) {
+      if (a != HealAction.scan) continue;
+      _line('self_heal', {'what': 'scan', 'reason': why});
+      _soon = true;
+    }
   }
 
   Future<Map<String, Object?>> _phoneState() async {
@@ -324,7 +396,12 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
         }
       case 'bt':
         poweredOn = e['on'] == true;
+        if (_sensing) _line('ble_event', e);
         notifyListeners();
+      case 'scanFailed':
+      case 'advert':
+      case 'screen':
+        if (_sensing) _line('ble_event', e);
     }
   }
 

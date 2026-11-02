@@ -335,12 +335,22 @@ class BleChannel(
         val out = mutableListOf<Map<String, Any?>>()
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, r: ScanResult) {
-                sighting(r, prefix)?.let { out.add(it) }
+                // The same counters as the continuous scan (deaf spells
+                // while recording).
+                heardAll++
+                lastResultMs = now()
+                sighting(r, prefix)?.let {
+                    heardFelt++
+                    out.add(it)
+                }
             }
 
             override fun onScanFailed(errorCode: Int) {
                 // Too many scans started (Android allows 5 per 30 s) or
                 // Bluetooth off: the next round tries again.
+                lastScanFailCode = errorCode
+                lastScanFailMs = now()
+                emit(mapOf("type" to "scanFailed", "code" to errorCode, "burst" to true))
             }
         }
         val settings = ScanSettings.Builder()
