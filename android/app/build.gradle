@@ -85,3 +85,14 @@ dependencies {
     // used only on phones with FEATURE_UWB and Android 12+.
     implementation "androidx.core.uwb:uwb:1.0.0"
 }
+
+// Google Play requires 16 KB page alignment for native libraries; CameraX
+// 1.3.x ships libimage_processing_util_jni.so aligned to 4 KB, 1.4 fixes it.
+configurations.configureEach {
+    resolutionStrategy {
+        force "androidx.camera:camera-core:1.4.2",
+              "androidx.camera:camera-camera2:1.4.2",
+              "androidx.camera:camera-lifecycle:1.4.2",
+              "androidx.camera:camera-video:1.4.2"
+    }
+}
