@@ -54,6 +54,15 @@ int _redPureSMin = _redSMin + 30; // a red glyph's median saturation
 int _redInkVMax = 256; // warm light: lit skin is as orange as red ink, but brighter
 double _ringPaperMin = 0.5; // share of a glyph's surroundings that must be card stock
 int? _maxBlobs; // keep only this many glyph blobs (the most paper-ringed)
+bool _anyDeck = false; // also look for indices printed on artwork (see readGlyphs)
+
+/// Any-deck mode: an index on artwork counts when this share of its
+/// surroundings is clearly lighter than its ink (green channel, which
+/// keeps red and black ink both dark) ...
+const double _artRingLightMin = 0.6;
+
+/// ... by at least this much (0..255).
+const int _artLightDelta = 50;
 
 const int _paperVMin = 90;
 const int _redSMin = 110;
@@ -314,6 +323,13 @@ GlyphReadResult readGlyphsMessage(GlyphReadRequest r) => readGlyphs(r.rgba, r.wi
 /// [tta] = false classifies each glyph once instead of at three rotations
 /// (about half the time). Watch my cards uses it: agreement over several
 /// frames replaces the rotation voting.
+///
+/// [anyDeck]: decks that print the index on artwork instead of white card
+/// stock (an art deck's corner is a painting). Ink is also looked for away
+/// from card stock (dark in the green channel against its neighbourhood),
+/// and a glyph whose surroundings are not card stock still counts when
+/// most of them are clearly lighter than its ink. Only the CNN classifier
+/// sees those extra glyphs (its background class rejects artwork).
 GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
     {GlyphTemplates? templates,
     GlyphCnn? cnn,
@@ -323,8 +339,10 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
     bool warmLight = false,
     double ringPaperMin = 0.5,
     int? maxBlobs,
-    bool findBoard = true}) {
+    bool findBoard = true,
+    bool anyDeck = false}) {
   if (templates == null && cnn == null) throw ArgumentError('templates or cnn required');
+  _anyDeck = anyDeck;
   _paperSMax = warmLight ? 100 : _paperSMaxDefault;
   _redHueMax = warmLight ? 14 : 8;
   _redInkSMin = warmLight ? 90 : _redSMin;
@@ -943,20 +961,30 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
       ii[(y + 1) * (w + 1) + x + 1] = ii[y * (w + 1) + x + 1] + rowSum;
     }
   }
+  // Any deck: away from card stock, the same threshold on the green
+  // channel (artwork is often warm, so its blue, hence min(R,G,B), is low).
+  final iiG = _anyDeck ? _integral(img.g, w, h) : null;
   final r = block ~/ 2;
   final redM = Uint8List(n), darkM = Uint8List(n);
   for (var y = 0; y < h; y++) {
     final y0 = math.max(0, y - r), y1 = math.min(h, y + r + 1);
     for (var x = 0; x < w; x++) {
       final q = y * w + x;
-      if (nearPaper[q] == 0) continue;
+      final near = nearPaper[q] != 0;
+      if (!near && iiG == null) continue;
       if (redInk[q] != 0) {
         redM[q] = 1;
         continue;
       }
       final x0 = math.max(0, x - r), x1 = math.min(w, x + r + 1);
-      final mean = _boxSum(ii, w, x0, y0, x1, y1) / ((x1 - x0) * (y1 - y0));
-      if (hsv.minc[q] <= mean.round() - 18) darkM[q] = 1;
+      final area = (x1 - x0) * (y1 - y0);
+      if (near) {
+        final mean = _boxSum(ii, w, x0, y0, x1, y1) / area;
+        if (hsv.minc[q] <= mean.round() - 18) darkM[q] = 1;
+      } else {
+        final mean = _boxSum(iiG!, w, x0, y0, x1, y1) / area;
+        if (img.g[q] <= mean.round() - 18) darkM[q] = 1;
+      }
     }
   }
   final labels = Int32List(n);
@@ -973,11 +1001,25 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
     final md = math.max(bw, bh);
     if (md < lo || md > hi) continue;
     if (c.area < 0.12 * bw * bh || math.min(bw, bh) < 0.12 * md) continue;
+    final hs = <int>[], ss = <int>[], vs = <int>[], gs = <int>[];
+    final mask = Float64List(bw * bh);
+    for (var y = c.minY; y <= c.maxY; y++) {
+      for (var x = c.minX; x <= c.maxX; x++) {
+        final q = y * w + x;
+        if (labels[q] != lab) continue;
+        mask[(y - c.minY) * bw + x - c.minX] = 255;
+        hs.add(hsv.h[q]);
+        ss.add(hsv.s[q]);
+        vs.add(hsv.v[q]);
+        if (_anyDeck) gs.add(img.g[q]);
+      }
+    }
+    final inkG = _anyDeck ? _median(gs) : 0.0;
     final pad = (md * 0.3).toInt() + 2;
     final x0 = math.max(0, c.minX - pad), y0 = math.max(0, c.minY - pad);
     final x1 = math.min(w, c.maxX + 1 + pad), y1 = math.min(h, c.maxY + 1 + pad);
-    var ringN = 0, ringPaper = 0;
-    final ringV = <int>[];
+    var ringN = 0, ringPaper = 0, ringLight = 0;
+    final ringV = <int>[], lightV = <int>[];
     for (var y = y0; y < y1; y++) {
       final inRows = y >= c.minY && y <= c.maxY;
       for (var x = x0; x < x1; x++) {
@@ -988,28 +1030,27 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
           ringPaper++;
           ringV.add(hsv.v[q]);
         }
+        if (_anyDeck && img.g[q] >= inkG + _artLightDelta) {
+          ringLight++;
+          lightV.add(hsv.v[q]);
+        }
       }
     }
-    if (ringN == 0 || ringPaper / ringN < _ringPaperMin) continue;
-    final hs = <int>[], ss = <int>[], vs = <int>[];
-    final mask = Float64List(bw * bh);
-    for (var y = c.minY; y <= c.maxY; y++) {
-      for (var x = c.minX; x <= c.maxX; x++) {
-        final q = y * w + x;
-        if (labels[q] != lab) continue;
-        mask[(y - c.minY) * bw + x - c.minX] = 255;
-        hs.add(hsv.h[q]);
-        ss.add(hsv.s[q]);
-        vs.add(hsv.v[q]);
-      }
+    if (ringN == 0) continue;
+    var ring = ringPaper / ringN;
+    var paperV = ringV.isEmpty ? 255.0 : _median(ringV);
+    if (ring < _ringPaperMin) {
+      // Any deck: an index on artwork, its surroundings lighter than its ink.
+      if (!_anyDeck || ringLight / ringN < _artRingLightMin) continue;
+      ring = 0.9 * ringLight / ringN;
+      paperV = _median(lightV);
     }
-    final paperV = ringV.isEmpty ? 255.0 : _median(ringV);
     final hue = _median(hs), sat = _median(ss), val = _median(vs);
     // Ink purity: clearly dark (black) or saturated pure red.
     final isRed = (hue <= _redHueMax - 1 || hue >= 168) && sat > _redPureSMin;
     final isBlack = val < 0.5 * paperV && !isRed;
     if (!(isRed || isBlack)) continue;
-    blobs.add(_Blob(c.minX, c.minY, bw, bh, c.cx, c.cy, md.toDouble(), isRed, mask)..ring = ringPaper / ringN);
+    blobs.add(_Blob(c.minX, c.minY, bw, bh, c.cx, c.cy, md.toDouble(), isRed, mask)..ring = ring);
   }
   return blobs;
 }

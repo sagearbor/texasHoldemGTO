@@ -108,6 +108,9 @@ class WatchConfig {
   final int? maxBlobs;
   final bool findBoard;
 
+  /// readGlyphs anyDeck: also read indices printed on artwork (art decks).
+  final bool anyDeck;
+
   final int minAgree;
   final int voteWindowMs;
 
@@ -203,6 +206,7 @@ class WatchConfig {
     this.ringPaperMin = 0.5,
     this.maxBlobs,
     this.findBoard = false,
+    this.anyDeck = false,
     this.minAgree = 2,
     this.voteWindowMs = 2500,
     this.flatAspect = 0.85,

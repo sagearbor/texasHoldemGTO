@@ -122,14 +122,17 @@ Future<void> main(List<String> argv) async {
     ringPaperMin: double.parse(opt('--ring', '0.5')!),
     maxBlobs: int.tryParse(opt('--max-blobs', '') ?? ''),
     findBoard: args.remove('--board'),
+    anyDeck: args.remove('--any'),
   ));
+  // Another classifier file (default the app's asset).
+  final cnnPath = opt('--cnn', 'assets/data/glyph_cnn.bin')!;
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_lab.dart VIDEO [--short 720] [--fps 15] '
         '[--phone 2.0] [--labels L.json] [--start S] [--max S] [--tta] [--agree 2] '
-        '[--read-short 540] [--crop 0.5] [--no-wb] [--no-warm] [--hlg LUT.cube] [--markers M.json] [--sat S] [--dump DIR] [-v]');
+        '[--read-short 540] [--crop 0.5] [--no-wb] [--no-warm] [--any] [--cnn F] [--hlg LUT.cube] [--markers M.json] [--sat S] [--dump DIR] [-v]');
     exit(2);
   }
-  final cnn = GlyphCnn.parse(File('assets/data/glyph_cnn.bin').readAsBytesSync());
+  final cnn = GlyphCnn.parse(File(cnnPath).readAsBytesSync());
   final proc = await Process.start(_ffmpeg, [
     '-hide_banner', '-nostats', '-loglevel', 'info',
     if (startSec > 0) ...['-ss', '$startSec'],
@@ -253,7 +256,7 @@ Future<void> main(List<String> argv) async {
     final sw = Stopwatch()..start();
     final r = readGlyphs(job.rgba, job.width, job.height,
         cnn: cnn, tta: pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: pipe.cfg.warmLight, ringPaperMin: pipe.cfg.ringPaperMin,
-        maxBlobs: pipe.cfg.maxBlobs, findBoard: pipe.cfg.findBoard);
+        maxBlobs: pipe.cfg.maxBlobs, findBoard: pipe.cfg.findBoard, anyDeck: pipe.cfg.anyDeck);
     final ms = sw.elapsedMilliseconds;
     for (final e in r.timingMs.entries) {
       if (e.key != 'total') stageMs[e.key] = (stageMs[e.key] ?? 0) + e.value;

@@ -40,11 +40,11 @@ class GlyphWorker {
     }
   }
 
-  Future<GlyphReadResult> read(Uint8List rgba, int width, int height, {bool tta = false, int? scaleShortSide, bool warmLight = true, bool balance = false, double ringPaperMin = 0.5, int? maxBlobs, bool findBoard = true}) {
+  Future<GlyphReadResult> read(Uint8List rgba, int width, int height, {bool tta = false, int? scaleShortSide, bool warmLight = true, bool balance = false, double ringPaperMin = 0.5, int? maxBlobs, bool findBoard = true, bool anyDeck = false}) {
     final id = _nextId++;
     final c = Completer<GlyphReadResult>();
     _pending[id] = c;
-    _send!.send((id, TransferableTypedData.fromList([rgba]), width, height, tta, scaleShortSide, warmLight, balance, ringPaperMin, maxBlobs, findBoard));
+    _send!.send((id, TransferableTypedData.fromList([rgba]), width, height, tta, scaleShortSide, warmLight, balance, ringPaperMin, maxBlobs, findBoard, anyDeck));
     return c.future;
   }
 
@@ -63,13 +63,13 @@ class GlyphWorker {
     final inbox = ReceivePort();
     out.send(inbox.sendPort);
     inbox.listen((m) {
-      final (id, data, w, h, tta, ref, warm, balance, ring, maxBlobs, findBoard) =
-          m as (int, TransferableTypedData, int, int, bool, int?, bool, bool, double, int?, bool);
+      final (id, data, w, h, tta, ref, warm, balance, ring, maxBlobs, findBoard, anyDeck) =
+          m as (int, TransferableTypedData, int, int, bool, int?, bool, bool, double, int?, bool, bool);
       try {
         final px = data.materialize().asUint8List();
         // White balance here, off the UI isolate (WatchConfig.whiteBalance).
         if (balance) whiteBalance(px);
-        out.send((id, readGlyphs(px, w, h, cnn: cnn, tta: tta, scaleShortSide: ref, warmLight: warm, ringPaperMin: ring, maxBlobs: maxBlobs, findBoard: findBoard)));
+        out.send((id, readGlyphs(px, w, h, cnn: cnn, tta: tta, scaleShortSide: ref, warmLight: warm, ringPaperMin: ring, maxBlobs: maxBlobs, findBoard: findBoard, anyDeck: anyDeck)));
       } catch (e) {
         out.send((id, '$e'));
       }
