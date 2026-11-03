@@ -21,6 +21,7 @@ import '../widgets/playing_card.dart';
 import '../widgets/story_tags.dart';
 import 'blind_clock_screen.dart';
 import 'crew_screen.dart';
+import '../app_settings.dart';
 import 'dashboard_screen.dart';
 import 'glossary_screen.dart';
 import 'help_screen.dart';
@@ -112,8 +113,12 @@ class _Setup extends StatefulWidget {
 }
 
 class _SetupState extends State<_Setup> {
-  final names =
-      TextEditingController(text: 'Me, Seat 2, Seat 3, Seat 4, Seat 5, Seat 6');
+  /// Neutral placeholders: the organizer's own app name, then "Player 2",
+  /// "Player 3"... Real names arrive when players join with their app.
+  final names = TextEditingController(text: [
+    AppSettings.playerName.value.trim().isEmpty ? 'Me' : AppSettings.playerName.value.trim(),
+    for (var i = 2; i <= 6; i++) 'Player $i',
+  ].join(', '));
   int hero = 0;
 
   /// First dealer; -1 = not known yet (tapped in the game when learning).
