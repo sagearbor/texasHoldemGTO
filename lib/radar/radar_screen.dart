@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import '../nearby/nearby_service.dart';
 import '../sync/table_night_service.dart';
 import '../ui/app_settings.dart';
+import '../ui/dev_mode.dart';
 import 'radar_model.dart';
 import 'radar_settings.dart';
 import 'radar_view.dart';
@@ -225,7 +226,7 @@ class _RadarScreenState extends State<RadarScreen> {
                 : (AppSettings.playerName.value.isEmpty ? 'organizer' : AppSettings.playerName.value),
           ),
           const SizedBox(height: 6),
-          RadarLegend(estimate: est, names: _input.names, colours: colours, stale: _input.stale, onTap: _readings),
+          RadarLegend(estimate: est, names: _input.names, colours: colours, stale: _input.stale, onTap: DevMode.on.value ? _readings : null),
         ] else
           _Waiting(
             reason: est?.notEnough ?? (_offline ? null : 'Not enough data yet.'),

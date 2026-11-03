@@ -4,12 +4,14 @@ library;
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'camera/lens.dart';
 import 'data/backup.dart';
 import 'homegame/blind_clock_controller.dart';
 import 'homegame/home_game.dart';
 import 'trainer/trainer_model.dart';
 import 'ui/app_settings.dart';
 import 'ui/chart_prefs.dart';
+import 'ui/dev_mode.dart';
 
 /// Makes the loaded models reachable from any route (it sits above the
 /// Navigator via MaterialApp.builder), e.g. for the About screen's reset.
@@ -41,6 +43,8 @@ Future<void> resetAllData({TrainerModel? trainer, HomeGameModel? home}) async {
   await trainer?.resetAll();
   AppSettings.resetMemory();
   ChartPrefs.colorBlind.value = false;
+  DevMode.on.value = false;
+  CameraLens.choice.value = LensChoice.auto;
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();

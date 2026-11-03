@@ -4,6 +4,7 @@ import '../../nearby/distance_test_screen.dart';
 import '../../nearby/nearby_ble.dart' show bleSupported;
 
 import '../../app_data.dart';
+import '../../camera/lens.dart';
 import '../../camera/watch_log_store.dart';
 import '../../camera/watch_screen.dart' show watchModeSupported;
 import '../../homegame/home_game.dart';
@@ -12,6 +13,7 @@ import '../../poker/cards.dart';
 import '../../trainer/trainer_model.dart';
 import '../app_settings.dart';
 import '../chart_prefs.dart';
+import '../dev_mode.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
 import 'about_screen.dart';
@@ -46,6 +48,7 @@ class SettingsScreen extends StatelessWidget {
         listenable: Listenable.merge([
           AppSettings.all,
           ChartPrefs.colorBlind,
+          DevMode.on,
           if (trainer != null) trainer,
           if (home != null) home,
         ]),
@@ -146,50 +149,88 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: 4),
               Text('Example: ${moneyLabel(42.5, signed: true)}',
                   style: Theme.of(context).textTheme.bodySmall),
-              if (watchModeSupported)
-                Builder(
-                  builder: (context) => ListTile(
-                    key: const Key('settings-watch-log'),
+            ]),
+            _Section(icon: Icons.photo_camera_outlined, title: 'Camera lens', children: [
+              Text('For Watch my cards, Record the table and Snap my cards.',
+                  style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 6),
+              ValueListenableBuilder<LensChoice>(
+                valueListenable: CameraLens.choice,
+                builder: (context, v, _) => _Choices<LensChoice>(
+                  keyPrefix: 'lens',
+                  values: LensChoice.values,
+                  selected: v,
+                  label: (c) => lensChoiceLabels[c]!,
+                  onSelected: CameraLens.set,
+                ),
+              ),
+              const SizedBox(height: 4),
+              ValueListenableBuilder<LensChoice>(
+                valueListenable: CameraLens.choice,
+                builder: (context, v, _) => Text(
+                    switch (v) {
+                      LensChoice.auto => 'Record the table uses the widest lens; Watch and Snap the normal one.',
+                      LensChoice.normal => 'Every camera feature uses the normal lens.',
+                      LensChoice.widest => 'Every camera feature uses the ultra-wide lens where the phone has one. '
+                          'Cards look smaller, so Watch may read less well.',
+                    },
+                    style: Theme.of(context).textTheme.bodySmall),
+              ),
+            ]),
+            // Testing tools: developer mode only (About: tap the version 7
+            // times).
+            if (DevMode.on.value)
+              _Section(icon: Icons.science_outlined, title: 'Diagnostics', children: [
+                const SwitchListTile(
+                  key: Key('settings-dev-mode'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('Developer mode'),
+                  subtitle: Text('Shows testing tools. Turn on again from About: tap the version 7 times'),
+                  value: true,
+                  onChanged: DevMode.set,
+                ),
+                if (bleSupported)
+                  ListTile(
+                    key: const Key('settings-bt-distance'),
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.ios_share),
-                    title: const Text('Share Watch my cards diagnostics'),
-                    subtitle: const Text(
-                        'Timings and reads from the last few sessions, no images. Stays on this phone unless you share it'),
+                    leading: const Icon(Icons.bluetooth_searching),
+                    title: const Text('Bluetooth distance test'),
+                    subtitle: const Text('For testing only, not needed to play'),
+                    onTap: () => Navigator.of(context)
+                        .push(MaterialPageRoute(builder: (_) => const DistanceTestScreen())),
+                  ),
+                if (watchModeSupported)
+                  Builder(
+                    builder: (context) => ListTile(
+                      key: const Key('settings-watch-log'),
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.ios_share),
+                      title: const Text('Share Watch my cards diagnostics'),
+                      subtitle: const Text(
+                          'Timings and reads from the last few sessions, no images. Stays on this phone unless you share it'),
+                      onTap: () async {
+                        final ok = await WatchLogStore.export(context);
+                        if (!ok && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('No Watch diagnostics yet')));
+                        }
+                      },
+                    ),
+                  ),
+                if (watchModeSupported)
+                  ListTile(
+                    key: const Key('settings-watch-log-save'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.save_alt),
+                    title: const Text('Save Watch my cards diagnostics to device'),
                     onTap: () async {
-                      final ok = await WatchLogStore.export(context);
-                      if (!ok && context.mounted) {
+                      final ok = await WatchLogStore.saveToDevice();
+                      if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('No Watch diagnostics yet')));
+                            SnackBar(content: Text(ok ? 'Diagnostics log saved' : 'Nothing saved')));
                       }
                     },
                   ),
-                ),
-              if (watchModeSupported)
-                ListTile(
-                  key: const Key('settings-watch-log-save'),
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.save_alt),
-                  title: const Text('Save Watch my cards diagnostics to device'),
-                  onTap: () async {
-                    final ok = await WatchLogStore.saveToDevice();
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(ok ? 'Diagnostics log saved' : 'Nothing saved')));
-                    }
-                  },
-                ),
-            ]),
-            if (bleSupported)
-              _Section(icon: Icons.science_outlined, title: 'Diagnostics', children: [
-                ListTile(
-                  key: const Key('settings-bt-distance'),
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.bluetooth_searching),
-                  title: const Text('Bluetooth distance test'),
-                  subtitle: const Text('For testing only, not needed to play'),
-                  onTap: () => Navigator.of(context)
-                      .push(MaterialPageRoute(builder: (_) => const DistanceTestScreen())),
-                ),
               ]),
             _Section(icon: Icons.save_alt, title: 'Data', children: [
               ListTile(

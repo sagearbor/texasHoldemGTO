@@ -25,9 +25,11 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_picker/image_picker.dart';
 
 import '../poker/cards.dart';
+import '../ui/dev_mode.dart';
 import '../ui/theme.dart';
 import '../ui/widgets/playing_card.dart';
 import 'card_reader.dart';
+import 'lens.dart';
 import 'glyph_reader.dart';
 
 /// ML Kit exists only on Android and iOS.
@@ -51,6 +53,11 @@ Future<List<int?>?> snapCards(BuildContext context) async {
         const Padding(
           padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Text('Photograph your two cards: corners (rank and suit) big, sharp and well lit.'),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Text(snapLensLine(CameraLens.choice.value),
+              key: const Key('snap-lens'), style: Theme.of(ctx).textTheme.bodySmall),
         ),
         ListTile(
           leading: const Icon(Icons.photo_camera_outlined),
@@ -309,7 +316,8 @@ class _SnapResultScreenState extends State<_SnapResultScreen> {
                 child: const Text('Enter by hand instead'),
               ),
               const SizedBox(height: 8),
-              Text('Read by: ${r.source}', style: t.labelSmall, textAlign: TextAlign.center),
+              if (DevMode.on.value)
+                Text('Read by: ${r.source}', style: t.labelSmall, textAlign: TextAlign.center),
             ],
           );
         },

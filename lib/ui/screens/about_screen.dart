@@ -11,6 +11,7 @@ import '../../app_data.dart';
 import '../../data/backup.dart';
 import '../../data/hands_csv.dart';
 import '../../homegame/home_game.dart';
+import '../dev_mode.dart';
 import '../theme.dart';
 import 'settings_screen.dart';
 
@@ -36,6 +37,33 @@ String formatVersion(String version, String buildNumber) =>
     buildNumber.isEmpty || buildNumber == version
         ? version
         : '$version ($buildNumber)';
+
+/// Tapping the version 7 times switches developer mode (testing tools) on
+/// or off.
+class _DevModeTap extends StatefulWidget {
+  final Widget child;
+  const _DevModeTap({required this.child});
+
+  @override
+  State<_DevModeTap> createState() => _DevModeTapState();
+}
+
+class _DevModeTapState extends State<_DevModeTap> {
+  final _taps = TapCounter();
+
+  Future<void> _tap() async {
+    if (!_taps.tap(DateTime.now())) return;
+    final on = await DevMode.toggle();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(on ? 'Developer mode on' : 'Developer mode off')));
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      GestureDetector(behavior: HitTestBehavior.opaque, onTap: _tap, child: widget.child);
+}
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -286,10 +314,12 @@ class AboutScreen extends StatelessWidget {
           section(Icons.info_outline, 'Felt Notes', [
             FutureBuilder<String>(
               future: _version(),
-              builder: (_, snap) => Text(
-                'Version ${snap.data ?? '…'}',
-                key: const Key('about-version'),
-                style: t.bodyMedium,
+              builder: (_, snap) => _DevModeTap(
+                child: Text(
+                  'Version ${snap.data ?? '…'}',
+                  key: const Key('about-version'),
+                  style: t.bodyMedium,
+                ),
               ),
             ),
             const SizedBox(height: 4),

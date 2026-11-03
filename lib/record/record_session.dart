@@ -9,6 +9,10 @@ library;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../camera/lens.dart';
+
+export '../camera/lens.dart' show LensInfo;
+
 enum RecordPhase {
   /// The 10-second framing check over the live view (each segment starts
   /// with one).
@@ -21,26 +25,6 @@ enum RecordPhase {
 /// Where the phone sits, per segment, as the owner said in the framing
 /// check (the offline seat model differs for each).
 enum PhonePosition { end, side, other }
-
-/// Which lens a segment used, as the camera reported it.
-class LensInfo {
-  /// `ultra_wide`, `wide` (the normal back lens) or `front`.
-  final String kind;
-  final String cameraName;
-
-  /// Zoom asked for (Android: below 1.0 switches the logical camera to the
-  /// ultra-wide) and the camera's minimum; null where not used.
-  final double? zoom;
-  final double? minZoom;
-  const LensInfo(this.kind, this.cameraName, {this.zoom, this.minZoom});
-
-  Map<String, Object?> toJson() => {
-        'kind': kind,
-        'camera': cameraName,
-        if (zoom != null) 'zoom': zoom,
-        if (minZoom != null) 'min_zoom': minZoom,
-      };
-}
 
 class RecordSegment {
   final int n;

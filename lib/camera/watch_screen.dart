@@ -29,6 +29,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../poker/cards.dart';
+import '../ui/dev_mode.dart';
+import 'lens.dart';
+import 'lens_camera.dart';
 import 'snap_cards_screen.dart' show BetaBadge;
 import 'watch_buzz.dart';
 import 'watch_debug_crops.dart';
@@ -213,22 +216,26 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   /// still opening: do not open a second one on "resumed".
   bool _opening = false;
 
+  /// The lens the camera opened on (the "Lens: ..." label and the log).
+  LensInfo? _lens;
+
+  /// Watch reads small card corners: the normal lens unless Settings →
+  /// Camera lens says Widest.
+  bool get _widest => useWidest(CameraLens.choice.value, featureDefault: false);
+
   Future<void> _initCamera() async {
     if (_opening) return;
     _opening = true;
     try {
-      final cams = await availableCameras();
-      final want = WatchSettings.front.value ? CameraLensDirection.front : CameraLensDirection.back;
-      final cam = cams.firstWhere((c) => c.lensDirection == want, orElse: () => cams.first);
-      final c = CameraController(
-        cam,
-        WatchSettings.sharp.value ? ResolutionPreset.veryHigh : ResolutionPreset.high,
-        enableAudio: false,
+      final (c, lens) = await openCameraWithLens(
+        direction: WatchSettings.front.value ? CameraLensDirection.front : CameraLensDirection.back,
+        widest: _widest,
+        preset: WatchSettings.sharp.value ? ResolutionPreset.veryHigh : ResolutionPreset.high,
         // 15 fps (iOS honours it; Android drops the extra frames in Dart).
         fps: 15,
         imageFormatGroup: ImageFormatGroup.yuv420,
+        fallbackToAny: true,
       );
-      await c.initialize();
       if (!mounted) {
         c.dispose();
         return;
@@ -242,6 +249,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _cam = c;
+        _lens = lens;
         _error = null;
       });
       if (_watching) {
@@ -274,6 +282,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       'platform': defaultTargetPlatform.name,
       'preset': WatchSettings.sharp.value ? '1080p' : '720p',
       'lens': WatchSettings.front.value ? 'front' : 'back',
+      'lens_setting': CameraLens.choice.value.name,
+      if (_lens != null) 'lens_info': _lens!.toJson(),
       'voice': WatchSettings.voice.value,
     });
     _sampleBattery();
@@ -405,7 +415,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
             ringPaperMin: _pipe.cfg.ringPaperMin, maxBlobs: _pipe.cfg.maxBlobs, findBoard: _pipe.cfg.findBoard)
         .then((r) {
       if (!mounted || !_watching) return;
-      if (WatchSettings.crops.value) {
+      if (WatchSettings.crops.value && DevMode.on.value) {
         final tag = r.hero.isEmpty ? 'none' : r.hero.map((c) => '${cardToString(c.card)}${(c.score * 100).round()}').join('-');
         _crops.save(job.rgba, job.width, job.height, job.tMs, tag);
       }
@@ -516,6 +526,11 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
             ),
           ),
         ),
+        if (_lens != null) ...[
+          const SizedBox(height: 4),
+          Text(lensLine(_lens!, widest: _widest && !WatchSettings.front.value),
+              key: const Key('watch-lens'), style: t.bodySmall),
+        ],
         const SizedBox(height: 8),
         Text('Aim with this preview: peek once and check your card corners are in view and sharp.',
             style: t.bodySmall),
@@ -588,75 +603,78 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
             'Nothing is recorded: each frame is dropped once checked, only the cards it reads '
             'are kept. If it is unsure it logs nothing; the card slots always work by hand.',
             style: t.bodySmall),
-        const SizedBox(height: 4),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: () async {
-              final ok = await WatchLogStore.export(context);
-              if (!ok && context.mounted) {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('No Watch diagnostics yet')));
-              }
-            },
-            icon: const Icon(Icons.ios_share, size: 18),
-            label: const Text('Share diagnostics log'),
-          ),
-        ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: () async {
-              final ok = await WatchLogStore.saveToDevice();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(ok ? 'Diagnostics log saved' : 'Nothing saved')));
-              }
-            },
-            icon: const Icon(Icons.save_alt, size: 18),
-            label: const Text('Save diagnostics log to device'),
-          ),
-        ),
-        ExpansionTile(
-          tilePadding: EdgeInsets.zero,
-          title: Text('Tester tools', style: t.labelLarge),
-          children: [
-            ValueListenableBuilder(
-              valueListenable: WatchSettings.crops,
-              builder: (_, v, __) => SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Keep what the reader looked at'),
-                subtitle: const Text('Saves the last 120 crops around your cards on this phone, to send '
-                    'in when cards are missed. They may show the table or other hands. Off by default; '
-                    'nothing leaves the phone unless you share it.'),
-                value: v,
-                onChanged: (x) => WatchSettings.set(WatchSettings.crops, WatchSettings.cropsKey, x),
-              ),
+        // Tester tools: developer mode only (About → tap the version 7 times).
+        if (DevMode.on.value) ...[
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () async {
+                final ok = await WatchLogStore.export(context);
+                if (!ok && context.mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('No Watch diagnostics yet')));
+                }
+              },
+              icon: const Icon(Icons.ios_share, size: 18),
+              label: const Text('Share diagnostics log'),
             ),
-            Row(children: [
-              TextButton.icon(
-                onPressed: () async {
-                  final ok = await WatchDebugCrops.share();
-                  if (!ok && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No crops saved')));
-                  }
-                },
-                icon: const Icon(Icons.ios_share, size: 18),
-                label: const Text('Share crops'),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () async {
+                final ok = await WatchLogStore.saveToDevice();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(ok ? 'Diagnostics log saved' : 'Nothing saved')));
+                }
+              },
+              icon: const Icon(Icons.save_alt, size: 18),
+              label: const Text('Save diagnostics log to device'),
+            ),
+          ),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: Text('Tester tools', style: t.labelLarge),
+            children: [
+              ValueListenableBuilder(
+                valueListenable: WatchSettings.crops,
+                builder: (_, v, __) => SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Keep what the reader looked at'),
+                  subtitle: const Text('Saves the last 120 crops around your cards on this phone, to send '
+                      'in when cards are missed. They may show the table or other hands. Off by default; '
+                      'nothing leaves the phone unless you share it.'),
+                  value: v,
+                  onChanged: (x) => WatchSettings.set(WatchSettings.crops, WatchSettings.cropsKey, x),
+                ),
               ),
-              TextButton.icon(
-                onPressed: () async {
-                  await WatchDebugCrops.deleteAll();
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Crops deleted')));
-                  }
-                },
-                icon: const Icon(Icons.delete_outline, size: 18),
-                label: const Text('Delete crops'),
-              ),
-            ]),
-          ],
-        ),
+              Row(children: [
+                TextButton.icon(
+                  onPressed: () async {
+                    final ok = await WatchDebugCrops.share();
+                    if (!ok && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No crops saved')));
+                    }
+                  },
+                  icon: const Icon(Icons.ios_share, size: 18),
+                  label: const Text('Share crops'),
+                ),
+                TextButton.icon(
+                  onPressed: () async {
+                    await WatchDebugCrops.deleteAll();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Crops deleted')));
+                    }
+                  },
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Delete crops'),
+                ),
+              ]),
+            ],
+          ),
+        ],
       ]),
     );
   }

@@ -25,6 +25,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../camera/lens.dart';
+import '../camera/lens_camera.dart';
 import '../camera/watch_frame.dart' show uprightRotation;
 import '../camera/watch_screen.dart' show watchFrameFromCamera, watchModeSupported;
 import '../nearby/nearby_ble.dart' show bleSupported;
@@ -132,6 +134,10 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   int _players = 6;
   PhonePosition _position = PhonePosition.end;
   bool _widest = true;
+
+  /// The lens asked for: Settings → Camera lens, or this screen's own
+  /// switch when that is Automatic.
+  bool get _effWidest => useWidest(CameraLens.choice.value, featureDefault: _widest);
   double _rate = 1.5;
   int? _dealerSeat;
 
@@ -272,34 +278,12 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     if (_opening || !recordModeSupported) return;
     _opening = true;
     try {
-      final cams = await availableCameras();
-      final back = cams.where((c) => c.lensDirection == CameraLensDirection.back).toList();
-      if (back.isEmpty) throw StateError('no back camera');
-      var cam = back.first;
-      var kind = 'wide';
-      if (_widest && Platform.isIOS) {
-        // The iOS plugin lists each lens; the ultra-wide is picked by id.
-        final uw = await ultraWideCameraName();
-        for (final c in back) {
-          if (c.name == uw) {
-            cam = c;
-            kind = 'ultra_wide';
-          }
-        }
-      }
-      final c = CameraController(cam, _preset, enableAudio: false, fps: 15, imageFormatGroup: ImageFormatGroup.yuv420);
-      await c.initialize();
-      double? zoom, minZoom;
-      if (Platform.isAndroid) {
-        // One logical camera on Android: a zoom ratio under 1.0 makes
-        // CameraX switch to the ultra-wide sensor where there is one.
-        try {
-          minZoom = await c.getMinZoomLevel();
-          zoom = _widest && minZoom < 1.0 ? minZoom : 1.0;
-          await c.setZoomLevel(zoom);
-          if (zoom < 1.0) kind = 'ultra_wide';
-        } catch (_) {}
-      }
+      final (c, lens) = await openCameraWithLens(
+          direction: CameraLensDirection.back,
+          widest: _effWidest,
+          preset: _preset,
+          fps: 15,
+          imageFormatGroup: ImageFormatGroup.yuv420);
       if (!mounted) {
         c.dispose();
         return;
@@ -307,7 +291,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       await c.startImageStream(_onImage);
       setState(() {
         _cam = c;
-        _lens = LensInfo(kind, cam.name, zoom: zoom, minZoom: minZoom);
+        _lens = lens;
         _error = null;
       });
     } catch (e) {
@@ -426,6 +410,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         'rate': _rate,
         'quality': _quality,
         'preset': _preset.name,
+        'lens_setting': CameraLens.choice.value.name,
         'seats': 'seat 0 = the phone owner (out of view), then clockwise from above',
         'role': 'camera',
         'tz_offset_min': now.timeZoneOffset.inMinutes,
@@ -808,11 +793,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       ClipRRect(borderRadius: BorderRadius.circular(8), child: _preview(tapSeats: true)),
       const SizedBox(height: 4),
       Text(
-          _lens == null
-              ? ''
-              : 'Lens: ${_lens!.kind == 'ultra_wide' ? 'ultra-wide' : 'normal'}'
-                  '${_lens!.zoom != null ? ' (zoom ${_lens!.zoom!.toStringAsFixed(2)})' : ''}'
-                  '${_widest && _lens!.kind != 'ultra_wide' ? ' · this phone has no wider lens' : ''}',
+          _lens == null ? '' : lensLine(_lens!, widest: _effWidest),
           style: t.bodySmall),
       const SizedBox(height: 12),
       _PlayersStepper(value: _players, onChanged: _setPlayers),
@@ -822,10 +803,14 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       Text('Dealer: ${_dealerSeat == null ? 'tap their box (optional)' : 'seat $_dealerSeat'}', style: t.bodySmall),
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
-        value: _widest,
-        onChanged: _opening ? null : _switchLens,
+        value: _effWidest,
+        // Settings → Camera lens, when not Automatic, decides for every
+        // camera feature.
+        onChanged: _opening || CameraLens.choice.value != LensChoice.auto ? null : _switchLens,
         title: const Text('Widest lens'),
-        subtitle: const Text('Ultra-wide where the phone has one'),
+        subtitle: Text(CameraLens.choice.value == LensChoice.auto
+            ? 'Ultra-wide where the phone has one'
+            : 'Set in Settings → Camera lens: ${lensChoiceLabels[CameraLens.choice.value]}'),
       ),
       if (bleSupported)
         SwitchListTile(
