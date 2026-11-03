@@ -28,6 +28,7 @@ import '../../nearby/nearby_ui.dart' show FindNearbyButton, NearbyHostTile, mayb
 import '../app_settings.dart';
 import '../theme.dart';
 import '../tv/tv_controller.dart' show ticketFromTvInput;
+import '../tv/show_on_tv.dart';
 import '../tv/tv_screen.dart';
 import '../widgets/playing_card.dart';
 import 'home_game_screen.dart' show pickTwoCards;
@@ -307,8 +308,8 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
               IconButton(
                 tooltip: 'Show the table on this screen (TV)',
                 icon: const Icon(Icons.tv),
-                onPressed: () => Navigator.of(context)
-                    .push(MaterialPageRoute(fullscreenDialog: true, builder: (_) => TvScreen(ticket: s.ticket))),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    fullscreenDialog: true, builder: (_) => TvScreen(ticket: s.ticket, castUrl: tvUrl(s.ticket)))),
               ),
             ],
           ),
@@ -538,9 +539,11 @@ class _OrganizerSheetState extends State<_OrganizerSheet> {
               },
             ),
           ]),
+          const SizedBox(height: 4),
+          ShowOnTvButton(url: url),
           TextButton.icon(
-            onPressed: () => Navigator.of(context)
-                .push(MaterialPageRoute(fullscreenDialog: true, builder: (_) => TvScreen(ticket: ticket))),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                fullscreenDialog: true, builder: (_) => TvScreen(ticket: ticket, castUrl: url))),
             icon: const Icon(Icons.tv),
             label: const Text('Preview the TV on this phone'),
           ),

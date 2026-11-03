@@ -36,6 +36,21 @@ import UIKit
         result(["route": true, "outputs": outputs])
       }
     }
+    // "Show on the TV" (lib/ui/tv/show_on_tv.dart): the TV link in Safari.
+    // iOS has no cast-settings page to open (AirPlay is in Control Center).
+    if let messenger = registrar(forPlugin: "FeltTvCast")?.messenger() {
+      let channel = FlutterMethodChannel(name: "felt_notes/tv_cast", binaryMessenger: messenger)
+      channel.setMethodCallHandler { call, result in
+        guard call.method == "openUrl",
+          let args = call.arguments as? [String: Any],
+          let s = args["url"] as? String, let url = URL(string: s)
+        else {
+          result(false)
+          return
+        }
+        UIApplication.shared.open(url, options: [:]) { ok in result(ok) }
+      }
+    }
     // Record the table (lib/record/record_native.dart).
     if let messenger = registrar(forPlugin: "FeltRecord")?.messenger() {
       record = RecordChannel(messenger: messenger)

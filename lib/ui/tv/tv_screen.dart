@@ -17,6 +17,7 @@ import '../../sync/night_merge.dart' show clockLabel;
 import '../../sync/tv_board.dart';
 import '../../radar/radar_view.dart';
 import '../theme.dart';
+import 'show_on_tv.dart';
 import 'tv_controller.dart';
 
 const _bg = Color(0xFF07110C);
@@ -156,7 +157,10 @@ class TvScreen extends StatefulWidget {
 
   /// Tests pass their own controller (fake cloud).
   final TvController? controller;
-  const TvScreen({super.key, required this.ticket, this.onChangeCode, this.controller});
+
+  /// The TV link: an in-app preview shows a "Show on the TV" button.
+  final String? castUrl;
+  const TvScreen({super.key, required this.ticket, this.onChangeCode, this.controller, this.castUrl});
 
   @override
   State<TvScreen> createState() => _TvScreenState();
@@ -193,7 +197,7 @@ class _TvScreenState extends State<TvScreen> {
           builder: (context, _) => LayoutBuilder(builder: (context, box) {
             final wide = box.maxWidth >= 900;
             final s = wide ? (box.maxWidth / 1280).clamp(0.85, 2.2) : 1.0;
-            return _TvBody(c: c, scale: s, wide: wide, onChangeCode: widget.onChangeCode);
+            return _TvBody(c: c, scale: s, wide: wide, onChangeCode: widget.onChangeCode, castUrl: widget.castUrl);
           }),
         ),
       ),
@@ -206,7 +210,8 @@ class _TvBody extends StatelessWidget {
   final double scale;
   final bool wide;
   final VoidCallback? onChangeCode;
-  const _TvBody({required this.c, required this.scale, required this.wide, this.onChangeCode});
+  final String? castUrl;
+  const _TvBody({required this.c, required this.scale, required this.wide, this.onChangeCode, this.castUrl});
 
   TextStyle _t(double size, {Color color = Colors.white, FontWeight w = FontWeight.w500}) => TextStyle(
       color: color, fontSize: size * scale, fontWeight: w, fontFeatures: const [FontFeature.tabularFigures()]);
@@ -231,6 +236,13 @@ class _TvBody extends StatelessWidget {
                       : 'Hand ${b.handNow} · ${b.finished} played',
               style: _t(24, w: FontWeight.w700)),
         _StatusPill(c: c, scale: scale),
+        if (castUrl != null)
+          OutlinedButton.icon(
+            key: const Key('show-on-tv'),
+            onPressed: () => showOnTvSheet(context, castUrl!),
+            icon: const Icon(Icons.cast),
+            label: const Text('Show on the TV'),
+          ),
       ],
     );
     final clock = b?.clock == null ? null : _Clock(json: b!.clock!, now: now, scale: scale);

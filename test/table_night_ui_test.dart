@@ -56,6 +56,7 @@ void main() {
     expect(find.byType(QrImageView), findsOneWidget);
     expect(find.text(svc.night!.ticket.code), findsOneWidget);
     expect(find.textContaining('/#/tv?c='), findsOneWidget);
+    expect(find.byKey(const Key('show-on-tv')), findsOneWidget, reason: 'a clear way onto the TV');
     expect(find.text('Share my game with the table (TV)'), findsOneWidget);
     expect(tester.takeException(), isNull);
     // Ending the game night ends the table night.
