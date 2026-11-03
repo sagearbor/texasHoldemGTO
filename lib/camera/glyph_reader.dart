@@ -202,6 +202,38 @@ class GlyphReadResult {
   /// Stage timings in milliseconds.
   final Map<String, int> timingMs;
 
+  /// How far apart the two hero cards' nearest corner indices are, in
+  /// glyph sizes (null unless two were read). Diagnostics only: held pairs
+  /// span 1.6..5.8 on the owner's footage, which side-by-side cards on the
+  /// table can match.
+  final double? heroSpread;
+
+  /// Each hero card's glyph size over the frame's short side (same order
+  /// as [hero]). Two held cards are about the same size (ratio <= 1.34 on
+  /// the owner's footage); a card on the table beyond the hand is smaller.
+  final List<double> heroSizes;
+
+  /// Larger hero glyph size over the smaller (null unless two were read).
+  double? get heroSizeRatio => heroSizes.length == 2
+      ? math.max(heroSizes[0], heroSizes[1]) / math.min(heroSizes[0], heroSizes[1])
+      : null;
+
+  /// Mean hero glyph size over the frame's short side.
+  double? get heroSize => heroSizes.isEmpty ? null : heroSizes.reduce((a, b) => a + b) / heroSizes.length;
+
+  /// Each hero card's rank glyph, height over width in the upright crop
+  /// (same order as [hero]). A card lying on the table, seen from a phone
+  /// propped low, is squashed top to bottom (well under 1); one held up to
+  /// peek is not (1.04 and up on the owner's footage).
+  final List<double> heroAspects;
+
+  /// Different cards read confidently in this frame (two held cards: 2).
+  final int cardsInView;
+
+  /// Where each hero card's best corner index is: rank glyph centre over
+  /// the image width and height (0..1), same order as [hero].
+  final List<(double, double)> heroAt;
+
   const GlyphReadResult({
     required this.hero,
     required this.reads,
@@ -209,6 +241,11 @@ class GlyphReadResult {
     this.workWidth = 0,
     this.workHeight = 0,
     this.timingMs = const {},
+    this.heroSpread,
+    this.heroSizes = const [],
+    this.heroAspects = const [],
+    this.cardsInView = 0,
+    this.heroAt = const [],
   });
 
   static const empty = GlyphReadResult(hero: [], reads: [], boardCount: 0);
@@ -317,7 +354,32 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
   }
   timing['hero'] = sw.elapsedMilliseconds - t0;
   timing['total'] = sw.elapsedMilliseconds;
+  final conf = cnn != null ? glyphCnnConfidentScore : glyphConfidentScore;
+  double? spread;
+  if (hero.length == 2) {
+    final a = [for (final r in reads) if (r.card == hero[0].card) r];
+    final b = [for (final r in reads) if (r.card == hero[1].card) r];
+    var best = double.infinity;
+    for (final p in a) {
+      for (final q in b) {
+        final d = math.sqrt((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y)) / ((p.md + q.md) / 2);
+        if (d < best) best = d;
+      }
+    }
+    spread = best;
+  }
   return GlyphReadResult(
+    heroSpread: spread,
+    heroSizes: [for (final c in hero) reads.firstWhere((r) => r.card == c.card).md / img.s],
+    heroAspects: [for (final c in hero) reads.firstWhere((r) => r.card == c.card).aspect],
+    heroAt: [
+      for (final c in hero)
+        () {
+          final r = reads.firstWhere((r) => r.card == c.card);
+          return (r.x / img.w, r.y / img.h);
+        }()
+    ],
+    cardsInView: {for (final r in reads) if (r.score >= conf) r.card}.length,
     hero: hero,
     reads: [
       for (final r in reads)
@@ -850,7 +912,11 @@ class _Blob {
 class _Read {
   final int card, i, j;
   final double score, md;
-  _Read(this.card, this.score, this.i, this.j, this.md);
+
+  /// Centre of the rank glyph (working-image pixels) and its height over
+  /// its width.
+  final double x, y, aspect;
+  _Read(this.card, this.score, this.i, this.j, this.md, [this.x = 0, this.y = 0, this.aspect = 1]);
 }
 
 List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, double maxFrac = 0.14}) {
@@ -1107,7 +1173,7 @@ List<_Read> _readIndices(_Planes img, _Hsv hsv, GlyphTemplates t, List<_Rect> bo
       }
       final sb = _best(agg);
       if (sb == null) continue;
-      cands.add(_Read(makeCard(rb.$1, sb.$1), 0.5 * (rb.$2 + sb.$2), i, j, meanMd));
+      cands.add(_Read(makeCard(rb.$1, sb.$1), 0.5 * (rb.$2 + sb.$2), i, j, meanMd, a.cx, a.cy, a.h / a.w));
     }
   }
   cands.sort((x, y) => y.score.compareTo(x.score));
@@ -1272,7 +1338,7 @@ List<_Read> _readIndicesCnn(
       final su = ps[glyphCnnSuit0 + allowed[0]] >= ps[glyphCnnSuit0 + allowed[1]] ? allowed[0] : allowed[1];
       final score = pr[r] * ps[glyphCnnSuit0 + su];
       if (score < _cnnScoreMin) continue;
-      reads.add(_Read(makeCard(r, su), score, i, j, meanMd));
+      reads.add(_Read(makeCard(r, su), score, i, j, meanMd, a.cx, a.cy, a.h / a.w));
     }
   }
   stats['cnnCalls'] = calls;

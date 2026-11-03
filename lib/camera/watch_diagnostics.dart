@@ -35,6 +35,8 @@ enum PeekOutcome {
   abandoned,
 }
 
+double? _r3(double? v) => v == null ? null : double.parse(v.toStringAsFixed(3));
+
 class PeekRecord {
   /// First gated frame with a change (ms on the frame clock).
   final int startMs;
@@ -64,6 +66,21 @@ class PeekRecord {
 
   /// Highest reader confidence seen (0..1).
   double bestScore = 0;
+
+  /// Reads with two confident cards, and the different confident cards
+  /// seen over the peek: a near-miss with one card seen means the second
+  /// card's corner never showed (or never read), not a voting problem.
+  int framesTwoCards = 0;
+  final Set<int> cardsSeen = {};
+
+  /// Hero cards the board guards dropped in this peek.
+  int guarded = 0;
+
+  /// Glyph geometry of the hero cards over the peek (for tuning the board
+  /// guards from real nights): smallest glyph size (over the frame's short
+  /// side), flattest rank glyph (height / width), largest size ratio of a
+  /// two-card frame.
+  double? minGlyphSize, minAspect, maxSizeRatio;
   List<int>? cards;
   PeekOutcome outcome = PeekOutcome.abandoned;
 
@@ -102,6 +119,14 @@ class PeekRecord {
         },
         'agree': agree,
         'bestScore': double.parse(bestScore.toStringAsFixed(2)),
+        'twoCardFrames': framesTwoCards,
+        'cardsSeen': cardsSeen.length,
+        'guarded': guarded,
+        'glyph': {
+          'minSize': _r3(minGlyphSize),
+          'minAspect': _r3(minAspect),
+          'maxRatio': _r3(maxSizeRatio),
+        },
         'cards': cards?.map(cardToString).join(' '),
         'outcome': outcome.name,
         'nearMiss': nearMiss,
@@ -141,6 +166,10 @@ class StageCounts {
 
   /// Pairs logged from a single very confident frame.
   int singleFrame = 0;
+
+  /// Hero cards the board guards dropped (lying on the table, too small
+  /// next to the other card, too many cards in view).
+  int boardGuarded = 0;
 
   /// Reader time, summed (ms), when the caller measures it.
   int readMs = 0;
@@ -213,6 +242,7 @@ class WatchSessionSummary {
         'readerMsPerMin': perMinute(frames.readMs).round(),
         'skippedStaticPerMin': perMinute(frames.skippedStatic).round(),
         'singleFramePairs': frames.singleFrame,
+        'boardGuarded': frames.boardGuarded,
         'motionEvents': frames.motionEvents,
         'battery': [for (final (t, b) in battery) [t ~/ 60000, b]],
         'batteryPerHour': batteryPerHour == null ? null : double.parse(batteryPerHour!.toStringAsFixed(1)),
@@ -236,7 +266,7 @@ class WatchSessionSummary {
       'frames/min: seen ${fpm['seen']}, gated ${fpm['gated']}, card-like ${fpm['candidate']}, '
           'read ${fpm['read']} (reader ${j['readerMsPerMin']} ms/min), '
           'skipped as unchanged ${perMinute(frames.skippedStatic).round()}, '
-          'as cold ${perMinute(frames.skippedCold).round()}',
+          'as cold ${perMinute(frames.skippedCold).round()}; board-guarded cards ${frames.boardGuarded}',
       if (battery.isNotEmpty)
         'battery ${battery.map((e) => '${e.$1 ~/ 60000}min:${e.$2}%').join(' ')}'
             '${batteryPerHour == null ? '' : ' (${batteryPerHour!.toStringAsFixed(1)} %/h)'}',

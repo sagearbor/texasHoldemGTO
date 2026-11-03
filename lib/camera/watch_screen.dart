@@ -35,6 +35,7 @@ import 'watch_debug_crops.dart';
 import 'watch_diagnostics.dart';
 import 'glyph_reader.dart';
 import 'watch_frame.dart';
+import 'watch_health.dart';
 import 'watch_log_store.dart';
 import 'watch_pipeline.dart';
 import 'watch_tracker.dart';
@@ -163,6 +164,11 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   final List<(int, int)> _battery = [];
   Timer? _ticker;
 
+  /// Is the pipeline running at all (frames coming, reader working)? A
+  /// problem buzzes, shows on the black screen and goes in the log.
+  final WatchHealth _health = WatchHealth();
+  Timer? _healthTicker;
+
   /// Last logged pair and what happened, for the chip.
   List<int>? _lastCards;
   String _lastWhat = '';
@@ -227,6 +233,11 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         c.dispose();
         return;
       }
+      c.addListener(() {
+        if (_watching && identical(c, _cam) && c.value.hasError) {
+          _report(_health.onFailure('Camera error'), detail: c.value.errorDescription);
+        }
+      });
       _worker ??= await GlyphWorker.spawn((await rootBundle.load('assets/data/glyph_cnn.bin')).buffer.asUint8List());
       if (!mounted) return;
       setState(() {
@@ -239,6 +250,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Camera unavailable ($e)');
+      // Resuming into the black screen: say so there, not only in setup.
+      if (_watching) _report(_health.onFailure('Camera would not start'), detail: e);
     } finally {
       _opening = false;
     }
@@ -270,7 +283,38 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       if (WatchSettings.voice.value) _voice.refresh();
       if (t.tick % 60 == 0) _sampleBattery(); // every 10 minutes
     });
-    await c.startImageStream(_onImage);
+    _health.start(_clock.elapsedMilliseconds);
+    _healthTicker = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_watching) _report(_health.check(_clock.elapsedMilliseconds));
+    });
+    try {
+      await c.startImageStream(_onImage);
+    } catch (e) {
+      _report(_health.onFailure('Camera stream would not start'), detail: e);
+    }
+  }
+
+  /// A new pipeline problem: buzz the phone (and say it in the earbuds),
+  /// show it on the black screen, log it.
+  void _report(String? problem, {Object? detail}) {
+    if (problem == null) return;
+    debugPrint('watch problem: $problem ($detail)');
+    _log.append({
+      'type': 'error',
+      'what': problem,
+      if (detail != null) 'detail': '$detail',
+      'tMs': _clock.elapsedMilliseconds,
+      'at': DateTime.now().toIso8601String(),
+    });
+    () async {
+      for (var i = 0; i < 3; i++) {
+        await HapticFeedback.heavyImpact();
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+      }
+    }()
+        .ignore();
+    if (WatchSettings.voice.value) _voice.say('Watch my cards stopped: $problem. Check the phone.').ignore();
+    if (mounted) setState(() {});
   }
 
   void _stopWatching() {
@@ -278,6 +322,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     _watching = false;
     _ticker?.cancel();
     _ticker = null;
+    _healthTicker?.cancel();
+    _healthTicker = null;
     final c = _cam;
     if (c != null && c.value.isStreamingImages) c.stopImageStream().ignore();
     WakelockPlus.disable();
@@ -308,6 +354,9 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   void _onImage(CameraImage img) {
     if (!_watching) return;
     final t = _clock.elapsedMilliseconds;
+    final hadProblem = _health.problem;
+    _health.onFrame(t);
+    if (hadProblem != null && _health.problem == null && mounted) setState(() {});
     final c = _cam;
     if (c != null) {
       final front = c.description.lensDirection == CameraLensDirection.front;
@@ -360,12 +409,16 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         final tag = r.hero.isEmpty ? 'none' : r.hero.map((c) => '${cardToString(c.card)}${(c.score * 100).round()}').join('-');
         _crops.save(job.rgba, job.width, job.height, job.tMs, tag);
       }
+      final wasBroken = _health.problem == WatchHealth.readerBroken;
+      _health.onReadOk();
+      if (wasBroken) setState(() {});
       final pair = _pipe.onRead(job, r, readMs: sw.elapsedMilliseconds);
       _setStatus(_pipe.status(_clock.elapsedMilliseconds));
       if (pair != null) _onPair(pair);
     }, onError: (Object e) {
       debugPrint('watch reader: $e');
       _pipe.onRead(job, GlyphReadResult.empty);
+      if (_watching) _report(_health.onReadError(), detail: e);
     });
   }
 
@@ -391,7 +444,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         h.watchSetCards(d.cards);
       case WatchAction.newHand:
       case WatchAction.newHandUnread:
-        _pipe.resetVotes();
+        _pipe.votesAfter(d);
         _waitDealer = !h.watchNewHand(d.cards, episode: episode, scene: _pipe.sceneEpoch);
       case WatchAction.confirm:
       case WatchAction.ignore:
@@ -615,6 +668,14 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     await _initCamera();
   }
 
+  /// From the black screen after a problem: a fresh camera and session,
+  /// back into watching.
+  Future<void> _restartWatching() async {
+    _stopWatching();
+    _watching = true; // _initCamera resumes into watching
+    await _restartCamera();
+  }
+
   // ---------------------------------------------------------------- black
 
   Widget _black(BuildContext context) {
@@ -644,6 +705,20 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
               right: 12,
               bottom: 12,
               child: Column(mainAxisSize: MainAxisSize.min, children: [
+                if (_health.problem != null)
+                  Padding(
+                    key: const Key('watch-problem'),
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(children: [
+                      Text('${_health.problem}: not reading cards',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Color(0xFFFFB300), fontSize: 15)),
+                      TextButton(
+                        onPressed: _restartWatching,
+                        child: const Text('Restart camera', style: TextStyle(color: Color(0xFFFFB300))),
+                      ),
+                    ]),
+                  ),
                 if (WatchSettings.voice.value)
                   ValueListenableBuilder(
                     valueListenable: _voice.state,

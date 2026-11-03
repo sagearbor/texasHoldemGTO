@@ -111,6 +111,33 @@ class WatchConfig {
   final int minAgree;
   final int voteWindowMs;
 
+  /// Board guard: a hero card whose rank glyph is flatter than this (height
+  /// over width) lies on the table, seen at a low angle: not the player's
+  /// card. Held cards read 1.04 and up on the owner's footage. 0 = off.
+  final double flatAspect;
+
+  /// Board guard: two hero cards whose glyph sizes differ more than this
+  /// are not both in the hand; the smaller (farther) one is dropped. Held
+  /// pairs read 1.34 at most. 0 = off.
+  final double maxSizeRatio;
+
+  /// Board guard: a frame with more confident cards than this (a flop is
+  /// three) does not vote. 0 = off: at 2 it cost 1-2 hands per mock1 input
+  /// (a held pair often reads a third, stray card).
+  final int maxCardsInView;
+
+  /// Forget the votes when the whole view changes (the gate re-learns its
+  /// background). Off: a hand sweeping close to the lens trips that check
+  /// several times a peek, and each reset threw away reads of the cards
+  /// still being peeked at (mock1: two hands lost that way).
+  final bool resetVotesOnGlobal;
+
+  /// A hand that started unread (the cards changed but were not agreed
+  /// on) keeps the votes for the cards that started it: they are the new
+  /// hand's, and the next frames usually complete the pair. Off: no hand
+  /// gained on the harness inputs.
+  final bool keepUnreadVotes;
+
   /// One frame is enough when both cards score at least this (and no other
   /// card was read in the vote window): a quick peek that only gave the
   /// reader one good frame can still log. 1.0+ turns it off. 0.92: the
@@ -178,6 +205,11 @@ class WatchConfig {
     this.findBoard = false,
     this.minAgree = 2,
     this.voteWindowMs = 2500,
+    this.flatAspect = 0.85,
+    this.maxSizeRatio = 1.6,
+    this.maxCardsInView = 0,
+    this.resetVotesOnGlobal = false,
+    this.keepUnreadVotes = false,
     this.singleFrameScore = 0.92,
     this.emptyReadsBeforeBackoff = 4,
     this.maxBackoffMs = 2000,
@@ -413,9 +445,23 @@ class PeekVoter {
   /// No card other than [cards] was read in the current window.
   bool onlyCards(List<int> cards) => _reads.every((r) => r.$2.every(cards.contains));
 
-  void reset() {
-    _reads.clear();
-    _pairs.clear();
+  /// Forgets every read, except those of the cards in [keep] (a new hand
+  /// whose cards were seen but not yet agreed on).
+  void reset({Iterable<int> keep = const []}) {
+    final k = keep.toSet();
+    if (k.isEmpty) {
+      _reads.clear();
+      _pairs.clear();
+      return;
+    }
+    final kept = [
+      for (final (t, cs) in _reads)
+        if (cs.any(k.contains)) (t, [for (final c in cs) if (k.contains(c)) c])
+    ];
+    _reads
+      ..clear()
+      ..addAll(kept);
+    _pairs.removeWhere((p) => !p.$2.every(k.contains));
   }
 
   /// Frames that read the best pair together (diagnostics).
@@ -427,7 +473,12 @@ class PeekVoter {
     _reads.removeWhere((r) => tMs - r.$1 > windowMs);
     _pairs.removeWhere((r) => tMs - r.$1 > memoryMs);
     if (cards.isNotEmpty) _reads.add((tMs, cards));
-    final short = _shortWindow();
+    var short = _shortWindow();
+    // Only a frame that shows one of the pair's cards reports it: an empty
+    // frame adds no evidence, and re-reporting old votes there turned the
+    // next hand's peek into a "confirm" of the last hand (mock2: J♥ 6♣ lost
+    // once the votes survived global changes).
+    if (short != null && !cards.any(short.contains)) short = null;
     if (cards.length < 2) return short;
     // Across peeks: this frame's pair against remembered two-card frames.
     final p = canonicalPair([cards[0], cards[1]]);
@@ -476,7 +527,33 @@ class ReadJob {
   /// Short side of the whole frame at the crop's scale (readGlyphs'
   /// scaleShortSide).
   final int scaleShortSide;
-  const ReadJob(this.rgba, this.width, this.height, this.tMs, this.scaleShortSide);
+
+  /// Where the crop came from: its box in the frame, and the turn and
+  /// mirror applied to it (to map read positions back to the frame).
+  final PixRect? box;
+  final int rotation;
+  final bool mirrored;
+
+  /// Short side of the whole frame (pixels).
+  final int frameShort;
+  const ReadJob(this.rgba, this.width, this.height, this.tMs, this.scaleShortSide,
+      {this.box, this.rotation = 0, this.mirrored = false, this.frameShort = 0});
+
+  /// A point of the crop as read (0..1 of the upright crop's width and
+  /// height) in frame pixels.
+  (double, double) framePoint((double, double) at) {
+    final b = box;
+    if (b == null) return at;
+    final (u, v) = at;
+    var (p, q) = switch (((rotation % 360) + 360) % 360) {
+      90 => (v, 1 - u),
+      180 => (1 - u, 1 - v),
+      270 => (1 - v, u),
+      _ => (u, v),
+    };
+    if (mirrored) p = 1 - p;
+    return (b.x0 + p * b.w, b.y0 + q * b.h);
+  }
 }
 
 enum WatchStatus { idle, burst, reading }
@@ -560,7 +637,7 @@ class WatchPipeline {
     counts.gated++;
     final g = gate.update(f, tMs);
     if (g.global) {
-      voter.reset();
+      if (cfg.resetVotesOnGlobal) voter.reset();
       return null;
     }
     if (g.changed >= cfg.minCells) {
@@ -630,7 +707,8 @@ class WatchPipeline {
     final (rgba, w, h) = rotateRgba(crop, cw, ch, rotation);
     if (cfg.whiteBalance) whiteBalance(rgba);
     final scale = box.w == 0 ? 1.0 : cw / box.w;
-    return ReadJob(rgba, w, h, tMs, (math.min(f.width, f.height) * scale).round());
+    return ReadJob(rgba, w, h, tMs, (math.min(f.width, f.height) * scale).round(),
+        box: box, rotation: rotation, mirrored: mirror, frameShort: math.min(f.width, f.height));
   }
 
   /// The reader finished [job]. Returns the agreed pair (high card first)
@@ -638,7 +716,24 @@ class WatchPipeline {
   List<int>? onRead(ReadJob job, GlyphReadResult r, {int readMs = 0}) {
     _busy = false;
     counts.readMs += readMs;
-    final cards = [for (final c in r.hero) if (c.confident) c.card];
+    final guardedBefore = counts.boardGuarded;
+    final hero = heroCards(r);
+    final cards = [for (final c in hero) if (c.confident) c.card];
+    final pk = _peek;
+    if (pk != null) {
+      pk.guarded += counts.boardGuarded - guardedBefore;
+      for (var i = 0; i < r.hero.length; i++) {
+        if (!r.hero[i].confident) continue;
+        if (i < r.heroSizes.length) pk.minGlyphSize = math.min(pk.minGlyphSize ?? 1, r.heroSizes[i]);
+        if (i < r.heroAspects.length) pk.minAspect = math.min(pk.minAspect ?? 99, r.heroAspects[i]);
+      }
+      final ratio = r.heroSizeRatio;
+      if (ratio != null && r.hero.every((c) => c.confident)) {
+        pk.maxSizeRatio = math.max(pk.maxSizeRatio ?? 0, ratio);
+      }
+      if (cards.length == 2) pk.framesTwoCards++;
+      pk.cardsSeen.addAll(cards);
+    }
     _lastReadEmpty = cards.isEmpty;
     if (r.hero.isEmpty) {
       _emptyReads++;
@@ -681,9 +776,9 @@ class WatchPipeline {
     var pair = voter.add(cards, job.tMs);
     if (p != null) p.agree = math.max(p.agree, voter.bestAgree);
     if (pair == null &&
-        r.hero.length == 2 &&
-        r.hero[0].card != r.hero[1].card &&
-        r.hero.every((c) => c.score >= cfg.singleFrameScore) &&
+        hero.length == 2 &&
+        hero[0].card != hero[1].card &&
+        hero.every((c) => c.score >= cfg.singleFrameScore) &&
         voter.onlyCards(cards)) {
       pair = canonicalPair(cards);
       counts.singleFrame++;
@@ -695,6 +790,36 @@ class WatchPipeline {
       p.cards = pair;
     }
     return pair;
+  }
+
+  /// The reader's hero cards minus those the board guards rule out (cards
+  /// lying on the table, a far card next to a near one, a frame showing
+  /// more cards than a hand). Dropped cards are counted in
+  /// [StageCounts.boardGuarded].
+  List<GlyphCard> heroCards(GlyphReadResult r) {
+    final hero = r.hero;
+    if (hero.isEmpty) return hero;
+    if (cfg.maxCardsInView > 0 && r.cardsInView > cfg.maxCardsInView) {
+      counts.boardGuarded += hero.length;
+      return const [];
+    }
+    final keep = List<bool>.filled(hero.length, true);
+    if (cfg.flatAspect > 0 && r.heroAspects.length == hero.length) {
+      for (var i = 0; i < hero.length; i++) {
+        if (r.heroAspects[i] < cfg.flatAspect) keep[i] = false;
+      }
+    }
+    final sz = r.heroSizes;
+    if (cfg.maxSizeRatio > 0 && hero.length == 2 && sz.length == 2) {
+      final ratio = r.heroSizeRatio!;
+      if (ratio > cfg.maxSizeRatio) keep[sz[0] < sz[1] ? 0 : 1] = false;
+    }
+    if (keep.every((k) => k)) return hero;
+    counts.boardGuarded += keep.where((k) => !k).length;
+    return [
+      for (var i = 0; i < hero.length; i++)
+        if (keep[i]) hero[i]
+    ];
   }
 
   /// What the hand tracker made of the pair this peek agreed on.
@@ -713,6 +838,14 @@ class WatchPipeline {
 
   /// A new hand began (Next hand, or a new pair): old votes must not mix in.
   void resetVotes() => voter.reset();
+
+  /// The caller applied tracker decision [d]: a new hand forgets the old
+  /// votes (an unread one keeps those of the cards that started it, with
+  /// [WatchConfig.keepUnreadVotes]).
+  void votesAfter(WatchDecision d) {
+    if (!d.startsHand) return;
+    voter.reset(keep: cfg.keepUnreadVotes && d.action == WatchAction.newHandUnread ? d.cards : const []);
+  }
 
   /// Ends the open peek (the camera stopped, or the harness reached the end).
   void flush(int tMs) {

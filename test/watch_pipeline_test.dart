@@ -41,7 +41,66 @@ GlyphReadResult read(String cards, {double score = 0.9}) => GlyphReadResult(
       boardCount: 0,
     );
 
+GlyphReadResult geo(String cards, {List<double>? aspects, List<double>? sizes, int? inView}) {
+  final cs = parseCards(cards);
+  return GlyphReadResult(
+    hero: [for (final c in cs) GlyphCard(c, 0.9, 1, confident: true)],
+    reads: const [],
+    boardCount: 0,
+    heroAspects: aspects ?? [for (final _ in cs) 1.3],
+    heroSizes: sizes ?? [for (final _ in cs) 0.05],
+    cardsInView: inView ?? cs.length,
+  );
+}
+
 void main() {
+  group('board guards and votes', () {
+    const guarded = WatchConfig(flatAspect: 0.85, maxSizeRatio: 1.6, maxCardsInView: 2);
+    String cards(List<GlyphCard> h) => h.map((c) => cardToString(c.card)).join(' ');
+
+    test('cards lying flat on the table are not hero cards', () {
+      final p = WatchPipeline(guarded);
+      expect(cards(p.heroCards(geo('As Kd'))), 'As Kd');
+      expect(cards(p.heroCards(geo('As Kd', aspects: [0.5, 1.3]))), 'Kd');
+      expect(cards(p.heroCards(geo('As Kd', aspects: [0.5, 0.6]))), '');
+      expect(p.counts.boardGuarded, 3);
+    });
+
+    test('a far card next to a near one: the far one is dropped', () {
+      final p = WatchPipeline(guarded);
+      expect(cards(p.heroCards(geo('As Kd', sizes: [0.05, 0.06]))), 'As Kd');
+      expect(cards(p.heroCards(geo('As Kd', sizes: [0.025, 0.06]))), 'Kd');
+      expect(cards(p.heroCards(geo('As Kd', sizes: [0.06, 0.025]))), 'As');
+    });
+
+    test('more cards in view than a hand: the frame does not vote', () {
+      final p = WatchPipeline(guarded);
+      expect(p.heroCards(geo('As Kd', inView: 3)), isEmpty);
+      const off = WatchConfig(flatAspect: 0, maxSizeRatio: 0, maxCardsInView: 0);
+      expect(WatchPipeline(off).heroCards(geo('As Kd', aspects: [0.2, 0.2], inView: 5)), hasLength(2),
+          reason: 'guards off');
+    });
+
+    test('an empty frame never re-reports an old pair', () {
+      final v = PeekVoter(minAgree: 2, windowMs: 2500);
+      expect(v.add(parseCards('As Kd'), 0), isNull);
+      expect(v.add(parseCards('As Kd'), 200), isNotNull);
+      expect(v.add(const [], 400), isNull, reason: 'no card in this frame');
+      expect(v.add(parseCards('As'), 600), isNotNull, reason: 'a card of the pair: still agreed');
+    });
+
+    test('an unread new hand keeps the votes of its cards', () {
+      final v = PeekVoter(minAgree: 2, windowMs: 2500);
+      v.add(parseCards('Ts'), 0);
+      v.add(parseCards('Qd Ts'), 50);
+      v.add(parseCards('7c'), 100);
+      v.reset(keep: parseCards('Qd Ts'));
+      expect(v.add(parseCards('Qd'), 1000), canonicalPair(parseCards('Qd Ts')));
+      v.reset();
+      expect(v.add(parseCards('Qd'), 1200), isNull);
+    });
+  });
+
   group('WatchFrame', () {
     test('NV12 grey converts to grey RGBA, video range expanded', () {
       final f = frame(base: 126);

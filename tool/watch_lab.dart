@@ -26,6 +26,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:felt_notes/camera/board_watch.dart';
@@ -81,12 +82,40 @@ Future<void> main(List<String> argv) async {
   // street lay on the table; "?" for a rank or suit you cannot tell).
   final boardLabelsPath = opt('--board-labels');
   final boardDump = opt('--board-dump');
+  // Board truth only (no board reader): counts face-up board cards the
+  // hole-card reader took for the player's cards (same label format).
+  final boardTruthPath = opt('--board-truth');
+  final boardTruth = boardTruthPath == null
+      ? const <(int, int, List<int>)>[]
+      : [
+          for (final l in (jsonDecode(File(boardTruthPath).readAsStringSync()) as List).cast<Map<String, dynamic>>())
+            (
+              ((l['t0'] as num) * 1000).round(),
+              ((l['t1'] as num) * 1000).round(),
+              [
+                for (final t in (l['cards'] as String).split(RegExp(r'\s+')))
+                  if (!t.contains('?')) parseCards(t).first
+              ]
+            )
+        ];
+  // Board cards on the table at [tMs] (1 s slack each side).
+  Set<int> boardAt(int tMs) => {
+        for (final (t0, t1, cs) in boardTruth)
+          if (tMs >= t0 - 1000 && tMs <= t1 + 1000) ...cs
+      };
+  var boardHeroReads = 0, boardHeroCards = 0, confidentReads = 0;
   final board = args.remove('--board') || boardLabelsPath != null;
   final pipe = WatchPipeline(WatchConfig(
     tta: args.remove('--tta'),
     whiteBalance: !args.remove('--no-wb'),
     warmLight: !args.remove('--no-warm'),
     minAgree: int.parse(opt('--agree', '2')!),
+    voteWindowMs: int.parse(opt('--window', '2500')!),
+    resetVotesOnGlobal: args.remove('--reset-global'),
+    flatAspect: double.parse(opt('--flat', '0.85')!),
+    maxSizeRatio: double.parse(opt('--ratio', '1.6')!),
+    maxCardsInView: int.parse(opt('--max-in-view', '0')!),
+    keepUnreadVotes: args.remove('--keep-unread'),
     readMaxShort: int.parse(opt('--read-short', '540')!),
     minCropFrac: double.parse(opt('--crop', '0.5')!),
     singleFrameScore: double.parse(opt('--single', '0.92')!),
@@ -153,15 +182,29 @@ Future<void> main(List<String> argv) async {
   var cropPx = 0, emptyReads = 0;
 
   void deliver((ReadJob, GlyphReadResult, int, int) f) {
+    if (boardTruth.isNotEmpty) {
+      final on = boardAt(f.$1.tMs);
+      final conf = [for (final c in f.$2.hero) if (c.confident) c.card];
+      if (conf.isNotEmpty) confidentReads++;
+      final n = conf.where(on.contains).length;
+      if (n > 0) boardHeroReads++;
+      boardHeroCards += n;
+    }
     final pair = pipe.onRead(f.$1, f.$2, readMs: f.$4);
     if (verbose) {
       stdout.writeln('  read @${(f.$1.tMs / 1000).toStringAsFixed(2)}s ${f.$1.width}x${f.$1.height} '
-          '${f.$4}ms ${f.$2.timingMs}: ${f.$2.hero.join(', ')}');
+          '${f.$4}ms ${f.$2.timingMs}: ${f.$2.hero.join(', ')}'
+          '${f.$2.heroSpread == null ? '' : ' | spread ${f.$2.heroSpread!.toStringAsFixed(1)} ratio '
+              '${f.$2.heroSizeRatio!.toStringAsFixed(2)} size ${f.$2.heroSize!.toStringAsFixed(3)} aspect ${f.$2.heroAspects.reduce(math.min).toStringAsFixed(2)}'}'
+          '${f.$2.heroAt.isEmpty ? '' : ' | at ${[for (var i = 0; i < f.$2.heroAt.length; i++) () {
+              final (x, y) = f.$1.framePoint(f.$2.heroAt[i]);
+              return '${cardToString(f.$2.hero[i].card)}@${x.round()},${y.round()}';
+            }()].join(' ')} md ${f.$2.heroSize == null ? '-' : (f.$2.heroSize! * f.$1.frameShort).toStringAsFixed(1)}'} | inView ${f.$2.cardsInView}');
     }
     if (pair == null) return;
     final d = tracker.onRead(pair, f.$1.tMs, episode: pipe.cardEpisode, scene: pipe.sceneEpoch);
     pipe.noteDecision(d);
-    if (d.startsHand) pipe.resetVotes();
+    pipe.votesAfter(d);
     decisions.add((f.$1.tMs, d));
   }
 
@@ -201,7 +244,7 @@ Future<void> main(List<String> argv) async {
     for (final (tl, seen) in pipe.lookEnds) {
       final d = tracker.onLookEnd(seen, tl, scene: pipe.sceneEpoch);
       if (d.action == WatchAction.ignore) continue;
-      if (d.startsHand) pipe.resetVotes();
+      pipe.votesAfter(d);
       decisions.add((tl, d));
     }
     pipe.lookEnds.clear();
@@ -286,6 +329,18 @@ Future<void> main(List<String> argv) async {
       for (final l in labels) (((l['t'] as num) * 1000).round(), canonicalPair(parseCards(l['cards'] as String)))
     ];
     stdout.writeln(scoreAgainstLabels(decisions, lab));
+    if (boardTruth.isNotEmpty) {
+      // Logged pairs holding a card that lay face up on the board then
+      // (and is not that hand's real hole card).
+      var logs = 0;
+      for (final (t, d) in decisions) {
+        if (d.cards.isEmpty || d.action == WatchAction.ignore || d.action == WatchAction.confirm) continue;
+        final near = lab.reduce((a, b) => (a.$1 - t).abs() <= (b.$1 - t).abs() ? a : b);
+        if (d.cards.any((c) => boardAt(t).contains(c) && !near.$2.contains(c))) logs++;
+      }
+      stdout.writeln('BOARD-AS-HERO: reads with a board card $boardHeroReads of $confidentReads confident reads '
+          '($boardHeroCards cards); logged pairs with a board card $logs');
+    }
     if (markersPath != null) {
       final marks = [
         for (final m in (jsonDecode(File(markersPath).readAsStringSync()) as List).cast<Map<String, dynamic>>())
