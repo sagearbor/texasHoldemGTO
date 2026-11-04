@@ -59,10 +59,15 @@ bool _anyDeck = false; // also look for indices printed on artwork (see readGlyp
 /// Any-deck mode: an index on artwork counts when this share of its
 /// surroundings is clearly lighter than its ink (green channel, which
 /// keeps red and black ink both dark) ...
-const double _artRingLightMin = 0.6;
+const double _artRingLightMin = 0.55;
 
-/// ... by at least this much (0..255).
+/// ... by at least this much (0..255). (Card stock counts as light too.)
 const int _artLightDelta = 50;
+
+/// Any-deck mode: black ink on artwork is darker than this share of its
+/// surroundings' brightness (0.5 on card stock; small indices on artwork
+/// are often soft).
+const double _artBlackMax = 0.6;
 
 const int _paperVMin = 90;
 const int _redSMin = 110;
@@ -924,12 +929,45 @@ class _Blob {
 
   /// Share of the surroundings that is card stock (how "on a card" it is).
   double ring = 1;
+
+  /// A "10" printed as two separate digits: the indices of the two blobs
+  /// it was merged from (null for an ordinary blob).
+  (int, int)? parts;
   _Blob(this.x, this.y, this.w, this.h, this.cx, this.cy, this.md, this.red, this.mask);
+}
+
+/// One blob from two (a "1" and a "0" with a gap between them).
+_Blob _mergeBlobs(_Blob a, _Blob b, int ia, int ib) {
+  final x0 = math.min(a.x, b.x), y0 = math.min(a.y, b.y);
+  final x1 = math.max(a.x + a.w, b.x + b.w), y1 = math.max(a.y + a.h, b.y + b.h);
+  final w = x1 - x0, h = y1 - y0;
+  final mask = Float64List(w * h);
+  var na = 0, nb = 0;
+  for (final (bl, isA) in [(a, true), (b, false)]) {
+    for (var y = 0; y < bl.h; y++) {
+      for (var x = 0; x < bl.w; x++) {
+        if (bl.mask[y * bl.w + x] == 0) continue;
+        mask[(bl.y - y0 + y) * w + bl.x - x0 + x] = 255;
+        if (isA) {
+          na++;
+        } else {
+          nb++;
+        }
+      }
+    }
+  }
+  final cx = (a.cx * na + b.cx * nb) / math.max(1, na + nb), cy = (a.cy * na + b.cy * nb) / math.max(1, na + nb);
+  return _Blob(x0, y0, w, h, cx, cy, math.max(w, h).toDouble(), a.red, mask)
+    ..ring = math.min(a.ring, b.ring)
+    ..parts = (ia, ib);
 }
 
 class _Read {
   final int card, i, j;
   final double score, md;
+
+  /// Rank blob merged from two ("10"): the source blobs (CNN path).
+  (int, int)? parts;
 
   /// Centre of the rank glyph (working-image pixels) and its height over
   /// its width.
@@ -1030,7 +1068,7 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
           ringPaper++;
           ringV.add(hsv.v[q]);
         }
-        if (_anyDeck && img.g[q] >= inkG + _artLightDelta) {
+        if (_anyDeck && (paper[q] != 0 || img.g[q] >= inkG + _artLightDelta)) {
           ringLight++;
           lightV.add(hsv.v[q]);
         }
@@ -1039,16 +1077,18 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
     if (ringN == 0) continue;
     var ring = ringPaper / ringN;
     var paperV = ringV.isEmpty ? 255.0 : _median(ringV);
+    var onArt = false;
     if (ring < _ringPaperMin) {
       // Any deck: an index on artwork, its surroundings lighter than its ink.
       if (!_anyDeck || ringLight / ringN < _artRingLightMin) continue;
       ring = 0.9 * ringLight / ringN;
       paperV = _median(lightV);
+      onArt = true;
     }
     final hue = _median(hs), sat = _median(ss), val = _median(vs);
     // Ink purity: clearly dark (black) or saturated pure red.
     final isRed = (hue <= _redHueMax - 1 || hue >= 168) && sat > _redPureSMin;
-    final isBlack = val < 0.5 * paperV && !isRed;
+    final isBlack = val < (onArt ? _artBlackMax : 0.5) * paperV && !isRed;
     if (!(isRed || isBlack)) continue;
     blobs.add(_Blob(c.minX, c.minY, bw, bh, c.cx, c.cy, md.toDouble(), isRed, mask)..ring = ring);
   }
@@ -1347,15 +1387,35 @@ List<_Read> _readIndicesCnn(
     _Planes img, _Hsv hsv, GlyphCnn cnn, List<_Rect> board, List<double> tta, Map<String, int> stats) {
   final sw = Stopwatch()..start();
   final blobs = _heroBlobs(img, hsv, board);
+  final nSingle = blobs.length;
+  // A "10" whose digits do not touch is two blobs: also try each close,
+  // same-size, same-colour pair as one rank glyph (read only as a ten).
+  // Any-deck mode only (a standard deck's 10 reads fine without).
+  for (var i = 0; _anyDeck && i < nSingle; i++) {
+    for (var j = i + 1; j < nSingle; j++) {
+      final a = blobs[i], b = blobs[j];
+      if (a.red != b.red) continue;
+      final big = math.max(a.md, b.md), small = math.min(a.md, b.md);
+      if (big > 1.3 * small) continue;
+      final d = math.sqrt((a.cx - b.cx) * (a.cx - b.cx) + (a.cy - b.cy) * (a.cy - b.cy));
+      if (d < 0.3 * big || d > 1.0 * big) continue;
+      blobs.add(_mergeBlobs(a, b, i, j));
+    }
+  }
   stats['blobs'] = sw.elapsedMilliseconds;
-  stats['nBlobs'] = blobs.length;
-  var calls = 0;
+  stats['nBlobs'] = nSingle;
+  var calls = 0, merged = 0;
   final reads = <_Read>[];
   for (var i = 0; i < blobs.length; i++) {
     final a = blobs[i];
-    for (var j = 0; j < blobs.length; j++) {
+    for (var j = 0; j < nSingle; j++) {
       if (i == j) continue;
       final b = blobs[j];
+      final pa = a.parts;
+      if (pa != null) {
+        // never a part of itself; a suit is smaller than a "10"
+        if (pa.$1 == j || pa.$2 == j || b.md > 0.9 * a.md) continue;
+      }
       if (a.red != b.red) continue;
       final ratio = a.md / b.md;
       if (!(ratio > 0.55 && ratio < 2.2)) continue;
@@ -1364,12 +1424,21 @@ List<_Read> _readIndicesCnn(
       final meanMd = (a.md + b.md) / 2;
       if (!(dist > 0.55 * meanMd && dist < 1.9 * meanMd)) continue;
       final ux = dx / dist, uy = dy / dist;
+      if (pa != null) {
+        // The two digits sit side by side: across the rank->suit direction.
+        final p1 = blobs[pa.$1], p2 = blobs[pa.$2];
+        final ex = p2.cx - p1.cx, ey = p2.cy - p1.cy;
+        final el = math.sqrt(ex * ex + ey * ey);
+        if ((ex * ux + ey * uy).abs() > 0.5 * el) continue;
+      }
       final pr = _ttaProbs(cnn, img, a, ux, uy, tta);
       calls += tta.length;
+      if (pa != null) merged += tta.length;
       var r = 0;
       for (var k = 1; k < 13; k++) {
         if (pr[k] > pr[r]) r = k;
       }
+      if (pa != null && r != 8) continue; // merged digits: a ten or nothing
       // score = P(rank) * P(suit) <= P(rank): skip the suit crops (half the
       // CNN work; Watch my cards runs this several times a second).
       if (pr[r] < _cnnScoreMin) continue;
@@ -1379,12 +1448,36 @@ List<_Read> _readIndicesCnn(
       final su = ps[glyphCnnSuit0 + allowed[0]] >= ps[glyphCnnSuit0 + allowed[1]] ? allowed[0] : allowed[1];
       final score = pr[r] * ps[glyphCnnSuit0 + su];
       if (score < _cnnScoreMin) continue;
-      reads.add(_Read(makeCard(r, su), score, i, j, meanMd, a.cx, a.cy, a.h / a.w));
+      reads.add(_Read(makeCard(r, su), score, i, j, meanMd, a.cx, a.cy, a.h / a.w)..parts = pa);
     }
   }
   stats['cnnCalls'] = calls;
-  reads.sort((x, y) => y.score.compareTo(x.score));
-  return reads;
+  stats['cnnMerged'] = merged;
+  if (blobs.length == nSingle) {
+    reads.sort((x, y) => y.score.compareTo(x.score));
+    return reads;
+  }
+  // A ten read from merged digits wins over reads of one of its digits
+  // with the same suit glyph (a lone "0" can look like a Q).
+  reads.sort((x, y) => x.parts != null && y.parts == null
+      ? -1
+      : x.parts == null && y.parts != null
+          ? 1
+          : y.score.compareTo(x.score));
+  final kept = <_Read>[];
+  for (final r in reads) {
+    final rp = r.parts;
+    final rankBlobs = rp == null ? {r.i} : {rp.$1, rp.$2};
+    final clash = kept.any((k) {
+      if (k.j != r.j) return false;
+      final kp = k.parts;
+      final kb = kp == null ? {k.i} : {kp.$1, kp.$2};
+      return kb.any(rankBlobs.contains);
+    });
+    if (!clash) kept.add(r);
+  }
+  kept.sort((x, y) => y.score.compareTo(x.score));
+  return kept;
 }
 
 /// Top two distinct cards (each card's best read).

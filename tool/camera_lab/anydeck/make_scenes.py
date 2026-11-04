@@ -33,7 +33,8 @@ CROP_FRAC = 0.6  # tool/glyph_probe.dart --frame-frac 0.6
 SUITS = 'cdhs'
 SUIT_CH = {'c': '♣', 'd': '♦', 'h': '♥', 's': '♠'}
 _FONTS = F.scan()
-RANK_TEST = [(p, i) for p, i, _ in _FONTS['rank_test']]
+# Card indices are regular to heavy weights: hairline faces are left out.
+RANK_TEST = [(p, i) for p, i, n in _FONTS['rank_test'] if not any(t in n for t in ('Light', 'Thin', 'Hairline'))]
 SUIT_TEST = [(p, i) for p, i, _ in _FONTS['suit_test']]
 
 
@@ -60,7 +61,9 @@ class Deck:
         self.idx_h = rng.uniform(0.11, 0.2)  # rank glyph height / card width
         self.suit_scale = rng.uniform(0.6, 0.95)
         self.black = S.ink_color(False, rng)
-        self.red = S.ink_color(True, rng)
+        # Printed card red: hue about -6..+10 degrees (OpenCV 177..5), not magenta.
+        hsv = np.uint8([[[rng.uniform(-3, 5) % 180, rng.uniform(150, 245), rng.uniform(140, 230)]]])
+        self.red = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)[0, 0].astype(np.float32)
         self.style = rng.choice(['bare', 'bare', 'plate', 'halo']) if kind == 'art' else 'bare'
         self.border = rng.uniform(0.0, 0.07) if rng.random() < 0.6 else 0.0
         self.seed = int(rng.integers(1 << 30))
@@ -127,7 +130,9 @@ def render_card(deck, card, W, rng):
     cv2.rectangle(alpha, (0, rad), (W, H - rad), 255, -1)
     for c in ((rad, rad), (W - rad, rad), (rad, H - rad), (W - rad, H - rad)):
         cv2.circle(alpha, c, rad, 255, -1)
-    return face, alpha
+    # top-left index: rank and suit centres, rank height (card pixels)
+    idx = ((rx + rm.shape[1] / 2, ry + rm.shape[0] / 2), (sx + sm.shape[1] / 2, sy + sm.shape[0] / 2), rm.shape[0])
+    return face, alpha, idx
 
 
 def place(canvas, img, alpha, M):
@@ -142,6 +147,7 @@ def scene(rng, kind):
     Wf, Hf = (720, 960) if rng.random() < 0.5 else (960, 720)
     short = min(Wf, Hf)
     canvas = A.table(Hf, Wf, rng)
+    glyphs = []
     cards = []
     while len(cards) < 2:
         c = RANKS[rng.integers(13)] + SUITS[rng.integers(4)]
@@ -155,13 +161,14 @@ def scene(rng, kind):
         rc = render_card(deck, card, cw, rng)
         if rc is None:
             return None
-        img, alpha = rc
+        img, alpha, idx = rc
         ang = base_ang + (k * rng.uniform(5, 15) if rng.random() < 0.6 else 0) + rng.normal(0, 3)
         M = cv2.getRotationMatrix2D((cw / 2, cw * 0.7), ang, 1.0)
         t = np.deg2rad(-base_ang)
         off = np.array([np.cos(t), np.sin(t)]) * shift * k + np.array([0, rng.uniform(0, 0.12) * cw * k])
         M[:, 2] += [cx0 - cw / 2 + off[0], cy0 - cw * 0.7 + off[1]]
         place(canvas, img, alpha, M)
+        glyphs.append((card, [tuple(M @ np.array([x, y, 1.0])) for x, y in idx[:2]], idx[2]))
     # thumb over the lower-left of the hand
     if rng.random() < 0.8:
         m = np.zeros((Hf, Wf), np.uint8)
@@ -190,7 +197,12 @@ def scene(rng, kind):
     x0 = int(np.clip(cx0 + shift / 2 - cw_ / 2, 0, Wf - cw_))
     y0 = int(np.clip(cy0 - ch_ / 2, 0, Hf - ch_))
     img = np.ascontiguousarray(img[y0:y0 + ch_, x0:x0 + cw_])
-    return img, ' '.join(cards), deck
+    gl = []
+    for card, pts, gh in glyphs:
+        q = cv2.perspectiveTransform(np.float32([pts]), P)[0] - [x0, y0]
+        gl.append({'card': card, 'rank': [round(float(v), 1) for v in q[0]], 'suit': [round(float(v), 1) for v in q[1]],
+                   'h': round(float(gh), 1)})
+    return img, ' '.join(cards), deck, gl
 
 
 def main():
@@ -209,22 +221,26 @@ def main():
     os.makedirs(out, exist_ok=True)
     rng = np.random.default_rng(seed)
     labels = {}
+    glyph_pos = {}  # top-left index positions (diagnostics: tool analyse_probe.py)
     i = 0
     while i < n:
         k = kind if kind != 'mix' else ('art' if rng.random() < 0.7 else 'std')
         s = scene(rng, k)
         if s is None:
             continue
-        img, cards, deck = s
+        img, cards, deck, gl = s
         h, w = img.shape[:2]
         name = 'scene%04d_%s_%dx%d.rgba' % (i, k, w, h)
         cv2.cvtColor(img, cv2.COLOR_BGR2RGBA).tofile(os.path.join(out, name))
         labels[name] = cards
+        glyph_pos[name] = gl
         if i < 12:
             cv2.imwrite(os.path.join(out, 'preview%02d.jpg' % i), img)
         i += 1
     with open(os.path.join(out, 'labels.json'), 'w') as f:
         json.dump(labels, f, indent=0)
+    with open(os.path.join(out, 'glyphs.json'), 'w') as f:
+        json.dump(glyph_pos, f)
     print('wrote', n, 'scenes to', out)
 
 

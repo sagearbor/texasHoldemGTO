@@ -49,6 +49,39 @@ def use_fonts(rank, suit):
     S.SUIT_FONTS[:] = suit
 
 
+def split_ten(h, rng):
+    """'1' and '0' rendered from the same face as two separate glyphs (many
+    decks print the 10 with a gap, so the blob finder sees two blobs).
+    Returns (mask of both, mask of the '1', mask of the '0')."""
+    spec = S.RANK_FONTS[rng.integers(len(S.RANK_FONTS))]
+    f = S.font(spec, int(h * 1.35))
+    ims = []
+    for ch in '10':
+        im = Image.new('L', (int(h * 3), int(h * 3)), 0)
+        ImageDraw.Draw(im).text((h // 2, h // 3), ch, font=f, fill=255)
+        m = np.array(im)
+        ys, xs = np.nonzero(m > 60)
+        if len(ys) == 0:
+            return None
+        ims.append((m, ys.min(), ys.max() + 1, xs.min(), xs.max() + 1))
+    y0 = min(a[1] for a in ims)
+    y1 = max(a[2] for a in ims)
+    gap = int(h * rng.uniform(0.06, 0.35))
+    w1 = ims[0][4] - ims[0][3]
+    w0 = ims[1][4] - ims[1][3]
+    W = w1 + gap + w0
+    out1 = np.zeros((y1 - y0, W), np.uint8)
+    out0 = np.zeros((y1 - y0, W), np.uint8)
+    out1[:, :w1] = ims[0][0][y0:y1, ims[0][3]:ims[0][4]]
+    out0[:, w1 + gap:] = ims[1][0][y0:y1, ims[1][3]:ims[1][4]]
+    sx = rng.uniform(0.6, 1.0) if rng.random() < 0.5 else 1.0
+    nh = max(4, int(h))
+    nw = max(3, int(W * nh / (y1 - y0) * sx))
+    r = lambda m: cv2.resize(m, (nw, nh), interpolation=cv2.INTER_AREA)
+    o1, o0 = r(out1), r(out0)
+    return np.maximum(o1, o0), o1, o0
+
+
 def ink_any(red, rng):
     """BGR ink colour: mostly black / red, sometimes an off colour."""
     if rng.random() < 0.78:
@@ -99,7 +132,7 @@ def scene_any(cls, bank, rng):
     img, kind = card_face(S_, rng)
     tgt = np.zeros((S_, S_), np.uint8)
     h = rng.uniform(26, 46)
-    if cls == 'bg':
+    if cls == 'bg' and rng.random() < 0.6:
         return bg_any(img, bank, rng, h)
     suits = 'cdhs'
     is_suit = cls in suits
@@ -107,7 +140,23 @@ def scene_any(cls, bank, rng):
     red = suit in 'dh'
     col = ink_any(red, rng)
     rank = cls if not is_suit else CLASSES[rng.integers(13)]
-    rm = S.glyph_mask(rank, h, rng)
+    # A ten printed as two separate digits is found as two blobs; the reader
+    # merges them (glyph_reader.dart) and reads the pair as a ten. One digit
+    # on its own is 'bg' (a lone "0" must not read as a Q, a "1" as a 7),
+    # and so is a rank and its suit taken as one blob.
+    part = None
+    split_part = cls == 'bg' and rng.random() < 0.55
+    if cls == 'bg':
+        rank = 'T' if split_part else CLASSES[rng.integers(13)]
+    if rank == 'T' and (split_part or (cls != 'bg' and rng.random() < 0.5)):
+        st = split_ten(h, rng)
+        if st is None:
+            return None
+        rm = st[0]
+        if cls == 'bg':
+            part = st[1] if rng.random() < 0.4 else st[2]
+    else:
+        rm = S.glyph_mask(rank, h, rng)
     sm = S.glyph_mask(suit, h * rng.uniform(0.5, 1.0), rng)
     if rm is None or sm is None:
         return None
@@ -164,8 +213,13 @@ def scene_any(cls, bank, rng):
     S.stamp(img, sm, sx, sy, col)
     m = rm if not is_suit else sm
     x, y = (rx, ry) if not is_suit else (sx, sy)
+    if part is not None:
+        m = part
     tgt[max(0, y):y + m.shape[0], max(0, x):x + m.shape[1]] = (m[max(0, -y):, max(0, -x):] > 100) * 255
-    return img, tgt, False
+    if cls == 'bg' and part is None:  # rank and suit as one blob
+        x0, y0 = max(0, min(rx, sx)), max(0, min(ry, sy))
+        tgt[y0:sy + sm.shape[0], x0:max(rx + rm.shape[1], sx + sm.shape[1])] = 255
+    return img, tgt, cls == 'bg'
 
 
 def bg_any(img, bank, rng, h):

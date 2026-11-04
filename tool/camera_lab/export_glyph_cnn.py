@@ -20,7 +20,9 @@ original is printed here.
 The fixture inputs are crops of glyphs rendered from macOS fonts (rotated,
 blurred, noisy) plus random noise: no photo pixels.
 
-  python tool/camera_lab/export_glyph_cnn.py <w16v2.pt> [val.npz]
+  python tool/camera_lab/export_glyph_cnn.py <w16v2.pt> [val.npz] [--out F.bin]
+
+(--out: write F.bin and F_vectors.bin instead of the app asset + fixture.)
 
 File format (little endian): 'FNCN', u8 version 1, u8 nLayers (8), then per
 layer: u8 type (0 conv3x3 pad1 + ReLU [+ pool2 if flag], 1 linear [+ ReLU if
@@ -150,6 +152,12 @@ def font_crops(n, rng):
 
 
 def main():
+    global OUT, FIX
+    if '--out' in sys.argv:  # write elsewhere (try a model without replacing the app's)
+        i = sys.argv.index('--out')
+        OUT = sys.argv[i + 1]
+        FIX = os.path.splitext(OUT)[0] + '_vectors.bin'
+        del sys.argv[i:i + 2]
     ck = torch.load(sys.argv[1], map_location='cpu')
     model = make_model(ck['width'])
     model.load_state_dict(ck['state'])

@@ -48,6 +48,7 @@ void main(List<String> argv) {
       : (jsonDecode(File(labelsPath).readAsStringSync()) as Map).cast<String, String>();
   final files = Directory(args.first).listSync().whereType<File>().where((f) => f.path.endsWith('.rgba')).toList()
     ..sort((a, b) => a.path.compareTo(b.path));
+  final stage = <String, int>{};
   var right = 0, wrong = 0, unread = 0, cardsRight = 0, cardsWrong = 0, cardsTotal = 0, ms = 0, calls = 0;
   for (final f in files) {
     final name = f.uri.pathSegments.last;
@@ -64,6 +65,7 @@ void main(List<String> argv) {
         scaleShortSide: frac >= 1 ? null : (now / frac).round());
     ms += sw.elapsedMilliseconds;
     calls += r.timingMs['cnnCalls'] ?? 0;
+    r.timingMs.forEach((k, v) => stage[k] = (stage[k] ?? 0) + v);
     final conf = [for (final c in r.hero) if (c.confident) c.card];
     var verdict = '';
     final truthS = labels[name];
@@ -89,7 +91,8 @@ void main(List<String> argv) {
         '${verbose ? '\n   reads ${r.reads.join(', ')} | ${r.timingMs}' : ''}');
   }
   stdout.writeln('--- ${files.length} images, mean ${(ms / files.length).toStringAsFixed(1)} ms, '
-      'cnn calls ${(calls / files.length).toStringAsFixed(1)} / image');
+      'cnn calls ${(calls / files.length).toStringAsFixed(1)} / image; stages '
+      '${stage.entries.map((e) => '${e.key} ${(e.value / files.length).toStringAsFixed(1)}').join(', ')}');
   if (labels.isNotEmpty) {
     stdout.writeln('hands right $right, wrong $wrong, unread $unread; '
         'cards right $cardsRight / $cardsTotal, wrong $cardsWrong');
