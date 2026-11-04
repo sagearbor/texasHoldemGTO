@@ -191,6 +191,7 @@ Future<void> main(List<String> argv) async {
       boardHeroCards += n;
     }
     final pair = pipe.onRead(f.$1, f.$2, readMs: f.$4);
+    final evidence = pipe.lastEvidence;
     if (verbose) {
       stdout.writeln('  read @${(f.$1.tMs / 1000).toStringAsFixed(2)}s ${f.$1.width}x${f.$1.height} '
           '${f.$4}ms ${f.$2.timingMs}: ${f.$2.hero.join(', ')}'
@@ -202,7 +203,7 @@ Future<void> main(List<String> argv) async {
             }()].join(' ')} md ${f.$2.heroSize == null ? '-' : (f.$2.heroSize! * f.$1.frameShort).toStringAsFixed(1)}'} | inView ${f.$2.cardsInView}');
     }
     if (pair == null) return;
-    final d = tracker.onRead(pair, f.$1.tMs, episode: pipe.cardEpisode, scene: pipe.sceneEpoch);
+    final d = tracker.onRead(pair, f.$1.tMs, episode: pipe.cardEpisode, scene: pipe.sceneEpoch, evidence: evidence);
     pipe.noteDecision(d);
     pipe.votesAfter(d);
     decisions.add((f.$1.tMs, d));
@@ -289,7 +290,8 @@ Future<void> main(List<String> argv) async {
   stdout.writeln('\n--- decisions');
   for (final (t, d) in decisions.where((e) => e.$2.action != WatchAction.confirm)) {
     stdout.writeln('${(t / 1000).toStringAsFixed(1)}s ${d.action.name.padRight(8)} ${prettyCards(d.cards)}'
-        '${d.previous == null ? '' : ' (was ${prettyCards(d.previous!)})'}');
+        '${d.previous == null ? '' : ' (was ${prettyCards(d.previous!)})'}'
+        '${d.evidence == null ? '' : '  ${d.evidence}'}');
   }
   final sum = WatchSessionSummary(endMs, pipe.counts, pipe.peeks);
   stdout.writeln('\n--- summary');
@@ -351,30 +353,39 @@ Future<void> main(List<String> argv) async {
   }
 }
 
-/// The hand log the decisions produce: (start ms, final cards) per hand;
-/// no cards = a hand counted but not read. newHand / newHandUnread start a
-/// hand; fill starts the first one or fills an unread one; correct replaces
-/// the cards.
-List<(int, List<int>)> handLog(List<(int, WatchDecision)> decisions) {
-  final hands = <(int, List<int>)>[];
+/// The hand log the decisions produce: (start ms, final cards, certainty
+/// of the decision that set them) per hand; no cards = a hand counted but
+/// not read. newHand / newHandUnread start a hand; fill starts the first
+/// one or fills an unread one; correct replaces the cards.
+List<(int, List<int>, double?)> handLog(List<(int, WatchDecision)> decisions) {
+  final hands = <(int, List<int>, double?)>[];
   for (final (t, d) in decisions) {
     switch (d.action) {
       case WatchAction.fill:
         if (hands.isNotEmpty && hands.last.$2.isEmpty) {
-          hands[hands.length - 1] = (hands.last.$1, d.cards);
+          hands[hands.length - 1] = (hands.last.$1, d.cards, d.certainty);
         } else {
-          hands.add((t, d.cards));
+          hands.add((t, d.cards, d.certainty));
         }
       case WatchAction.newHand:
-        hands.add((t, d.cards));
+        hands.add((t, d.cards, d.certainty));
       case WatchAction.newHandUnread:
-        hands.add((t, const []));
+        hands.add((t, const [], null));
       case WatchAction.correct:
-        if (hands.isNotEmpty) hands[hands.length - 1] = (hands.last.$1, d.cards);
+        if (hands.isNotEmpty) hands[hands.length - 1] = (hands.last.$1, d.cards, d.certainty);
       case _:
     }
   }
   return hands;
+}
+
+String _pct(double? c) => c == null ? '-' : '${(c * 100).round()}%';
+
+/// min / median / max of the known certainties in [cs].
+String _spread(Iterable<double?> cs) {
+  final v = [for (final c in cs) if (c != null) c]..sort();
+  if (v.isEmpty) return 'n 0';
+  return 'n ${v.length} min ${_pct(v.first)} median ${_pct(v[v.length ~/ 2])} max ${_pct(v.last)}';
 }
 
 /// Hand boundaries against the spoken "next hand" markers: a marker is
@@ -434,6 +445,7 @@ String scoreAgainstLabels(List<(int, WatchDecision)> decisions, List<(int, List<
     }
   }
   var right = 0, wrong = 0, missed = 0, unread = 0, bounds = 0;
+  final rightC = <double?>[], wrongC = <double?>[];
   final out = StringBuffer();
   for (var l = 0; l < labels.length; l++) {
     final h = handOf[l];
@@ -441,21 +453,31 @@ String scoreAgainstLabels(List<(int, WatchDecision)> decisions, List<(int, List<
     final ok = got != null && got.length == 2 && _same(got, labels[l].$2);
     if (ok) {
       right++;
+      rightC.add(hands[h!].$3);
     } else if (got == null) {
       missed++;
     } else if (got.isEmpty) {
       unread++;
     } else {
       wrong++;
+      wrongC.add(hands[h!].$3);
     }
     if (l > 0 && h != null && handOf[l - 1] != null && handOf[l - 1] != h) bounds++;
     out.writeln('${(labels[l].$1 / 1000).toStringAsFixed(1)}s truth ${prettyCards(labels[l].$2)}  '
         'logged ${got == null ? '-' : got.isEmpty ? '(not read)' : prettyCards(got)}  '
-        '${ok ? 'OK' : got == null ? 'MISSED' : got.isEmpty ? 'UNREAD (hand counted)' : 'WRONG'}');
+        '${ok ? 'OK' : got == null ? 'MISSED' : got.isEmpty ? 'UNREAD (hand counted)' : 'WRONG'}'
+        '${h == null || got!.isEmpty ? '' : '  ${_pct(hands[h].$3)}'}');
   }
   final spurious = labelOf.where((l) => l == null).length;
   out.writeln('hands ${labels.length}: right $right, wrong $wrong, counted unread $unread, missed $missed; '
       'spurious logged hands $spurious; false logs ${wrong + spurious}');
+  final spuriousC = [
+    for (var h = 0; h < hands.length; h++)
+      if (labelOf[h] == null && hands[h].$2.isNotEmpty) hands[h].$3
+  ];
+  out.writeln('certainty: logged ${_spread([for (final h in hands) if (h.$2.isNotEmpty) h.$3])}; '
+      'right ${_spread(rightC)}; wrong [${wrongC.map(_pct).join(', ')}]; '
+      'spurious [${spuriousC.map(_pct).join(', ')}]');
   out.write('hand boundaries: ${labels.length - 1} true, $bounds found between logged hands, '
       '${hands.length} hands logged');
   return out.toString();

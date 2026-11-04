@@ -3,7 +3,10 @@
 /// Galaxy, Garmin, Fitbit...), so the player feels a read without looking.
 ///
 ///  * PRIVACY: the propped phone faces the table, so the notification never
-///    says which cards: only "Felt Notes: cards read" / "cards corrected".
+///    says which cards: only "Felt Notes: cards read" / "cards corrected",
+///    plus how sure the camera is when known ("Felt Notes: cards read · 87%",
+///    an UNCALIBRATED certainty from watch_certainty.dart; a low one is the
+///    cue to peek again).
 ///  * One buzz = cards logged (or a new hand's cards), two buzzes (two
 ///    notifications a second apart) = corrected, nothing for re-peeks.
 ///  * Quiet on the phone: no sound, no heads-up banner (default importance
@@ -25,8 +28,13 @@ int buzzCount(WatchAction a) => switch (a) {
       _ => 0,
     };
 
-/// Notification text for [a]: never the cards.
-String buzzTitle(WatchAction a) => a == WatchAction.correct ? 'Felt Notes: cards corrected' : 'Felt Notes: cards read';
+/// Notification text for [a], with the [certainty] (0..1) as a percentage
+/// when known: never the cards.
+String buzzTitle(WatchAction a, [double? certainty]) {
+  final base = a == WatchAction.correct ? 'Felt Notes: cards corrected' : 'Felt Notes: cards read';
+  if (certainty == null || certainty.isNaN) return base;
+  return '$base · ${(certainty.clamp(0.0, 1.0) * 100).round()}%';
+}
 
 class WatchBuzz {
   static const _channel = 'watch_buzz';
@@ -70,8 +78,8 @@ class WatchBuzz {
     return false;
   }
 
-  /// Buzzes for [a] (nothing for confirmations).
-  Future<void> buzz(WatchAction a) async {
+  /// Buzzes for [a] (nothing for confirmations), titled with [certainty].
+  Future<void> buzz(WatchAction a, {double? certainty}) async {
     final n = buzzCount(a);
     if (n == 0 || !await _init()) return;
     for (var i = 0; i < n; i++) {
@@ -80,7 +88,7 @@ class WatchBuzz {
       try {
         await _n.show(
           id,
-          buzzTitle(a),
+          buzzTitle(a, certainty),
           null,
           const NotificationDetails(
             android: AndroidNotificationDetails(

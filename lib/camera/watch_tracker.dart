@@ -35,6 +35,7 @@
 library;
 
 import '../poker/cards.dart';
+import 'watch_certainty.dart';
 
 enum WatchAction {
   fill,
@@ -57,7 +58,15 @@ class WatchDecision {
 
   /// What [cards] replaced (correct) or closed (newHand); else null.
   final List<int>? previous;
-  const WatchDecision(this.action, this.cards, {this.previous});
+
+  /// What the camera's agreement on [cards] rested on (fill / newHand /
+  /// correct from a camera read; else null). See watch_certainty.dart.
+  final PairEvidence? evidence;
+  const WatchDecision(this.action, this.cards, {this.previous, this.evidence});
+
+  /// How sure the camera is of [cards], 0..1, UNCALIBRATED (see
+  /// [watchCertainty]); null when unknown.
+  double? get certainty => evidence?.certainty;
 
   /// True when the player should hear something.
   bool get speaks => action == WatchAction.fill || action == WatchAction.correct || action == WatchAction.newHand;
@@ -66,7 +75,7 @@ class WatchDecision {
   bool get startsHand => action == WatchAction.newHand || action == WatchAction.newHandUnread;
 
   @override
-  String toString() => '${action.name} ${prettyCards(cards)}';
+  String toString() => '${action.name} ${prettyCards(cards)}${evidence == null ? '' : ' $evidence'}';
 }
 
 /// [b] could be [a] with one card misread: one card in common, and the
@@ -130,7 +139,10 @@ class WatchHandTracker {
   /// it keeps one of the two cards (a misread fixed on a re-peek, the hands
   /// never left the view); otherwise it is the next hand, whatever the time.
   /// Without an episode, [correctionMs] decides.
-  WatchDecision onRead(List<int> pair, int tMs, {int? episode, int? scene}) {
+  ///
+  /// [evidence] (the camera's, for the pair) rides on the fill / newHand /
+  /// correct decision only; it never changes the decision.
+  WatchDecision onRead(List<int> pair, int tMs, {int? episode, int? scene, PairEvidence? evidence}) {
     final p = canonicalPair(pair);
     if (p[0] == p[1]) return WatchDecision(WatchAction.ignore, p);
     if (_vetoed.any((v) => _same(v, p))) return WatchDecision(WatchAction.ignore, p);
@@ -140,7 +152,7 @@ class WatchHandTracker {
       // missed: that hand ends here, unread.
       final missed = _partial.any((c) => !p.contains(c));
       _set(p, tMs, episode, scene);
-      return WatchDecision(missed ? WatchAction.newHand : WatchAction.fill, p);
+      return WatchDecision(missed ? WatchAction.newHand : WatchAction.fill, p, evidence: evidence);
     }
     if (_same(cur, p)) {
       _scene = scene ?? _scene;
@@ -155,11 +167,11 @@ class WatchHandTracker {
         ? episode == _setEpisode || (scene != null && scene == _scene && looksLikeMisread(cur, p))
         : tMs - _setAtMs <= correctionMs) {
       _set(p, tMs, episode, scene);
-      return WatchDecision(WatchAction.correct, p, previous: cur);
+      return WatchDecision(WatchAction.correct, p, previous: cur, evidence: evidence);
     }
     _vetoed.clear();
     _set(p, tMs, episode, scene);
-    return WatchDecision(WatchAction.newHand, p, previous: cur);
+    return WatchDecision(WatchAction.newHand, p, previous: cur, evidence: evidence);
   }
 
   /// A look ended (the cards went down, or out of view) without an agreed

@@ -34,6 +34,7 @@ import 'lens.dart';
 import 'lens_camera.dart';
 import 'snap_cards_screen.dart' show BetaBadge;
 import 'watch_buzz.dart';
+import 'watch_certainty.dart';
 import 'watch_debug_crops.dart';
 import 'watch_diagnostics.dart';
 import 'glyph_reader.dart';
@@ -424,7 +425,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       if (wasBroken) setState(() {});
       final pair = _pipe.onRead(job, r, readMs: sw.elapsedMilliseconds);
       _setStatus(_pipe.status(_clock.elapsedMilliseconds));
-      if (pair != null) _onPair(pair);
+      if (pair != null) _onPair(pair, _pipe.lastEvidence);
     }, onError: (Object e) {
       debugPrint('watch reader: $e');
       _pipe.onRead(job, GlyphReadResult.empty);
@@ -436,12 +437,13 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     if (s != _status && mounted) setState(() => _status = s);
   }
 
-  void _onPair(List<int> pair) {
+  void _onPair(List<int> pair, PairEvidence? evidence) {
     final h = widget.host;
     // The tracker runs on wall-clock ms (the logger's manual picks use it).
     final episode = _pipe.cardEpisode;
     _apply(
-        h.watchTracker.onRead(pair, DateTime.now().millisecondsSinceEpoch, episode: episode, scene: _pipe.sceneEpoch),
+        h.watchTracker.onRead(pair, DateTime.now().millisecondsSinceEpoch,
+            episode: episode, scene: _pipe.sceneEpoch, evidence: evidence),
         episode);
   }
 
@@ -470,7 +472,19 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         _ => 'logged',
       };
     });
-    if (WatchSettings.buzz.value) _buzz.buzz(d.action);
+    // Every logged pair's certainty and its raw parts, to calibrate it
+    // against the true cards later (watch_certainty.dart).
+    final ev = d.evidence;
+    if (ev != null) {
+      _log.append({
+        'type': 'decision',
+        't': _clock.elapsedMilliseconds,
+        'action': d.action.name,
+        'cards': d.cards.map(cardToString).join(' '),
+        ...ev.toJson(),
+      });
+    }
+    if (WatchSettings.buzz.value) _buzz.buzz(d.action, certainty: d.certainty);
     final text = spokenDecision(d);
     if (text != null && WatchSettings.voice.value) _voice.say(text);
   }
@@ -550,7 +564,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
           builder: (_, v, __) => SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Buzz my watch'),
-            subtitle: const Text('One buzz when your cards are read, two when corrected. The '
+            subtitle: const Text('One buzz when your cards are read (with how sure it is, '
+                'e.g. 87%: peek again when it is low), two when corrected. The '
                 'notification never shows the cards. Apple Watch: only while the iPhone is locked, '
                 'so not during Watch mode.'),
             value: v,

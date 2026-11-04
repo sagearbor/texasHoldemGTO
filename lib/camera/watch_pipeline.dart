@@ -41,6 +41,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'glyph_reader.dart';
+import 'watch_certainty.dart';
 import 'watch_diagnostics.dart';
 import 'watch_frame.dart';
 import 'watch_tracker.dart';
@@ -439,8 +440,15 @@ class PeekVoter {
   final int minAgree, windowMs, memoryMs;
   PeekVoter({this.minAgree = 2, this.windowMs = 2500, this.memoryMs = 90000});
 
-  final List<(int, List<int>)> _reads = [];
-  final List<(int, List<int>)> _pairs = [];
+  /// (ms, cards, each card's reader score or null).
+  final List<(int, List<int>, List<double?>)> _reads = [];
+  final List<(int, List<int>, List<double?>)> _pairs = [];
+
+  /// The evidence behind the pair the last [add] returned (null when it
+  /// returned none): scores, agreeing frames and the strongest rival, for
+  /// the certainty shown on the watch (watch_certainty.dart). Diagnostics
+  /// only: it never changes which pair is agreed.
+  PairEvidence? lastEvidence;
 
   /// No card other than [cards] was read in the current window.
   bool onlyCards(List<int> cards) => _reads.every((r) => r.$2.every(cards.contains));
@@ -455,8 +463,13 @@ class PeekVoter {
       return;
     }
     final kept = [
-      for (final (t, cs) in _reads)
-        if (cs.any(k.contains)) (t, [for (final c in cs) if (k.contains(c)) c])
+      for (final (t, cs, ss) in _reads)
+        if (cs.any(k.contains))
+          (
+            t,
+            [for (final c in cs) if (k.contains(c)) c],
+            [for (var i = 0; i < cs.length; i++) if (k.contains(cs[i])) ss[i]],
+          )
     ];
     _reads
       ..clear()
@@ -467,37 +480,72 @@ class PeekVoter {
   /// Frames that read the best pair together (diagnostics).
   int bestAgree = 0;
 
-  /// Adds one frame's confident cards; returns the agreed pair (high card
-  /// first) or null.
-  List<int>? add(List<int> cards, int tMs) {
+  /// Adds one frame's confident cards (and optionally each one's reader
+  /// [scores], same order: they only feed [lastEvidence]); returns the
+  /// agreed pair (high card first) or null.
+  List<int>? add(List<int> cards, int tMs, [List<double>? scores]) {
+    lastEvidence = null;
+    final sc = <double?>[for (var i = 0; i < cards.length; i++) scores != null && i < scores.length ? scores[i] : null];
     _reads.removeWhere((r) => tMs - r.$1 > windowMs);
     _pairs.removeWhere((r) => tMs - r.$1 > memoryMs);
-    if (cards.isNotEmpty) _reads.add((tMs, cards));
+    if (cards.isNotEmpty) _reads.add((tMs, cards, sc));
     var short = _shortWindow();
     // Only a frame that shows one of the pair's cards reports it: an empty
     // frame adds no evidence, and re-reporting old votes there turned the
     // next hand's peek into a "confirm" of the last hand (mock2: J♥ 6♣ lost
     // once the votes survived global changes).
     if (short != null && !cards.any(short.contains)) short = null;
+    if (short != null) lastEvidence = _windowEvidence(short);
     if (cards.length < 2) return short;
     // Across peeks: this frame's pair against remembered two-card frames.
     final p = canonicalPair([cards[0], cards[1]]);
+    final ps = cards[0] == p[0] ? [sc[0], sc[1]] : [sc[1], sc[0]];
     final counts = <(int, int), int>{};
-    for (final (_, q) in _pairs) {
+    for (final (_, q, _) in _pairs) {
       counts[(q[0], q[1])] = (counts[(q[0], q[1])] ?? 0) + 1;
     }
-    _pairs.add((tMs, p));
+    _pairs.add((tMs, p, ps));
     if (short != null) return short;
     final mine = (counts[(p[0], p[1])] ?? 0) + 1;
     final rival = counts.entries.where((e) => e.key != (p[0], p[1])).fold(0, (m, e) => math.max(m, e.value));
     bestAgree = math.max(bestAgree, mine);
-    if (mine >= minAgree && mine > rival) return p;
+    if (mine >= minAgree && mine > rival) {
+      final same = [for (final q in _pairs) if (q.$2[0] == p[0] && q.$2[1] == p[1]) q.$3];
+      lastEvidence = PairEvidence(
+          scoreHigh: meanScore(same.map((s) => s[0])),
+          scoreLow: meanScore(same.map((s) => s[1])),
+          agree: mine,
+          rival: rival,
+          via: 'memory');
+      return p;
+    }
     return null;
+  }
+
+  /// Evidence for [pair] agreed in the vote window.
+  PairEvidence _windowEvidence(List<int> pair) {
+    double? mean(int card) => meanScore([
+          for (final (_, cs, ss) in _reads)
+            for (var i = 0; i < cs.length; i++)
+              if (cs[i] == card) ss[i]
+        ]);
+    int seen(int card) => _reads.where((r) => r.$2.contains(card)).length;
+    var rival = 0;
+    final others = <int>{for (final (_, cs, _) in _reads) ...cs}..removeAll(pair);
+    for (final c in others) {
+      rival = math.max(rival, seen(c));
+    }
+    return PairEvidence(
+        scoreHigh: mean(pair[0]),
+        scoreLow: mean(pair[1]),
+        agree: math.min(seen(pair[0]), seen(pair[1])),
+        rival: rival,
+        via: 'window');
   }
 
   List<int>? _shortWindow() {
     final votes = <int, int>{};
-    for (final (_, cs) in _reads) {
+    for (final (_, cs, _) in _reads) {
       for (final c in cs.toSet()) {
         votes[c] = (votes[c] ?? 0) + 1;
       }
@@ -711,14 +759,21 @@ class WatchPipeline {
         box: box, rotation: rotation, mirrored: mirror, frameShort: math.min(f.width, f.height));
   }
 
+  /// The evidence behind the pair the last [onRead] returned (null when it
+  /// returned none): feeds the certainty on the watch buzz and in the log.
+  PairEvidence? lastEvidence;
+
   /// The reader finished [job]. Returns the agreed pair (high card first)
-  /// when this read completed one, else null. [readMs] feeds diagnostics.
+  /// when this read completed one, else null (see [lastEvidence]). [readMs]
+  /// feeds diagnostics.
   List<int>? onRead(ReadJob job, GlyphReadResult r, {int readMs = 0}) {
     _busy = false;
     counts.readMs += readMs;
     final guardedBefore = counts.boardGuarded;
     final hero = heroCards(r);
     final cards = [for (final c in hero) if (c.confident) c.card];
+    final scores = [for (final c in hero) if (c.confident) c.score];
+    lastEvidence = null;
     final pk = _peek;
     if (pk != null) {
       pk.guarded += counts.boardGuarded - guardedBefore;
@@ -773,7 +828,8 @@ class WatchPipeline {
         p.framesReadable++;
       }
     }
-    var pair = voter.add(cards, job.tMs);
+    var pair = voter.add(cards, job.tMs, scores);
+    var evidence = voter.lastEvidence;
     if (p != null) p.agree = math.max(p.agree, voter.bestAgree);
     if (pair == null &&
         hero.length == 2 &&
@@ -782,8 +838,11 @@ class WatchPipeline {
         voter.onlyCards(cards)) {
       pair = canonicalPair(cards);
       counts.singleFrame++;
+      final hi = hero[0].card == pair[0] ? 0 : 1;
+      evidence = PairEvidence(scoreHigh: hero[hi].score, scoreLow: hero[1 - hi].score, agree: 1, via: 'single');
     }
     if (pair == null) return null;
+    lastEvidence = evidence;
     _nextReadMs = math.max(_nextReadMs, job.tMs + cfg.satisfiedReadGapMs);
     if (p != null && p.confidentMs == null) {
       p.confidentMs = job.tMs;
