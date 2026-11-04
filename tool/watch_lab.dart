@@ -122,14 +122,14 @@ Future<void> main(List<String> argv) async {
     ringPaperMin: double.parse(opt('--ring', '0.5')!),
     maxBlobs: int.tryParse(opt('--max-blobs', '') ?? ''),
     findBoard: args.remove('--board'),
-    anyDeck: args.remove('--any'),
+    anyDeck: !args.remove('--no-any'),
   ));
   // Another classifier file (default the app's asset).
   final cnnPath = opt('--cnn', 'assets/data/glyph_cnn.bin')!;
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_lab.dart VIDEO [--short 720] [--fps 15] '
         '[--phone 2.0] [--labels L.json] [--start S] [--max S] [--tta] [--agree 2] '
-        '[--read-short 540] [--crop 0.5] [--no-wb] [--no-warm] [--any] [--cnn F] [--hlg LUT.cube] [--markers M.json] [--sat S] [--dump DIR] [-v]');
+        '[--read-short 540] [--crop 0.5] [--no-wb] [--no-warm] [--no-any] [--cnn F] [--hlg LUT.cube] [--markers M.json] [--sat S] [--dump DIR] [-v]');
     exit(2);
   }
   final cnn = GlyphCnn.parse(File(cnnPath).readAsBytesSync());

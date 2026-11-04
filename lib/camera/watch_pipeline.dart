@@ -108,7 +108,11 @@ class WatchConfig {
   final int? maxBlobs;
   final bool findBoard;
 
-  /// readGlyphs anyDeck: also read indices printed on artwork (art decks).
+  /// readGlyphs anyDeck: also read indices printed on artwork (art decks)
+  /// and tens whose digits do not touch. On the owner's standard-deck
+  /// clips it only adds hands (mock1 19 -> 21 right, rotated 16 -> 19,
+  /// HLG->SDR 11 -> 13; mock2 unchanged; still no wrong logs) for ~10 %
+  /// more blobs and CNN calls a read.
   final bool anyDeck;
 
   final int minAgree;
@@ -206,7 +210,7 @@ class WatchConfig {
     this.ringPaperMin = 0.5,
     this.maxBlobs,
     this.findBoard = false,
-    this.anyDeck = false,
+    this.anyDeck = true,
     this.minAgree = 2,
     this.voteWindowMs = 2500,
     this.flatAspect = 0.85,

@@ -15,7 +15,7 @@ crop normalisation, same degradations) with what non-standard decks do:
 The fonts in fonts.TEST_FAMILIES are never used here (held out for the
 any-deck test set, make_scenes.py).
 
-  python synth_any.py <bg_patches.npy> <out.npz> <n> [seed] [--std-frac 0.35]
+  python synth_any.py <bg_patches.npy> <out.npz> <n> [seed] [--std-frac 0.35] [--lone 0.55]
 
 --std-frac: share of samples drawn by the original synth.py generator
 (white card stock, its 45 fonts), so standard decks stay covered.
@@ -42,6 +42,8 @@ _FONTS = F.scan()
 RANK_TRAIN = [(p, i) for p, i, _ in _FONTS['rank_train']]
 SUIT_TRAIN = [(p, i) for p, i, _ in _FONTS['suit_train']]
 STD_RANK, STD_SUIT = list(S.RANK_FONTS), list(S.SUIT_FONTS)
+# Share of in-index 'bg' samples that are one digit of a split ten (--lone).
+LONE_DIGIT = 0.55
 
 
 def use_fonts(rank, suit):
@@ -145,7 +147,7 @@ def scene_any(cls, bank, rng):
     # on its own is 'bg' (a lone "0" must not read as a Q, a "1" as a 7),
     # and so is a rank and its suit taken as one blob.
     part = None
-    split_part = cls == 'bg' and rng.random() < 0.55
+    split_part = cls == 'bg' and rng.random() < LONE_DIGIT
     if cls == 'bg':
         rank = 'T' if split_part else CLASSES[rng.integers(13)]
     if rank == 'T' and (split_part or (cls != 'bg' and rng.random() < 0.5)):
@@ -261,7 +263,9 @@ def bg_any(img, bank, rng, h):
 
 
 def sample(args):
-    seed, bank_path, std_frac = args
+    seed, bank_path, std_frac, lone = args
+    global LONE_DIGIT
+    LONE_DIGIT = lone
     rng = np.random.default_rng(seed)
     bank = S._bank(bank_path)
     std = rng.random() < std_frac
@@ -307,13 +311,18 @@ def main():
         i = args.index('--std-frac')
         std_frac = float(args[i + 1])
         del args[i:i + 2]
+    lone = 0.55
+    if '--lone' in args:
+        i = args.index('--lone')
+        lone = float(args[i + 1])
+        del args[i:i + 2]
     if args[0] == '--extend-bank':
         extend_bank(args[1], args[2])
         return
     bank_path, out, n = args[0], args[1], int(args[2])
     seed0 = int(args[3]) if len(args) > 3 else 0
     with Pool(8) as pool:
-        res = pool.map(sample, [(seed0 * 10_000_000 + i, bank_path, std_frac) for i in range(n)], chunksize=256)
+        res = pool.map(sample, [(seed0 * 10_000_000 + i, bank_path, std_frac, lone) for i in range(n)], chunksize=256)
     X = np.stack([r[0] for r in res])
     y = np.array([r[1] for r in res], np.int64)
     np.savez_compressed(out, X=X, y=y)
