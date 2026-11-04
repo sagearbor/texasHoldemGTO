@@ -14,6 +14,7 @@ import '../../trainer/trainer_model.dart';
 import '../app_settings.dart';
 import '../chart_prefs.dart';
 import '../dev_mode.dart';
+import '../player_name.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
 import 'about_screen.dart';
@@ -55,6 +56,30 @@ class SettingsScreen extends StatelessWidget {
         builder: (context, _) => ListView(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
           children: [
+            // Most used first: name, camera lens, appearance.
+            const _Section(icon: Icons.badge_outlined, title: 'Your name', children: [_NameField()]),
+            _Section(icon: Icons.photo_camera_outlined, title: 'Camera lens', children: [
+              ValueListenableBuilder<LensChoice>(
+                valueListenable: CameraLens.choice,
+                builder: (context, v, _) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _Choices<LensChoice>(
+                    keyPrefix: 'lens',
+                    values: LensChoice.values,
+                    selected: v,
+                    label: (c) => lensChoiceLabels[c]!,
+                    onSelected: CameraLens.set,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                      switch (v) {
+                        LensChoice.auto => 'Normal lens for your cards, widest for the whole table.',
+                        LensChoice.normal => 'Always the normal lens.',
+                        LensChoice.widest => 'Always the ultra-wide lens (cards look smaller).',
+                      },
+                      style: Theme.of(context).textTheme.bodySmall),
+                ]),
+              ),
+            ]),
             _Section(icon: Icons.palette_outlined, title: 'Appearance', children: [
               const _Label('Theme'),
               _Choices<ThemeChoice>(
@@ -63,15 +88,6 @@ class SettingsScreen extends StatelessWidget {
                 selected: AppSettings.theme.value,
                 label: (c) => themeChoiceLabels[c]!,
                 onSelected: AppSettings.setTheme,
-              ),
-              const SizedBox(height: 4),
-              SwitchListTile(
-                key: const Key('settings-colorblind'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Colour-blind friendly charts'),
-                subtitle: const Text('Blue / orange plus patterns on every grid'),
-                value: ChartPrefs.colorBlind.value,
-                onChanged: ChartPrefs.setColorBlind,
               ),
               const _Label('Cards'),
               Row(children: [
@@ -92,12 +108,13 @@ class SettingsScreen extends StatelessWidget {
                     child: PlayingCard(card: makeCard(12, s), width: 24),
                   ),
               ]),
-              const SizedBox(height: 4),
-              Text(
-                  AppSettings.cardStyle.value == CardStyle.fourColor
-                      ? 'Clubs green, diamonds blue: no suit mix-ups.'
-                      : 'Classic deck: hearts and diamonds red.',
-                  style: Theme.of(context).textTheme.bodySmall),
+              SwitchListTile(
+                key: const Key('settings-colorblind'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Colour-blind friendly charts'),
+                value: ChartPrefs.colorBlind.value,
+                onChanged: ChartPrefs.setColorBlind,
+              ),
             ]),
             _Section(icon: Icons.fitness_center, title: 'Trainer', children: [
               if (trainer != null) ...[
@@ -109,32 +126,18 @@ class SettingsScreen extends StatelessWidget {
                   label: (d) => difficultyLabels[d]!,
                   onSelected: trainer.setDifficulty,
                 ),
-                const SizedBox(height: 4),
               ],
               SwitchListTile(
                 key: const Key('settings-dice'),
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Show solver dice on mixed hands'),
-                subtitle: const Text(
-                    'A roll that shows how the solver picks between actions'),
+                title: const Text('Solver dice on mixed hands'),
                 value: AppSettings.solverDice.value,
                 onChanged: AppSettings.setSolverDice,
               ),
             ]),
-            _Section(icon: Icons.groups, title: 'Home game', children: [
-              ValueListenableBuilder<String>(
-                valueListenable: AppSettings.playerName,
-                builder: (context, name, _) => ListTile(
-                  key: const Key('settings-player-name'),
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.badge_outlined),
-                  title: const Text('Your name at the table'),
-                  subtitle: Text(name.isEmpty ? 'Not set: asked once when you join a game' : name),
-                  onTap: () => editPlayerName(context),
-                ),
-              ),
+            _Section(icon: Icons.groups, title: 'Game nights', children: [
               if (home != null) ...[
-                const _Label('TV dashboard delay'),
+                const _Label('TV shows hands after'),
                 _Choices<int>(
                   keyPrefix: 'delay',
                   values: dashboardDelays,
@@ -142,43 +145,22 @@ class SettingsScreen extends StatelessWidget {
                   label: delayLabel,
                   onSelected: home.setDelay,
                 ),
-                const SizedBox(height: 8),
               ],
-              const _Label('Currency for My result'),
+              _Label('Currency for My result (${moneyLabel(42.5, signed: true)})'),
               _CurrencyChoices(current: AppSettings.currency.value),
-              const SizedBox(height: 4),
-              Text('Example: ${moneyLabel(42.5, signed: true)}',
-                  style: Theme.of(context).textTheme.bodySmall),
             ]),
-            _Section(icon: Icons.photo_camera_outlined, title: 'Camera lens', children: [
-              Text('For Watch my cards, Record the table and Snap my cards.',
-                  style: Theme.of(context).textTheme.bodySmall),
-              const SizedBox(height: 6),
-              ValueListenableBuilder<LensChoice>(
-                valueListenable: CameraLens.choice,
-                builder: (context, v, _) => _Choices<LensChoice>(
-                  keyPrefix: 'lens',
-                  values: LensChoice.values,
-                  selected: v,
-                  label: (c) => lensChoiceLabels[c]!,
-                  onSelected: CameraLens.set,
-                ),
+            Card(
+              child: ListTile(
+                key: const Key('settings-data'),
+                leading: Icon(Icons.settings_backup_restore, color: Felt.accent(context)),
+                title: const Text('Backup, restore & reset'),
+                subtitle: const Text('In About & privacy'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AboutScreen())),
               ),
-              const SizedBox(height: 4),
-              ValueListenableBuilder<LensChoice>(
-                valueListenable: CameraLens.choice,
-                builder: (context, v, _) => Text(
-                    switch (v) {
-                      LensChoice.auto => 'Record the table uses the widest lens; Watch and Snap the normal one.',
-                      LensChoice.normal => 'Every camera feature uses the normal lens.',
-                      LensChoice.widest => 'Every camera feature uses the ultra-wide lens where the phone has one. '
-                          'Cards look smaller, so Watch may read less well.',
-                    },
-                    style: Theme.of(context).textTheme.bodySmall),
-              ),
-            ]),
+            ),
             // Testing tools: developer mode only (About: tap the version 7
-            // times).
+            // times), last.
             if (DevMode.on.value)
               _Section(icon: Icons.science_outlined, title: 'Diagnostics', children: [
                 const SwitchListTile(
@@ -232,23 +214,59 @@ class SettingsScreen extends StatelessWidget {
                     },
                   ),
               ]),
-            _Section(icon: Icons.save_alt, title: 'Data', children: [
-              ListTile(
-                key: const Key('settings-data'),
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.settings_backup_restore),
-                title: const Text('Backup, restore & reset'),
-                subtitle: const Text('In About & privacy'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const AboutScreen())),
-              ),
-            ]),
           ],
         ),
       )),
     );
   }
+}
+
+/// The name, edited in place and saved as you type. Empty: error outline
+/// and "Needed for game nights".
+class _NameField extends StatefulWidget {
+  const _NameField();
+
+  @override
+  State<_NameField> createState() => _NameFieldState();
+}
+
+class _NameFieldState extends State<_NameField> {
+  late final _c = TextEditingController(text: AppSettings.playerName.value);
+  final _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    AppSettings.playerName.addListener(_sync);
+  }
+
+  /// Changed elsewhere (a restore, the Play prompt): show it unless typing.
+  void _sync() {
+    if (!_focus.hasFocus && _c.text.trim() != AppSettings.playerName.value) {
+      setState(() => _c.text = AppSettings.playerName.value);
+    }
+  }
+
+  @override
+  void dispose() {
+    AppSettings.playerName.removeListener(_sync);
+    _c.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => PlayerNameField(
+        key: const Key('settings-player-name'),
+        controller: _c,
+        focusNode: _focus,
+        warnWhenEmpty: true,
+        label: 'Your name at the table',
+        onChanged: (v) {
+          AppSettings.setPlayerName(v);
+          setState(() {});
+        },
+      );
 }
 
 class _Section extends StatelessWidget {
@@ -373,31 +391,4 @@ class _CurrencyChoices extends StatelessWidget {
       ),
     ]);
   }
-}
-
-/// Edit (or set) the name this phone joins games with. Returns the name,
-/// or null when cancelled.
-Future<String?> editPlayerName(BuildContext context, {String title = 'Your name at the table'}) async {
-  final c = TextEditingController(text: AppSettings.playerName.value);
-  final v = await showDialog<String>(
-    context: context,
-    builder: (d) => AlertDialog(
-      title: Text(title),
-      content: TextField(
-        controller: c,
-        autofocus: true,
-        maxLength: 24,
-        textCapitalization: TextCapitalization.words,
-        decoration: const InputDecoration(helperText: 'Shown to the table when you join a game'),
-        onSubmitted: (v) => Navigator.pop(d, v),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(d, c.text), child: const Text('Save')),
-      ],
-    ),
-  );
-  if (v == null) return null;
-  await AppSettings.setPlayerName(v);
-  return AppSettings.playerName.value;
 }

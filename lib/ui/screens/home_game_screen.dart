@@ -53,7 +53,7 @@ class HomeGameScreen extends StatelessWidget {
             title: Text(s == null ? 'Host a game' : s.name),
             actions: [
               const GlossaryButton(),
-              const HelpButton(HelpTopic.homeGame),
+              const HelpButton(HelpTopic.play),
               if (s != null) TableNightButton(session: s),
               if (s != null)
                 IconButton(

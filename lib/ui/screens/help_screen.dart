@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../app_data.dart';
 import '../../learn/glossary.dart';
 import '../../trainer/trainer_model.dart';
+import '../app_settings.dart';
 import '../dev_mode.dart';
 import '../theme.dart';
 import 'about_screen.dart';
@@ -11,226 +12,137 @@ import 'glossary_screen.dart';
 import 'leak_test_screen.dart';
 import 'settings_screen.dart';
 
-/// Help lines about developer-mode tools start with this.
-const _devOnlyPrefix = 'Record the table:';
+/// One help topic per screen: the Learn sections, Play and History.
+enum HelpTopic { train, charts, equity, stats, play, history }
 
-enum HelpTopic { train, charts, equity, stats, homeGame, terms }
+/// One help line: a short [title] anyone can scan, the long [detail] on tap.
+/// [dev] lines describe developer-mode tools and are hidden otherwise.
+class HelpTip {
+  final String title;
+  final String? detail;
+  final bool dev;
+  const HelpTip(this.title, [this.detail, this.dev = false]);
+}
 
-const _topics = {
-  HelpTopic.train: (
-    Icons.fitness_center,
-    'Train',
-    [
-      'You get a spot (your seat and what happened before you) plus two cards.',
-      'Tap what you would do. Felt Notes grades it against GTO straight away: '
-          'green = GTO play, gold = a mixed hand where either choice is fine, red = mistake.',
-      'Read the bullet points for the why, check the chart (your hand is outlined in gold), then tap Next hand.',
-      'The chip at the top right picks what you drill: all spots, 6-max 100bb, push/fold, '
-          'or "Drill my leaks", which keeps serving the spots and hands you miss.',
-      'Most hands dealt are borderline ones, because that is where mistakes happen.',
-      'Difficulty (in the drill menu or Settings): Beginner deals only clear-cut hands, Expert only '
-          'borderline ones. When the solver mixes a hand, the "solver dice" show how it '
-          'randomises between actions (Settings can hide the dice).',
-      'Daily 10 (gold card at the top): the same 10 hands for everyone today. One try per day; '
-          'keep your streak going and tap Copy result to brag in the group chat.',
-      'Drill my leaks uses spaced repetition: a hand you miss comes back in 10 minutes, then '
-          'after 1, 3, 7 and 21 days as you keep getting it right. "N due" shows what is waiting. '
-          'Mistakes from your home game are added automatically.',
-      'The 60-second leak test (offered on first launch, retake it at the bottom of this '
-          'page): 10 fast borderline hands, then plain-language leaks such as "you defend '
-          'too little from the big blind". "Drill my leaks" queues every hand you missed.',
-      'Quizzes (quiz icon at the top): pot odds ("what equity do I need to call?") and '
-          'range reading ("which hand is NOT in the button\'s opening range?"), 10 per session.',
-    ]
-  ),
-  HelpTopic.charts: (
-    Icons.grid_on,
-    'Charts',
-    [
-      'Each grid shows all 169 starting hands. Pairs run down the diagonal, suited hands '
-          'are above it, offsuit hands below.',
-      'Colours: red = raise / 3-bet / all-in, green = call, dark = fold. A cell split '
-          'between colours is a mixed hand: GTO plays it both ways at those rates.',
-      'Colour blind? The menu at the top right of Charts (or Settings) turns on colour-blind friendly charts: blue / orange '
-          'plus stripes = raise, dots = call, plain = fold, on every grid and bar.',
-      'Tap any hand for its frequencies and an explanation. "Drill" sends that spot to the trainer.',
-      'My mistakes (toggle above the grid): each hand coloured by how often you got it right in '
-          'that spot (or the whole group), recent answers counting most. Grey = not drilled yet. '
-          '"Drill my weak hands" deals mostly the reddest cells.',
-      '6-max 100bb charts are approximate GTO baselines. Push/fold charts are an exact '
-          'solution computed by Felt Notes.',
-      'River spots (solved), at the bottom of Charts: 258 river boards solved with CFR+ for '
-          'BB vs BTN, in single-raised and 3-bet pots, across six board textures, with 33%, 75% '
-          'and 150% bets and all-in raises. Browse each decision as a grid, read the value/bluff '
-          'summary, or drill it. Each board shows how exploitable its solution is. Ranges are '
-          'simplified (no flop/turn narrowing), so treat exact numbers as illustrative.',
-      'Short stack (Charts): solved jam-or-fold spots for cash games when the big blind has '
-          '15, 20 or 25bb: should the BB jam over an open, and should the opener call the jam? '
-          'The opening ranges are the approximate 100bb charts; the rest is solver output.',
-      'Facing limpers: iso-raise, overlimp or fold charts for limp-heavy home games '
-          '(hand-authored approximations).',
-      'Facing a 3-bet: you opened and got 3-bet. 4-bet (22bb in position, 25bb out of '
-          'position), call or fold, for the most common seat pairs (hand-authored '
-          'approximations). Hands you would not have opened are faded.',
-      'Push/fold "Players 3" shows 3-handed charts (BTN, SB, BB; 5–20bb, no ante): '
-          'pick the decision with the chips, e.g. "BB overcall" when BTN jams and SB calls.',
-    ]
-  ),
-  HelpTopic.equity: (
-    Icons.percent,
-    'Equity',
-    [
-      'Equity = your share of the pot if all the cards were run out.',
-      'Hand vs hand: tap the empty card slots to pick cards, add up to 6 players, '
-          'optionally add a board (3, 4 or 5 cards), then Calculate.',
-      'Hand vs range: compare your hand against everything a player would hold in a spot, '
-          'for example the hands the button opens.',
-    ]
-  ),
-  HelpTopic.stats: (
-    Icons.insights,
-    'Stats',
-    [
-      'Fills in as you train. The grid colours each hand by how GTO you play it: green good, red leak.',
-      '"Most teachable hands" lists your repeat mistakes, worst first. Tap one to review it.',
-      'Spots are listed weakest first, each with a Drill button.',
-      'GTO score over time (chart icon at the top): your accuracy per week or per day, '
-          'plus the GTO grade of each home-game night.',
-      'Everything stays on this phone.',
-    ]
-  ),
-  HelpTopic.homeGame: (
-    Icons.style_outlined,
-    'Play & History',
-    [
-      'The app has three tabs: Learn (Train, Charts, Equity and Stats, picked at the top), '
-          'Play (your home game) and History (past nights). It opens on Learn.',
-      'Play is one screen: games hosted at your table show up at the top by themselves '
-          '(Bluetooth) with a Join button, then Host a game, then "Scan the host\'s code", and '
-          '"This device is the TV" at the bottom. While a night runs on this phone, Play shows it.',
-      'Host a game: the names are filled in for you (your name, then Player 2, Player 3…); '
-          'edit them, pick yourself, then Start. '
-          'Leave "Learn the seats from the deal" on and you never type the seat order.',
-      'First orbit, organizer only: tap the name of whoever is dealing, each hand, as the '
-          'deal goes round. That tap order becomes the seating. After one orbit the button '
-          'moves by itself and you get one big Next hand button.',
-      'Every hand, the fastest habit: do nothing on hands you fold. An untouched hand '
-          'counts as a fold when Next hand is tapped. Played it? Use the big pad at the '
-          'bottom without looking: tap = call / limp, swipe up = raise, swipe down = undo, '
-          'swipe sideways = Next hand. Each one buzzes differently.',
-      'The buttons in the hand card do the same, and also record whether it was folded '
-          'to you or someone raised (needed for the GTO grade). Cards are optional: tap the '
-          'card slots; they are saved with the hand at Next hand.',
-      '"Didn\'t see this hand" saves it as unknown instead of a fold, so it does not '
-          'count for VPIP or PFR.',
-      'Your position is predicted from the button. If it\'s wrong (a re-deal), tap your '
-          'real position or tap "Dealer" and pick who is dealing. Someone new deals? Pick '
-          '"Someone new" there and they are seated where they dealt.',
-      'Someone joins or leaves: the menu at the top right → Players & seats.',
-      'Raise or fold mistakes in unopened pots pop up with a "Why?" link.',
-      'The TV icon opens the dashboard. To put a table night on the TV, use Show on the TV → '
-          'Cast to a TV (Android, same Wi-Fi as a Chromecast): the TV runs the table by itself '
-          'and your phone stays free. Or mirror (cast) your phone screen. '
-          'By default it only shows hands from 15+ minutes ago, so nobody reads the last hand '
-          'off the screen. Tap the clock at the top to choose Instant up to 60 minutes.',
-      'Undo last fixes a mis-tap. End the game night from the menu at the top right. Past nights are on the History tab.',
-      'Camera (under the card slots) opens Watch my cards. For a single photo instead, tap '
-          '"Just one photo" at the top of it (Snap my cards, Beta): take or pick a photo '
-          'of your two cards so the corners show. It reads them on your device (nothing is '
-          'uploaded) and also hints the street from the board cards it sees; always check the '
-          'cards before saving.',
-      'Watch my cards (Beta): tap Camera under the card slots, prop the phone up beside you with '
-          'the camera towards your cards, aim with the preview, then Start. The screen goes black '
-          '(it must stay open: phones only lend the camera to the app on screen). Peek at your '
-          'cards as usual: once a few frames agree, they are put on this hand and, if you wear '
-          'earbuds, said quietly in your ear ("ace of spades, king of diamonds"). It never speaks '
-          'through the phone speaker: if the earbuds drop, the voice pauses. "Buzz my watch" '
-          '(off by default) buzzes a paired smartwatch once for a read and twice for a '
-          'correction; the notification never shows the cards (Apple Watch only gets it while '
-          'the iPhone is locked). Looking again at '
-          'the same cards does nothing; a different read before you put the cards down replaces '
-          'a misread ("corrected"); different cards after you put them down start the next hand '
-          'as Next hand would (an untouched hand still counts as a fold). Wrong? Tap the chip on the black screen to fix it. '
-          'Unsure reads log no cards, so the card slots always work by hand; if it saw new cards '
-          'but could not read them, it still moves on to the next hand ("cards not read") so '
-          'your position stays right. Nothing is recorded: '
-          'each frame is read on the phone and dropped. The same two cards two hands in a row '
-          'merge into one hand unless Next hand is tapped in between. In the first orbit (seats '
-          'still being learnt) keep tapping the dealer: Watch only fills the cards.',
-      'Board caller (optional): whoever reads the flop, turn and river aloud holds the mic '
-          'button under the hand and says it, e.g. "flop king of hearts seven of spades four '
-          'of clubs", then "turn jack diamonds". Speech is recognised on the phone and never '
-          'recorded. Or tap the keyboard to type "Kh 7s 4c", or ✎ to pick the cards. The board '
-          'is saved with the hand when you log it.',
-      'Remembered your cards late? Enter them, tap "That was hand…" and pick the hand by its '
-          'board: they go on that hand instead of the one being played now.',
-      'With boards the Night Recap adds flops seen and your best made hand.',
-      'Blind clock: from the Host a game screen or the menu at the top right. It starts as a '
-          'cash game (stakes on the TV, no timer). For a tournament pick Tournament clock in '
-          'its menu: a big countdown, levels and breaks you can edit. It keeps time even if '
-          'the phone sleeps.',
-      'End game night shows the Night Recap: best hand, cold streaks, card luck, awards and '
-          '"Dealer of Doom" (who dealt you the worst cards). Copy it for the group chat.',
-      'Crew & season (History tab): everyone who has played, attendance streaks and your '
-          'trends from night to night.',
-      'Optional extras: tag a memorable hand (Bad beat, Cooler…) under the logger; it shows in '
-          'the recap and, after the delay, on the dashboard. "Draw for the button" on Host a game deals '
-          'a card to each seat (high card deals, ♠ > ♥ > ♦ > ♣ break ties). The menu at the top right → My result stores '
-          'your own buy-in and cash-out (just you — nobody else\'s money is tracked). '
-          'Badges for milestones are on Crew & season.',
-      'Table nights (other phones and a TV): leave "Let other phones and a TV join" on at '
-          'Start. The QR icon at the top shows a QR: each player taps "Scan the host\'s code" on '
-          'Play and photographs it once (or types the code), picks their name and '
-          'then taps only Call or Raise on hands they play; you keep tapping Next hand for '
-          'everyone. Phones work without signal and upload when they can. For the TV, tap Show on '
-          'the TV → Cast to a TV and pick the Chromecast (phone and TV on the same Wi-Fi; only '
-          'the night code is sent, never your screen or your cards). No Chromecast? Open the '
-          'link under the QR on a laptop, tablet or spare phone and cast or plug it in: it shows '
-          'the blind clock, everyone\'s hands, VPIP and PFR, recent hands and big hands, and '
-          'turns amber if your phone stops uploading.',
-      'What a table night shares: "Share my game with the table (TV)" is on by default and '
-          'can be switched off when joining or from the QR icon. On, your call / raise taps go '
-          'up as you tap, and the cards you enter only after the hand is over (nobody can read '
-          'them for 2 more minutes; the TV shows them a few minutes after the hand). Off, '
-          'nothing of yours leaves the phone (what was sent is deleted) and the TV shows you '
-          'as "private". The data has no account behind it (an anonymous id), is readable only '
-          'with the night\'s code, and is deleted after about 60 days. Your money never leaves '
-          'the phone.',
-      'Games nearby (no internet): on Play, tap Find games nearby once and allow Bluetooth. When a '
-          'phone at your table hosts a game, it is listed at the top of Play: tap Join. It only '
-          'looks while Play is on screen. It uses the '
-          'name you gave at the start (Settings → Your name at the table). While you are in a '
-          'game the phone also notes how strong the other Felt Notes phones\' Bluetooth signals '
-          'are, for a seat-finding experiment; that is never shown and stays on the phone with '
-          'sharing off. The QR still works too. "Leave it on the table" on the pad turns the screen '
-          'black and keeps the phone logging; tap it for the status and Exit.',
-      'Record the table: prop the phone where it sees the whole table, plugged in, and tap '
-          'Record the table. It uses the widest lens, checks the framing for 10 seconds with a '
-          'box per seat, then saves 1 to 2 photos a second and a log on this phone only (about '
-          '2 to 3 GB an hour) for working out seats and folds later. "Mark this hand" bookmarks '
-          'a hand, "I moved" starts a new segment, and you hold the red button to stop. The '
-          'screen dims after 30 seconds; tap to wake. Recordings & export shares a zip.',
-    ]
-  ),
-  HelpTopic.terms: (
-    Icons.menu_book,
-    'Poker terms',
-    [
-      'GTO (game-theory optimal): a strategy that can\'t be exploited. The baseline a solver finds.',
-      'bb: big blinds. Stacks and bets are measured in them.',
-      'RFI (raise first in): opening the pot with a raise when everyone before you folded.',
-      '3-bet: re-raising a raise (the blind is bet 1, the raise is bet 2).',
-      'Push/fold: with short stacks the choice is simply all-in or fold.',
-      'VPIP: % of hands you voluntarily put money in before the flop.',
-      'PFR: % of hands you raised before the flop. Compared with VPIP it shows how aggressive you are.',
-      'Positions: UTG (first to act) → HJ → CO → BTN (dealer, acts last) → SB → BB.',
-      'More terms: the Glossary (book icon at the top of Train, Play and History, or at the top '
-          'of this page). Tap a seat on the table diagram to look it up.',
-    ]
-  ),
+class HelpTopicInfo {
+  final IconData icon;
+  final String title;
+
+  /// One line on the Help page.
+  final String summary;
+  final List<HelpTip> tips;
+  const HelpTopicInfo(this.icon, this.title, this.summary, this.tips);
+}
+
+const helpTopics = {
+  HelpTopic.train: HelpTopicInfo(Icons.fitness_center, 'Learn: Train', 'Play hands, get graded against GTO', [
+    HelpTip('You get a spot and two cards: tap your play.',
+        'The spot is your seat and what happened before you. Felt Notes grades your answer straight away, '
+            'with the reasons in bullet points and the chart (your hand outlined in gold). Then tap Next hand.'),
+    HelpTip('Green = GTO play, gold = mixed (either is fine), red = mistake.'),
+    HelpTip('The chip at the top right picks what you drill.',
+        'All spots, 6-max 100bb, push/fold, or "Drill my leaks". Most hands dealt are borderline ones, '
+            'because that is where mistakes happen.'),
+    HelpTip('Daily 10: the same 10 hands for everyone today.',
+        'One try per day. Keep your streak going and tap Copy result to brag in the group chat.'),
+    HelpTip('Drill my leaks brings back the hands you miss.',
+        'Spaced repetition: a missed hand comes back in 10 minutes, then after 1, 3, 7 and 21 days as you keep '
+            'getting it right. "N due" shows what is waiting. Mistakes from your home game are added too.'),
+    HelpTip('Difficulty and the solver dice are in Settings.',
+        'Beginner deals only clear-cut hands, Expert only borderline ones. When the solver mixes a hand, the '
+            'solver dice show how it randomises between actions.'),
+    HelpTip('Quizzes (quiz icon): pot odds and range reading.', '10 questions per session.'),
+    HelpTip('The 60-second leak test: 10 fast hands, then your leaks.',
+        'Plain-language leaks such as "you defend too little from the big blind". Retake it from Help.'),
+  ]),
+  HelpTopic.charts: HelpTopicInfo(Icons.grid_on, 'Learn: Charts', 'Every preflop spot as a 13x13 grid', [
+    HelpTip('Pick the format and the spot at the top; the grid shows all 169 hands.',
+        'Pairs run down the diagonal, suited hands above it, offsuit hands below.'),
+    HelpTip('Red = raise / all-in, green = call, dark = fold.',
+        'A cell split between colours is a mixed hand: GTO plays it both ways at those rates.'),
+    HelpTip('Tap a hand for its frequencies and why. Drill sends the spot to Train.'),
+    HelpTip('My mistakes: the grid coloured by how often you got each hand right.',
+        'Recent answers count most. Grey = not drilled yet. "Drill my weak hands" deals mostly the reddest cells.'),
+    HelpTip('Colour-blind charts: the menu at the top right, or Settings.',
+        'Blue / orange plus patterns: stripes = raise, dots = call, plain = fold, on every grid and bar.'),
+    HelpTip('6-max 100bb, Short stack and Push/fold.',
+        '6-max 100bb charts are approximate GTO baselines (facing limpers and facing a 3-bet are hand-authored '
+            'approximations). Short stack: solved jam-or-fold spots when the big blind has 15, 20 or 25bb. '
+            'Push/fold is an exact solution computed by Felt Notes; "Players 3" shows 3-handed charts.'),
+    HelpTip('River spots (solved): at the bottom of Charts.',
+        '258 river boards solved with CFR+ for BB vs BTN, single-raised and 3-bet pots. Ranges are simplified, '
+            'so treat exact numbers as illustrative.'),
+  ]),
+  HelpTopic.equity: HelpTopicInfo(Icons.percent, 'Learn: Equity', 'Who is ahead, hand vs hand or range', [
+    HelpTip('Equity = your share of the pot if all the cards were run out.'),
+    HelpTip('Hand vs hand: tap the card slots, add players and a board, then Calculate.',
+        'Up to 6 players; the board can have 3, 4 or 5 cards.'),
+    HelpTip('Hand vs range: your hand against everything a player holds in a spot.'),
+  ]),
+  HelpTopic.stats: HelpTopicInfo(Icons.insights, 'Learn: Stats', 'Your accuracy and repeat mistakes', [
+    HelpTip('Fills in as you train: green = good, red = leak.'),
+    HelpTip('"Most teachable hands" lists your repeat mistakes, worst first.'),
+    HelpTip('Spots are listed weakest first, each with a Drill button.'),
+    HelpTip('GTO score over time: the chart icon at the top.',
+        'Your accuracy per week or per day, plus the GTO grade of each home-game night.'),
+  ]),
+  HelpTopic.play: HelpTopicInfo(Icons.style_outlined, 'Play', 'Host or join a game night, log your hands', [
+    HelpTip('Join: games at your table show up on Play. Tap Join.',
+        'Tap Find games nearby once and allow Bluetooth (no internet needed). It only looks while Play is on '
+            'screen and uses your name from Settings. In a game the phone also notes how strong the other '
+            'Felt Notes phones\' signals are, for a seat-finding experiment; that is never shown and stays on the '
+            'phone with sharing off.'),
+    HelpTip("Not listed? Tap Scan the host's code.",
+        "Photograph the host's QR once (or type the code), pick your name, then tap only Call or Raise on "
+            'hands you play.'),
+    HelpTip('Host a game: check the names, pick yourself, Start.',
+        'The names are filled in for you (your name, then Player 2, Player 3...). Leave "Learn the seats from '
+            'the deal" on and you never type the seat order.'),
+    HelpTip('First orbit (host): tap whoever is dealing, each hand.',
+        'That tap order becomes the seating. After one orbit the button moves by itself and you get one big '
+            'Next hand button.'),
+    HelpTip('Folded? Do nothing. Played it? Use the big pad.',
+        'An untouched hand counts as a fold at Next hand. On the pad: tap = call / limp, swipe up = raise, '
+            'swipe down = undo, swipe sideways = Next hand. Each buzzes differently. "Didn\'t see this hand" '
+            'saves it as unknown instead of a fold.'),
+    HelpTip('Wrong position or a mis-tap? Undo last, or tap the real position.',
+        'Tap "Dealer" to pick who is dealing; "Someone new" seats a new dealer where they dealt. Someone joins '
+            'or leaves: the menu at the top right, Players & seats.'),
+    HelpTip('Cards are optional: tap the card slots, or Camera.',
+        'Camera opens Watch my cards (Beta): prop the phone beside you, aim, Start. The screen goes black and '
+            'your cards are read when you peek, on the phone; nothing is recorded or uploaded. With earbuds '
+            'it says them quietly. Wrong? Tap the chip on the black screen. "Just one photo" reads a single '
+            'photo instead. Remembered your cards late? Enter them and tap "That was hand...".'),
+    HelpTip('Board caller: hold the mic button and say the flop.',
+        'For example "flop king of hearts seven of spades four of clubs", then "turn jack diamonds". Or tap '
+            'the keyboard to type "Kh 7s 4c". Speech is recognised on the phone and never recorded.'),
+    HelpTip('Show on the TV: Cast to a Chromecast, or open the TV link.',
+        'Cast to a TV (Android, same Wi-Fi): the TV runs the table by itself; only the night code is sent. '
+            'No Chromecast? Open the link under the QR on a laptop or tablet. The TV shows hands from 15+ '
+            'minutes ago by default (Settings, or the clock at the top of the dashboard).'),
+    HelpTip('Blind clock: Host a game, or the menu at the top right.',
+        'Starts as a cash game (stakes, no timer). Tournament clock: countdown, levels and breaks you can edit.'),
+    HelpTip('What a table night shares.',
+        'On by default: your call / raise taps, and your cards only after the hand is over. Off: nothing of yours '
+            'leaves the phone. No account (an anonymous id), readable only with the night\'s code, deleted after '
+            'about 60 days. Your money never leaves the phone.'),
+    HelpTip('End game night (top right menu) shows the Night Recap.',
+        'Best hand, cold streaks, card luck, awards and "Dealer of Doom". Copy it for the group chat.'),
+    HelpTip('Record the table (developer mode).',
+        'Prop the phone where it sees the whole table, plugged in. Saves 1 to 2 photos a second and a log on '
+            'this phone only (about 2 to 3 GB an hour). Hold the red button to stop.',
+        true),
+  ]),
+  HelpTopic.history: HelpTopicInfo(Icons.history, 'History', 'Past nights, recaps and your crew', [
+    HelpTip('Each past night has its Recap and Dashboard.'),
+    HelpTip('Crew & season: attendance, streaks, badges and trends.'),
+    HelpTip('My result (menu during a night): your own buy-in and cash-out.', 'Nobody else\'s money is tracked.'),
+    HelpTip('Everything stays on this phone: back it up from About & privacy.'),
+  ]),
 };
 
 class HelpScreen extends StatelessWidget {
+  /// The topic of the screen the "?" was tapped on, shown first.
   final HelpTopic? focus;
   const HelpScreen({super.key, this.focus});
 
@@ -238,74 +150,105 @@ class HelpScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final trainer = AppScope.maybeOf(context)?.trainer;
+    final accent = Felt.accent(context);
+    Widget header(String s) => Padding(
+          padding: const EdgeInsets.fromLTRB(4, 16, 4, 6),
+          child: Text(s, style: t.labelLarge?.copyWith(color: accent)),
+        );
+    Widget tile(IconData icon, String title, String subtitle, VoidCallback onTap, {Key? key, Color? subColor}) =>
+        Card(
+          child: ListTile(
+            key: key,
+            leading: Icon(icon, color: accent),
+            title: Text(title, style: t.titleMedium),
+            subtitle: Text(subtitle,
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: subColor == null ? null : TextStyle(color: subColor)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onTap,
+          ),
+        );
+    Widget topic(HelpTopic k, {Key? key}) {
+      final i = helpTopics[k]!;
+      return tile(i.icon, i.title, i.summary, () => openHelpTopic(context, k), key: key);
+    }
+
     return Scaffold(
-      appBar: AppBar(title: const Text('How to use Felt Notes')),
+      appBar: AppBar(title: const Text('Help')),
+      body: Felt.narrow(ValueListenableBuilder<String>(
+        valueListenable: AppSettings.playerName,
+        builder: (context, name, _) => ListView(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 32),
+          children: [
+            if (focus != null) ...[header('This screen'), topic(focus!, key: const Key('help-focus'))],
+            header('Settings'),
+            tile(
+              Icons.settings_outlined,
+              'Settings',
+              name.trim().isEmpty ? 'Your name is not set' : 'Your name, camera lens, appearance',
+              () => openSettings(context),
+              key: const Key('help-settings'),
+              subColor: name.trim().isEmpty ? Theme.of(context).colorScheme.error : null,
+            ),
+            tile(Icons.info_outline, 'About & privacy', 'Version, privacy, backup, feedback',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AboutScreen()))),
+            header('How to use'),
+            for (final k in HelpTopic.values)
+              if (k != focus) topic(k),
+            header('More'),
+            tile(Icons.menu_book_outlined, 'Glossary', '${glossary.length} poker terms in plain English',
+                () => openGlossary(context),
+                key: const Key('help-glossary')),
+            if (trainer != null)
+              tile(Icons.timer_outlined, 'Retake the leak test', '10 fast hands, then your leaks',
+                  () => openLeakTest(context, trainer)),
+          ],
+        ),
+      )),
+    );
+  }
+}
+
+void openHelpTopic(BuildContext context, HelpTopic k) =>
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => HelpTopicScreen(topic: k)));
+
+/// One topic: a short line per tip; tips with more to say expand on tap.
+class HelpTopicScreen extends StatelessWidget {
+  final HelpTopic topic;
+  const HelpTopicScreen({super.key, required this.topic});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final info = helpTopics[topic]!;
+    final accent = Felt.accent(context);
+    final tips = [
+      for (final tip in info.tips)
+        if (!tip.dev || DevMode.on.value) tip
+    ];
+    return Scaffold(
+      appBar: AppBar(title: Text(info.title)),
       body: Felt.narrow(ListView(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
         children: [
           Card(
-            child: ListTile(
-              key: const Key('help-settings'),
-              leading: Icon(Icons.settings_outlined, color: Felt.accent(context)),
-              title: Text('Settings', style: t.titleMedium),
-              subtitle: const Text('Theme, cards, difficulty, currency'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => openSettings(context),
-            ),
-          ),
-          Card(
-            child: ListTile(
-              key: const Key('help-glossary'),
-              leading: Icon(Icons.menu_book_outlined, color: Felt.accent(context)),
-              title: Text('Glossary', style: t.titleMedium),
-              subtitle: Text('${glossary.length} poker terms in plain English'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => openGlossary(context),
-            ),
-          ),
-          for (final e in _topics.entries)
-            Card(
-              child: ExpansionTile(
-                initiallyExpanded: e.key == focus,
-                leading: Icon(e.value.$1, color: Felt.accent(context)),
-                title: Text(e.value.$2, style: t.titleMedium),
-                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (final line in e.value.$3)
-                    if (DevMode.on.value || !line.startsWith(_devOnlyPrefix))
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 7, right: 8),
-                          child: Icon(Icons.circle, size: 6, color: Felt.accent(context)),
-                        ),
-                        Expanded(child: Text(line, style: t.bodyMedium)),
-                      ]),
-                    ),
-                ],
-              ),
-            ),
-          if (trainer != null)
-            Card(
-              child: ListTile(
-                leading: Icon(Icons.timer_outlined, color: Felt.accent(context)),
-                title: Text('Retake the leak test', style: t.titleMedium),
-                subtitle: const Text('10 fast hands, then your leaks in plain words'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => openLeakTest(context, trainer),
-              ),
-            ),
-          Card(
-            child: ListTile(
-              leading: Icon(Icons.info_outline, color: Felt.accent(context)),
-              title: Text('About & privacy', style: t.titleMedium),
-              subtitle: const Text('Version, privacy, credits, feedback, reset data'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context)
-                  .push(MaterialPageRoute(builder: (_) => const AboutScreen())),
-            ),
+            child: Column(children: [
+              for (final tip in tips)
+                tip.detail == null
+                    ? ListTile(
+                        leading: Icon(Icons.circle, size: 8, color: accent),
+                        minLeadingWidth: 8,
+                        title: Text(tip.title, style: t.bodyLarge),
+                      )
+                    : ExpansionTile(
+                        leading: Icon(Icons.circle, size: 8, color: accent),
+                        title: Text(tip.title, style: t.bodyLarge),
+                        shape: const Border(),
+                        collapsedShape: const Border(),
+                        childrenPadding: const EdgeInsets.fromLTRB(56, 0, 16, 12),
+                        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                        children: [Text(tip.detail!, style: t.bodyMedium)],
+                      ),
+            ]),
           ),
         ],
       )),
@@ -313,17 +256,16 @@ class HelpScreen extends StatelessWidget {
   }
 }
 
-/// "?" button for an AppBar that opens the guide at [topic].
+/// "?" button for an AppBar: Help, with [topic] (this screen) first.
 class HelpButton extends StatelessWidget {
   final HelpTopic topic;
   const HelpButton(this.topic, {super.key});
 
   @override
   Widget build(BuildContext context) => IconButton(
-        tooltip: 'How to use',
+        tooltip: 'Help',
         icon: const Icon(Icons.help_outline),
-        onPressed: () => Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => HelpScreen(focus: topic))),
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => HelpScreen(focus: topic))),
       );
 }
 

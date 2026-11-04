@@ -294,7 +294,7 @@ void main() {
       testWidgets('renders at 360px without overflow (${mode.name})', (tester) async {
         final (t, h) = await models(tester);
         await pumpApp(tester, const SettingsScreen(), t: t, h: h, mode: mode);
-        for (final s in ['Appearance', 'Trainer', 'Home game', 'Data']) {
+        for (final s in ['Your name', 'Camera lens', 'Appearance', 'Trainer', 'Game nights']) {
           await tester.scrollUntilVisible(find.text(s), 100,
               scrollable: find.byType(Scrollable).first);
           expect(find.text(s), findsOneWidget);
@@ -316,7 +316,11 @@ void main() {
       expect(Theme.of(tester.element(find.text('Appearance'))).brightness,
           Brightness.light);
 
+      await tester.ensureVisible(find.byKey(const Key('settings-colorblind')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('settings-colorblind')));
+      await tester.ensureVisible(find.byKey(const Key('cards-twoColor')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('cards-twoColor')));
       await tester.pumpAndSettle();
       expect(ChartPrefs.colorBlind.value, isTrue);
@@ -345,7 +349,7 @@ void main() {
       await tester.tap(find.byKey(const Key('currency-£')));
       await tester.pumpAndSettle();
       expect(AppSettings.currency.value, '£');
-      expect(find.text('Example: +£42.50'), findsOneWidget);
+      expect(find.text('Currency for My result (+£42.50)'), findsOneWidget);
 
       // Custom symbol through the dialog; an invalid one is refused.
       await tester.tap(find.byKey(const Key('currency-other')));
@@ -391,7 +395,7 @@ void main() {
       final (t, h) = await models(tester);
       await pumpApp(tester, const HelpScreen(), t: t, h: h);
       final top = tester.getTopLeft(find.byKey(const Key('help-settings'))).dy;
-      expect(top, lessThan(tester.getTopLeft(find.text('Train').first).dy));
+      expect(top, lessThan(tester.getTopLeft(find.text('Learn: Train').first).dy));
       await tester.tap(find.byKey(const Key('help-settings')));
       await tester.pumpAndSettle();
       expect(find.byType(SettingsScreen), findsOneWidget);
@@ -501,7 +505,7 @@ void main() {
       expectReadable(tester, find.text('Settings'), why: 'help settings title');
       expectIconVisible(tester, find.byIcon(Icons.settings_outlined),
           why: 'gold accent icon on a light card');
-      await tester.tap(find.text('Train'));
+      await tester.tap(find.text('Learn: Train'));
       await tester.pumpAndSettle();
       expectReadable(tester,
           find.textContaining('You get a spot').first, why: 'help body line');

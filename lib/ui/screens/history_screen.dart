@@ -28,7 +28,7 @@ class HistoryScreen extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(
             title: const Text('History'),
-            actions: const [GlossaryButton(), HelpButton(HelpTopic.homeGame)],
+            actions: const [GlossaryButton(), HelpButton(HelpTopic.history)],
           ),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),

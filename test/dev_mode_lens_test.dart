@@ -68,7 +68,7 @@ void main() {
     testWidgets('Settings hides Diagnostics unless developer mode is on', (tester) async {
       await pumpSettings(tester);
       final list = find.byType(Scrollable).first;
-      await tester.scrollUntilVisible(find.text('Data'), 100, scrollable: list);
+      await tester.scrollUntilVisible(find.byKey(const Key('settings-data')), 100, scrollable: list);
       expect(find.text('Diagnostics'), findsNothing);
       expect(find.byKey(const Key('settings-dev-mode')), findsNothing);
       expect(find.byKey(const Key('settings-bt-distance')), findsNothing);
@@ -80,6 +80,8 @@ void main() {
       expect(find.text('Diagnostics'), findsOneWidget);
 
       // The switch there turns it off again.
+      await tester.ensureVisible(find.byKey(const Key('settings-dev-mode')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('settings-dev-mode')));
       await tester.pumpAndSettle();
       expect(DevMode.on.value, isFalse);
@@ -190,7 +192,7 @@ void main() {
       await tester.tap(chip);
       await tester.pumpAndSettle();
       expect(CameraLens.choice.value, LensChoice.widest);
-      expect(find.textContaining('Every camera feature uses the ultra-wide'), findsOneWidget);
+      expect(find.textContaining('Always the ultra-wide lens'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
