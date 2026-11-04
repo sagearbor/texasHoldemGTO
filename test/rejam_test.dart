@@ -129,9 +129,13 @@ void main() {
     await tester.tap(find.text('Short stack'));
     await tester.pumpAndSettle();
     expect(find.text('BB jam vs BTN open (20bb)'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('chart-spot-picker')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('CO'));
     await tester.tap(find.text('Opener: call?'));
     await tester.tap(find.text('15bb'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chart-spot-done')));
     await tester.pumpAndSettle();
     expect(find.text('CO vs BB jam (15bb)'), findsOneWidget);
     await tester.scrollUntilVisible(find.textContaining('Drill CO vs BB'), 200);

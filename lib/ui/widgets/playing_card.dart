@@ -45,13 +45,17 @@ class PlayingCard extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                // Sized by the card, not the phone's text size (large text
+                // would not fit the fixed card).
                 Text(rankChars[cardRank(c)] == 'T' ? '10' : rankChars[cardRank(c)],
+                    textScaler: TextScaler.noScaling,
                     style: TextStyle(
                         fontSize: width * 0.42,
                         fontWeight: FontWeight.w800,
                         height: 1,
                         color: suitColor(cardSuit(c), style))),
                 Text(suitSymbols[cardSuit(c)],
+                    textScaler: TextScaler.noScaling,
                     style: TextStyle(
                         fontSize: width * 0.38,
                         height: 1.1,

@@ -99,7 +99,7 @@ class DailyCard extends StatelessWidget {
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) => DailyScreen(model: model))),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+              padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
               child: Row(children: [
                 Icon(Icons.today, color: Felt.accent(context), size: 30),
                 const SizedBox(width: 12),

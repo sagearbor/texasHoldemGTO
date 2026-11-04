@@ -70,6 +70,121 @@ class _ChartsScreenState extends State<ChartsScreen> {
     return widget.library.byId('pf-${bbSide ? 'bb' : 'sb'}-$stack');
   }
 
+  /// Every spot choice of the current format, in a sheet.
+  Future<void> _pickSpot(Map<String, List<Spot>> groups) => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheet) => StatefulBuilder(builder: (sheet, setSheet) {
+          final t = Theme.of(sheet).textTheme;
+          void set(VoidCallback f) {
+            setState(f);
+            setSheet(() {});
+          }
+
+          ChoiceChip chip(String label, bool selected, VoidCallback onTap, {Key? key}) => ChoiceChip(
+                key: key,
+                visualDensity: VisualDensity.compact,
+                showCheckmark: false,
+                label: Text(label),
+                selected: selected,
+                onSelected: (_) => onTap(),
+              );
+          Widget label(String s) => Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 4),
+                child: Text(s, style: t.labelLarge),
+              );
+          final children = <Widget>[
+            if (format == SpotFormat.cash100)
+              for (final g in groups.entries) ...[
+                label(g.key),
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  for (final c in g.value)
+                    chip(
+                        c.title.replaceAll(' open', '').replaceAll(' 3-bet', '').replaceAll('vs ', 'v '),
+                        c.id == cashId, () {
+                      setState(() => cashId = c.id);
+                      Navigator.pop(sheet);
+                    }),
+                ]),
+              ]
+            else if (format == SpotFormat.rejam) ...[
+              label('Opener'),
+              Wrap(spacing: 6, runSpacing: 6, children: [
+                for (final p in rejamOpeners) chip(p, p == rjOpener, () => set(() => rjOpener = p)),
+              ]),
+              label('Decision'),
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, label: Text('BB: jam?')),
+                  ButtonSegment(value: true, label: Text('Opener: call?')),
+                ],
+                selected: {rjOpenerSide},
+                onSelectionChanged: (v) => set(() => rjOpenerSide = v.first),
+              ),
+              label('Big blind stack'),
+              SegmentedButton<int>(
+                segments: [
+                  for (final st in rejamStacks) ButtonSegment(value: st, label: Text('${st}bb')),
+                ],
+                selected: {rjStack},
+                onSelectionChanged: (v) => set(() => rjStack = v.first),
+              ),
+            ] else ...[
+              if (has3) ...[
+                label('Players'),
+                SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(value: 2, label: Text('2')),
+                    ButtonSegment(value: 3, label: Text('3')),
+                  ],
+                  selected: {players},
+                  onSelectionChanged: (v) => set(() {
+                    players = v.first;
+                    stack = stack.clamp(minStack, maxStack);
+                  }),
+                ),
+              ],
+              label('Decision'),
+              if (threeHanded)
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  for (final n in pushFold3Nodes) chip(n.label, n.key == node3, () => set(() => node3 = n.key)),
+                ])
+              else
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('SB: jam?')),
+                    ButtonSegment(value: true, label: Text('BB: call jam?')),
+                  ],
+                  selected: {bbSide},
+                  onSelectionChanged: (v) => set(() => bbSide = v.first),
+                ),
+            ],
+          ];
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.8),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  ...children,
+                  if (format != SpotFormat.cash100) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton(
+                          key: const Key('chart-spot-done'),
+                          onPressed: () => Navigator.pop(sheet),
+                          child: const Text('Done')),
+                    ),
+                  ],
+                ]),
+              ),
+            ),
+          );
+        }),
+      );
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
@@ -85,110 +200,41 @@ class _ChartsScreenState extends State<ChartsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
+          // One compact header so the grid is on screen at once: the format,
+          // then the spot as a single "Spot ▾" button (choices in a sheet).
           SegmentedButton<SpotFormat>(
+            key: const Key('chart-format'),
+            showSelectedIcon: false,
+            style: const ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
             segments: [
-              const ButtonSegment(
-                  value: SpotFormat.cash100, label: Text('6-max 100bb')),
+              const ButtonSegment(value: SpotFormat.cash100, label: FittedBox(fit: BoxFit.scaleDown, child: Text('6-max 100bb', maxLines: 1))),
               if (hasRejam)
-                const ButtonSegment(
-                    value: SpotFormat.rejam, label: Text('Short stack')),
-              const ButtonSegment(
-                  value: SpotFormat.pushFold, label: Text('Push/fold')),
+                const ButtonSegment(value: SpotFormat.rejam, label: FittedBox(fit: BoxFit.scaleDown, child: Text('Short stack', maxLines: 1))),
+              const ButtonSegment(value: SpotFormat.pushFold, label: FittedBox(fit: BoxFit.scaleDown, child: Text('Push/fold', maxLines: 1))),
             ],
             selected: {format},
             onSelectionChanged: (v) => setState(() => format = v.first),
           ),
-          const SizedBox(height: 12),
-          if (format == SpotFormat.cash100)
-            for (final g in groups.entries) ...[
-              Text(g.key, style: t.labelLarge),
-              const SizedBox(height: 4),
-              Wrap(spacing: 6, runSpacing: 6, children: [
-                for (final c in g.value)
-                  ChoiceChip(
-                    visualDensity: VisualDensity.compact,
-                    showCheckmark: false,
-                    label: Text(c.title
-                        .replaceAll(' open', '')
-                        .replaceAll(' 3-bet', '')
-                        .replaceAll('vs ', 'v ')),
-                    selected: c.id == cashId,
-                    onSelected: (_) => setState(() => cashId = c.id),
-                  ),
-              ]),
-              const SizedBox(height: 10),
-            ]
-          else if (format == SpotFormat.rejam) ...[
-            Text('Opener', style: t.labelLarge),
-            const SizedBox(height: 4),
-            Wrap(spacing: 6, runSpacing: 6, children: [
-              for (final p in rejamOpeners)
-                ChoiceChip(
-                  visualDensity: VisualDensity.compact,
-                  showCheckmark: false,
-                  label: Text(p),
-                  selected: p == rjOpener,
-                  onSelected: (_) => setState(() => rjOpener = p),
-                ),
-            ]),
-            const SizedBox(height: 8),
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('BB: jam?')),
-                ButtonSegment(value: true, label: Text('Opener: call?')),
-              ],
-              selected: {rjOpenerSide},
-              onSelectionChanged: (v) => setState(() => rjOpenerSide = v.first),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            key: const Key('chart-spot-picker'),
+            style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
             ),
-            const SizedBox(height: 8),
-            SegmentedButton<int>(
-              segments: [
-                for (final st in rejamStacks)
-                  ButtonSegment(value: st, label: Text('${st}bb')),
-              ],
-              selected: {rjStack},
-              onSelectionChanged: (v) => setState(() => rjStack = v.first),
-            ),
-            const SizedBox(height: 10),
-          ] else ...[
-            if (has3) ...[
-              Row(children: [
-                Text('Players', style: t.labelLarge),
-                const SizedBox(width: 12),
-                SegmentedButton<int>(
-                  segments: const [
-                    ButtonSegment(value: 2, label: Text('2')),
-                    ButtonSegment(value: 3, label: Text('3')),
-                  ],
-                  selected: {players},
-                  onSelectionChanged: (v) => setState(() {
-                    players = v.first;
-                    stack = stack.clamp(minStack, maxStack);
-                  }),
-                ),
-              ]),
-              const SizedBox(height: 8),
-            ],
-            if (threeHanded)
-              Wrap(spacing: 6, runSpacing: 6, children: [
-                for (final n in pushFold3Nodes)
-                  ChoiceChip(
-                    visualDensity: VisualDensity.compact,
-                    showCheckmark: false,
-                    label: Text(n.label),
-                    selected: n.key == node3,
-                    onSelected: (_) => setState(() => node3 = n.key),
-                  ),
-              ])
-            else
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(value: false, label: Text('SB: jam?')),
-                  ButtonSegment(value: true, label: Text('BB: call jam?')),
-                ],
-                selected: {bbSide},
-                onSelectionChanged: (v) => setState(() => bbSide = v.first),
+            onPressed: () => _pickSpot(groups),
+            child: Row(children: [
+              Text('Spot: ', style: t.labelLarge),
+              Expanded(
+                child: Text(s.title, style: t.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
+              const Icon(Icons.arrow_drop_down),
+            ]),
+          ),
+          if (format == SpotFormat.pushFold)
             Row(children: [
               Text('${stack}bb', style: t.titleMedium),
               Expanded(
@@ -201,35 +247,60 @@ class _ChartsScreenState extends State<ChartsScreen> {
                   onChanged: (v) => setState(() => stack = v.round()),
                 ),
               ),
-            ]),
-          ],
+            ])
+          else
+            const SizedBox(height: 8),
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(s.title, style: t.titleMedium),
+                  // The spot's name is on the picker above; here only the
+                  // view toggle and the situation in words (on tap).
+                  Row(children: [
+                    Expanded(
+                      child: widget.model == null
+                          ? const SizedBox.shrink()
+                          : SegmentedButton<bool>(
+                              key: const Key('chart-mistakes-toggle'),
+                              showSelectedIcon: false,
+                              style: const ButtonStyle(
+                                visualDensity: VisualDensity.compact,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              segments: const [
+                                ButtonSegment(
+                                    value: false,
+                                    label: FittedBox(fit: BoxFit.scaleDown, child: Text('Chart', maxLines: 1))),
+                                ButtonSegment(
+                                    value: true,
+                                    label: FittedBox(fit: BoxFit.scaleDown, child: Text('My mistakes', maxLines: 1))),
+                              ],
+                              selected: {mistakes},
+                              onSelectionChanged: (v) => setState(() => mistakes = v.first),
+                            ),
+                    ),
+                    IconButton(
+                      key: const Key('chart-info'),
+                      tooltip: 'About this spot',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.info_outline, size: 20),
+                      onPressed: () => showDialog<void>(
+                        context: context,
+                        builder: (d) => AlertDialog(
+                          title: Text(s.title),
+                          content: Text(s.situation),
+                          actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('OK'))],
+                        ),
+                      ),
+                    ),
+                  ]),
                   if (s.handAuthored) ...[
-                    const SizedBox(height: 4),
                     const ApproximateChip(),
                     const SizedBox(height: 4),
                   ],
-                  Text(s.situation, style: t.bodySmall),
-                  const SizedBox(height: 10),
-                  if (widget.model != null) ...[
-                    SegmentedButton<bool>(
-                      key: const Key('chart-mistakes-toggle'),
-                      segments: const [
-                        ButtonSegment(value: false, label: Text('Chart')),
-                        ButtonSegment(value: true, label: Text('My mistakes')),
-                      ],
-                      selected: {mistakes},
-                      onSelectionChanged: (v) =>
-                          setState(() => mistakes = v.first),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
+                  const SizedBox(height: 6),
                   if (mistakes && widget.model != null)
                     _MistakesView(
                       model: widget.model!,

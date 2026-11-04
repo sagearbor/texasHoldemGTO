@@ -507,7 +507,9 @@ class ActionLegend extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 5),
-              Text(
+              // Large text: the label wraps instead of overflowing.
+              Flexible(
+                child: Text(
                   cb
                       ? '$a (${switch (actionKind(a)) {
                           ActionKind.aggressive => 'stripes',
@@ -516,6 +518,7 @@ class ActionLegend extends StatelessWidget {
                         }})'
                       : a,
                   style: Theme.of(context).textTheme.bodySmall),
+              ),
             ]),
         ],
       ),

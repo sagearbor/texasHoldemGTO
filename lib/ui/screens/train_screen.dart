@@ -48,9 +48,9 @@ class TrainScreen extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
                   children: [
                     DailyCard(model: model),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     _SessionBar(model: model),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 4),
                     _DrillCard(model: model, drill: d),
                   ],
                 ),
@@ -145,21 +145,26 @@ class _SessionBar extends StatelessWidget {
     final acc = model.sessionCount == 0
         ? '–'
         : '${(100 * model.sessionGood / model.sessionCount).round()}%';
+    // One slim line (was a three-tile card): the hand stays above the fold
+    // with large text.
     Widget stat(String label, String value) => Expanded(
-          child: Column(children: [
-            Text(value, style: t.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-            Text(label, style: t.bodySmall),
-          ]),
+          child: Text.rich(
+            TextSpan(children: [
+              TextSpan(text: value, style: t.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              TextSpan(text: ' $label', style: t.bodySmall),
+            ]),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         );
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(children: [
-          stat('Session', '${model.sessionCount}'),
-          stat('Accuracy', acc),
-          stat('Streak', '${model.streak}${model.streak >= 5 ? ' 🔥' : ''}'),
-        ]),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(children: [
+        stat('session', '${model.sessionCount}'),
+        stat('accuracy', acc),
+        stat('streak', '${model.streak}${model.streak >= 5 ? ' 🔥' : ''}'),
+      ]),
     );
   }
 }
@@ -181,18 +186,18 @@ class _DrillCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(children: [
-              Expanded(child: Text(spot.title, style: t.titleLarge)),
-              Chip(
-                label: Text(switch (spot.format) {
+            // The format as a small line above the title: the title gets the
+            // full width (with large text a chip squeezed it to 3 lines and
+            // pushed the cards below the fold).
+            Text(
+                switch (spot.format) {
                   SpotFormat.cash100 => '6-max · 100bb',
                   SpotFormat.pushFold => 'HU · Nash',
                   SpotFormat.pushFold3 => '3-handed · Nash',
                   SpotFormat.rejam => 'Short stack · solved',
-                }),
-                visualDensity: VisualDensity.compact,
-              ),
-            ]),
+                },
+                style: t.labelMedium?.copyWith(color: Felt.accent(context))),
+            Text(spot.title, style: t.titleLarge),
             if (spot.handAuthored) ...[
               const SizedBox(height: 4),
               const Align(
@@ -200,20 +205,33 @@ class _DrillCard extends StatelessWidget {
             ],
             const SizedBox(height: 4),
             Text(spot.situation, style: t.bodyMedium),
-            const SizedBox(height: 12),
-            TableDiagram(
-                hero: spot.hero,
-                villain: spot.villain,
-                otherVillains: spot.otherVillains,
-                headsUp: spot.format == SpotFormat.pushFold,
-                threeHanded: spot.format == SpotFormat.pushFold3),
-            const SizedBox(height: 16),
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              PlayingCard(card: drill.cards[0], width: 72),
-              const SizedBox(width: 10),
-              PlayingCard(card: drill.cards[1], width: 72),
-            ]),
-            const SizedBox(height: 18),
+            const SizedBox(height: 8),
+            // The table and your two cards side by side where the table
+            // still gets 200 px (a 412-dp phone): with large text the
+            // action buttons stay on screen without scrolling. Narrower,
+            // stacked as before (the seat labels need the room).
+            LayoutBuilder(builder: (context, c) {
+              final table = TableDiagram(
+                  hero: spot.hero,
+                  villain: spot.villain,
+                  otherVillains: spot.otherVillains,
+                  headsUp: spot.format == SpotFormat.pushFold,
+                  threeHanded: spot.format == SpotFormat.pushFold3);
+              final cards = [
+                PlayingCard(card: drill.cards[0], width: 64),
+                const SizedBox(width: 6),
+                PlayingCard(card: drill.cards[1], width: 64),
+              ];
+              if (c.maxWidth >= 320) {
+                return Row(children: [Expanded(child: table), const SizedBox(width: 10), ...cards]);
+              }
+              return Column(children: [
+                Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 300), child: table)),
+                const SizedBox(height: 10),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: cards),
+              ]);
+            }),
+            const SizedBox(height: 14),
             if (ans == null)
               Row(children: [
                 for (var i = 0; i < spot.actions.length; i++) ...[
@@ -253,16 +271,23 @@ class _DrillCard extends StatelessWidget {
                   showGrid: model.gradeOf(ans) != Grade.correct),
               const SizedBox(height: 14),
               Row(children: [
+                // Flexible: on a 360-dp phone the two buttons were wider
+                // than the card and overflowed.
                 if (model.gradeOf(ans) == Grade.correct)
-                  TextButton(
-                    onPressed: () => showCoachSheet(context, spot, drill.hand),
-                    child: const Text('See chart'),
+                  Flexible(
+                    child: TextButton(
+                      onPressed: () => showCoachSheet(context, spot, drill.hand),
+                      child: const Text('See chart'),
+                    ),
                   ),
                 const Spacer(),
-                FilledButton.icon(
-                  onPressed: model.next,
-                  icon: const Icon(Icons.arrow_forward),
-                  label: const Text('Next hand'),
+                Flexible(
+                  flex: 2,
+                  child: FilledButton.icon(
+                    onPressed: model.next,
+                    icon: const Icon(Icons.arrow_forward),
+                    label: const Text('Next hand'),
+                  ),
                 ),
               ]),
             ],

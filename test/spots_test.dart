@@ -262,6 +262,9 @@ void main() {
         theme: Felt.dark(),
         home: ChartsScreen(library: lib, onDrill: (_) {})));
     await tester.pumpAndSettle();
+    // The spots are in the picker sheet.
+    await tester.tap(find.byKey(const Key('chart-spot-picker')));
+    await tester.pumpAndSettle();
     expect(find.text(threeBetGroup), findsOneWidget);
     for (final label in [
       'UTG v IP',

@@ -82,8 +82,8 @@ class SolverDice extends StatelessWidget {
           Row(children: [
             Icon(Icons.casino_outlined, size: 18, color: Felt.accent(context)),
             const SizedBox(width: 6),
-            Text('Solver dice', style: t.labelLarge),
-            const Spacer(),
+            // Large text on a narrow phone: the title gives way.
+            Expanded(child: Text('Solver dice', style: t.labelLarge, maxLines: 1, overflow: TextOverflow.ellipsis)),
             Text('Roll $roll', style: t.labelLarge),
           ]),
           const SizedBox(height: 8),
