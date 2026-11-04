@@ -64,6 +64,10 @@ dependencies:
   # JPEGs do not shrink) to share to the Mac. 3.6.1 is pure Dart, Dart 3.0+,
   # and writes zip64 for sessions over 4 GB.
   archive: 3.6.1
+  # Cast to a TV (lib/ui/tv/cast/): finds Chromecasts on the Wi-Fi
+  # (_googlecast._tcp). Pure Dart, from flutter.dev. 0.3.2+8 is the last
+  # release for Dart 3.4 (0.3.3+1 needs Dart 3.10).
+  multicast_dns: 0.3.2+8
 
 dev_dependencies:
   flutter_test:
