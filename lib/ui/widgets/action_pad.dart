@@ -106,20 +106,22 @@ class _ActionPadState extends State<ActionPad> {
           ),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Column(children: [
+            // Scales down as a whole so large system text never spills
+            // onto the hint line below.
             Expanded(
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(label.toUpperCase(),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text(label.toUpperCase(),
                       maxLines: 1,
                       style: const TextStyle(
                           color: Colors.white,
                           fontSize: 40,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 1.5)),
-                ),
-                Text(sub, style: hint),
-              ]),
+                  Text(sub, style: hint),
+                ]),
+              ),
             ),
             FittedBox(
               fit: BoxFit.scaleDown,
