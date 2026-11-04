@@ -103,8 +103,8 @@ class _Hub extends StatelessWidget {
               if (joined) ...[
                 FilledButton.tonalIcon(
                   key: const Key('play-back-to-night'),
-                  onPressed: () => Navigator.of(context)
-                      .push(MaterialPageRoute(builder: (_) => const PlayerPadScreen())),
+                  onPressed: () =>
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PlayerPadScreen())),
                   icon: const Icon(Icons.touch_app_outlined),
                   label: Text('Back to ${_tn.tableName()}'),
                 ),
@@ -128,8 +128,8 @@ class _Hub extends StatelessWidget {
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 key: const Key('play-scan'),
-                onPressed: () => Navigator.of(context)
-                    .push(MaterialPageRoute(builder: (_) => const JoinTableNightScreen())),
+                onPressed: () =>
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const JoinTableNightScreen())),
                 icon: const Icon(Icons.qr_code_scanner),
                 label: const Text("Scan the host's code"),
               ),
@@ -160,8 +160,7 @@ class _NearbyGames extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     if (!_near.allowed) {
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('Games hosted at your table show up here by Bluetooth, no internet needed.',
-            style: t.bodySmall),
+        Text('Games hosted at your table show up here by Bluetooth, no internet needed.', style: t.bodySmall),
         const SizedBox(height: 6),
         OutlinedButton.icon(
           key: const Key('play-allow-bluetooth'),
@@ -198,8 +197,8 @@ class _NearbyGames extends StatelessWidget {
               Icon(Icons.bluetooth_searching, color: Felt.accent(context)),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(g.label,
-                    key: const Key('nearby-game'), style: t.titleSmall, overflow: TextOverflow.ellipsis),
+                child:
+                    Text(g.label, key: const Key('nearby-game'), style: t.titleSmall, overflow: TextOverflow.ellipsis),
               ),
               FilledButton(
                 key: const Key('nearby-join'),

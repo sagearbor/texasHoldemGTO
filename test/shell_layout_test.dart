@@ -124,8 +124,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('play-host')));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Record the table'), 100,
-        scrollable: find.byType(Scrollable).first);
+    await tester.scrollUntilVisible(find.text('Record the table'), 100, scrollable: find.byType(Scrollable).first);
     expect(find.text('Record the table'), findsOneWidget);
   });
 

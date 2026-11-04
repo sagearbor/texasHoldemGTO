@@ -44,8 +44,8 @@ class HistoryScreen extends StatelessWidget {
                 ),
               if (past.isNotEmpty) ...[
                 OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => CrewScreen(model: model))),
+                  onPressed: () =>
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => CrewScreen(model: model))),
                   icon: const Icon(Icons.groups_outlined),
                   label: const Text('Crew & season'),
                 ),
@@ -60,15 +60,13 @@ class HistoryScreen extends StatelessWidget {
                         TextButton(
                           child: const Text('Recap'),
                           onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                              fullscreenDialog: true,
-                              builder: (_) => RecapScreen(model: model, session: s))),
+                              fullscreenDialog: true, builder: (_) => RecapScreen(model: model, session: s))),
                         ),
                         IconButton(
                           tooltip: 'Dashboard',
                           icon: const Icon(Icons.bar_chart),
                           onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                              fullscreenDialog: true,
-                              builder: (_) => DashboardScreen(model: model, session: s))),
+                              fullscreenDialog: true, builder: (_) => DashboardScreen(model: model, session: s))),
                         ),
                       ]),
                     ),
