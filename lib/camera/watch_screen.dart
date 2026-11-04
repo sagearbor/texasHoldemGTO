@@ -109,13 +109,16 @@ class WatchSettings {
   }
 }
 
-Future<void> openWatchMode(BuildContext context, WatchHost host) async {
+/// True when the player picked "Just one photo" instead (the caller then
+/// opens Snap my cards); only offered with [offerOnePhoto].
+Future<bool> openWatchMode(BuildContext context, WatchHost host, {bool offerOnePhoto = false}) async {
   await WatchSettings.load();
-  if (!context.mounted) return;
-  await Navigator.of(context).push(MaterialPageRoute(
+  if (!context.mounted) return false;
+  final r = await Navigator.of(context).push<bool>(MaterialPageRoute(
     fullscreenDialog: true,
-    builder: (_) => WatchScreen(host: host),
+    builder: (_) => WatchScreen(host: host, offerOnePhoto: offerOnePhoto),
   ));
+  return r == true;
 }
 
 const _deviceDegrees = {
@@ -138,7 +141,10 @@ WatchFrame watchFrameFromCamera(CameraImage img) {
 
 class WatchScreen extends StatefulWidget {
   final WatchHost host;
-  const WatchScreen({super.key, required this.host});
+
+  /// Shows "Just one photo" on the setup page (pops with true).
+  final bool offerOnePhoto;
+  const WatchScreen({super.key, required this.host, this.offerOnePhoto = false});
 
   @override
   State<WatchScreen> createState() => _WatchScreenState();
@@ -525,6 +531,16 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
             'away, where it sees the corners when you peek. Then peek as usual: the cards are '
             'logged for this hand, no taps.',
             style: t.bodyMedium),
+        if (widget.offerOnePhoto)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const Key('watch-one-photo'),
+              onPressed: () => Navigator.of(context).pop(true),
+              icon: const Icon(Icons.photo_camera_outlined, size: 18),
+              label: const Text('Just one photo'),
+            ),
+          ),
         const SizedBox(height: 12),
         AspectRatio(
           aspectRatio: 3 / 4,

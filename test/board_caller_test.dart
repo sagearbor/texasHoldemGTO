@@ -250,8 +250,9 @@ void main() {
       // Widget tests run as Android: the mic is shown, never started here.
       expect(find.text('Hold to talk'), findsOneWidget);
       expect(find.textContaining('Felt Notes records nothing'), findsOneWidget);
-      // Watch my cards: visible to everyone (beta), never opened here.
-      expect(find.text('Watch my cards (beta)'), findsOneWidget);
+      // One Camera entry (Watch my cards, Snap inside), never opened here.
+      expect(find.text('Camera'), findsOneWidget);
+      expect(find.byTooltip('Snap my cards (beta)'), findsNothing);
 
       await tester.tap(find.byTooltip('Type the board'));
       await tester.pumpAndSettle();

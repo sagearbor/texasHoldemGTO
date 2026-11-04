@@ -377,7 +377,16 @@ class _LoggerState extends State<_Logger> implements WatchHost {
     _watch.manualCards(hasCards ? _cards : null, DateTime.now().millisecondsSinceEpoch);
   }
 
-  Future<void> _openWatch() => openWatchMode(context, this);
+  /// The one Camera entry: Watch my cards, with "Just one photo" inside
+  /// for Snap my cards.
+  Future<void> _openWatch() async {
+    final photo = await openWatchMode(context, this, offerOnePhoto: snapCardsSupported);
+    if (photo && mounted) await _snapCards();
+  }
+
+  /// Snap's own icon only where Watch cannot run (web); else it is inside
+  /// Camera.
+  bool get _snapIcon => snapCardsSupported && !watchModeSupported;
 
   /// Organizer, first orbit: [seat] is dealing now.
   void _dealerTap(int seat) {
@@ -573,7 +582,7 @@ class _LoggerState extends State<_Logger> implements WatchHost {
                   ]),
                   const SizedBox(height: 14),
                   Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    if (snapCardsSupported) const SizedBox(width: 56),
+                    if (_snapIcon) const SizedBox(width: 56),
                     // Without Semantics the card slots were invisible to screen
                     // readers (a bare GestureDetector has no tap action).
                     Semantics(
@@ -589,7 +598,7 @@ class _LoggerState extends State<_Logger> implements WatchHost {
                         ]),
                       ),
                     ),
-                    if (snapCardsSupported)
+                    if (_snapIcon)
                       SizedBox(
                         width: 56,
                         child:
@@ -617,8 +626,8 @@ class _LoggerState extends State<_Logger> implements WatchHost {
                       child: TextButton.icon(
                         key: const Key('watch-my-cards'),
                         onPressed: _openWatch,
-                        icon: const Icon(Icons.visibility_outlined, size: 18),
-                        label: const Text('Watch my cards (beta)'),
+                        icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                        label: const Text('Camera'),
                       ),
                     ),
                   const SizedBox(height: 14),

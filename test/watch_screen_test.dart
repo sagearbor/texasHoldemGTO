@@ -37,4 +37,37 @@ void main() {
         find.ancestor(of: find.text('Start watching'), matching: find.bySubtype<ButtonStyleButton>()));
     expect(start.onPressed, isNull);
   });
+
+  testWidgets('Camera entry: "Just one photo" returns to the logger for Snap', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    bool? got;
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () async => got = await openWatchMode(context, _Host(), offerOnePhoto: true),
+          child: const Text('open'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Watch my cards'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('watch-one-photo')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(got, isTrue);
+    expect(find.text('Watch my cards'), findsNothing);
+  });
+
+  testWidgets('no "Just one photo" unless offered', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await WatchSettings.load();
+    await tester.pumpWidget(MaterialApp(home: WatchScreen(host: _Host())));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+    await tester.pump();
+    expect(find.byKey(const Key('watch-one-photo')), findsNothing);
+  });
 }
