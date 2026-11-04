@@ -10,11 +10,14 @@
 /// frames agree; WatchHandTracker decides fill / confirm / correct / new
 /// hand; the cards are spoken only into earbuds (watch_voice.dart).
 ///
-/// Nothing is recorded or saved except the cards it reads and numeric
-/// diagnostics (watch_log_store.dart). Frames are dropped as soon as they
-/// are processed. The frame path (WatchFrame) does not care where frames
-/// come from, so a later record-while-watching mode can feed it frames from
-/// startVideoRecording(onAvailable: ...).
+/// By default nothing is recorded or saved except the cards it reads and
+/// numeric diagnostics (watch_log_store.dart); frames are dropped as soon
+/// as they are processed. "Also record the table" (watch_recorder.dart)
+/// keeps about one still a second from the same stream as a Record-the-
+/// table session, and "Wide shots between peeks" (watch_wide.dart) adds an
+/// ultra-wide still every few seconds while the gate is idle. The black
+/// screen has a dim action pad (the logger's: tap call, swipe up raise,
+/// swipe down undo, sideways next hand) for the hand being played.
 library;
 
 import 'dart:async';
@@ -28,8 +31,13 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../homegame/home_game.dart' show PreAction;
 import '../poker/cards.dart';
+import '../record/lens_alternator.dart' show sampledMeanLuma;
+import '../record/record_screen.dart' show RecordingsScreen;
+import '../record/record_session.dart' show RecordWarning, warningText;
 import '../ui/dev_mode.dart';
+import '../ui/widgets/action_pad.dart';
 import 'lens.dart';
 import 'lens_camera.dart';
 import 'snap_cards_screen.dart' show BetaBadge;
@@ -42,8 +50,10 @@ import 'watch_frame.dart';
 import 'watch_health.dart';
 import 'watch_log_store.dart';
 import 'watch_pipeline.dart';
+import 'watch_recorder.dart';
 import 'watch_tracker.dart';
 import 'watch_voice.dart';
+import 'watch_wide.dart';
 import 'watch_worker.dart';
 
 /// Live camera streams exist only in the Android / iOS apps.
@@ -72,6 +82,13 @@ abstract class WatchHost {
 
   /// Opens the card picker on [context]; the logger tells the tracker.
   Future<void> watchFixCards(BuildContext context);
+
+  /// Your action for the hand being played (the logger's action pad):
+  /// null = the default fold.
+  PreAction? get watchPendingAction;
+
+  /// Sets it, exactly as the logger's own pad does (null = undo).
+  void watchSetAction(PreAction? action);
 }
 
 /// Device-only Watch settings (not in backups: they describe this phone).
@@ -81,6 +98,8 @@ class WatchSettings {
   static const sharpKey = 'watch_sharp_v1';
   static const cropsKey = 'watch_debug_crops_v1';
   static const buzzKey = 'watch_buzz_v1';
+  static const recordKey = 'watch_record_v1';
+  static const wideKey = 'watch_wide_v1';
 
   static final voice = ValueNotifier<bool>(true);
   static final front = ValueNotifier<bool>(false);
@@ -94,6 +113,13 @@ class WatchSettings {
   /// Buzz a paired smartwatch on a read (off by default).
   static final buzz = ValueNotifier<bool>(false);
 
+  /// Also record the table (stills into Recordings). Default: on in
+  /// developer mode, else off.
+  static final record = ValueNotifier<bool>(false);
+
+  /// With recording: ultra-wide stills while no peek is going on.
+  static final wide = ValueNotifier<bool>(true);
+
   static Future<void> load() async {
     final p = await SharedPreferences.getInstance();
     voice.value = p.getBool(voiceKey) ?? true;
@@ -101,6 +127,8 @@ class WatchSettings {
     sharp.value = p.getBool(sharpKey) ?? false;
     crops.value = p.getBool(cropsKey) ?? false;
     buzz.value = p.getBool(buzzKey) ?? false;
+    record.value = p.getBool(recordKey) ?? DevMode.on.value;
+    wide.value = p.getBool(wideKey) ?? true;
   }
 
   static Future<void> set(ValueNotifier<bool> n, String key, bool v) async {
@@ -184,6 +212,24 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   String _lastWhat = '';
   bool _waitDealer = false;
 
+  /// "Also record the table": open for the whole stay on this screen
+  /// (camera restarts and the background continue it; Stop ends it).
+  WatchRecorder? _rec;
+
+  /// "Wide shots between peeks" on the camera open now, and why they went
+  /// off for this recording (a failed switch).
+  WideExcursion? _wide;
+  String? _wideOff;
+  bool _shownAway = false;
+
+  /// Storage / heat (and, recording, "no photo"): polled every 30 s.
+  final WatchConditions _cond = WatchConditions();
+  List<RecordWarning> _warnings = const [];
+  final Set<RecordWarning> _loggedWarnings = {};
+
+  /// Frame-clock ms of the last action-pad gesture (see [_carryAction]).
+  int? _padAtMs;
+
   @override
   void initState() {
     super.initState();
@@ -209,7 +255,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       final c = _cam;
       if (c == null || _opening) return;
       final was = _watching;
-      _stopWatching();
+      _stopWatching(end: false);
       _watching = was; // resume into the same mode
       _cam = null;
       c.dispose();
@@ -276,6 +322,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     final c = _cam;
     if (c == null || _watching) return;
     _pipe = WatchPipeline(_cfg);
+    _padAtMs = null;
     _peeksLogged = 0;
     _streamLogged = false;
     _battery.clear();
@@ -295,10 +342,14 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     });
     _sampleBattery();
     if (WatchSettings.voice.value) await _voice.refresh();
+    await _startRecording(c);
+    unawaited(_refreshConditions());
     _ticker = Timer.periodic(const Duration(seconds: 10), (t) {
       _drainPeeks();
       if (WatchSettings.voice.value) _voice.refresh();
       if (t.tick % 60 == 0) _sampleBattery(); // every 10 minutes
+      if (t.tick % 3 == 0) unawaited(_refreshConditions());
+      if (t.tick % 6 == 0) _writeStatus();
     });
     _health.start(_clock.elapsedMilliseconds);
     _healthTicker = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -309,6 +360,135 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     } catch (e) {
       _report(_health.onFailure('Camera stream would not start'), detail: e);
     }
+  }
+
+  /// Opens (or, after a camera restart, continues) the recording, and sets
+  /// up wide shots on camera [c] when they can work: Android, back lens,
+  /// the normal lens open with an ultra-wide reachable by zoom.
+  Future<void> _startRecording(CameraController c) async {
+    if (!WatchSettings.record.value) return;
+    final lens = _lens;
+    if (lens == null) return;
+    var rec = _rec;
+    if (rec == null) {
+      try {
+        rec = await WatchRecorder.start(lens: lens, cam: c, extra: {
+          'watch': {
+            'preset': WatchSettings.sharp.value ? '1080p' : '720p',
+            'lens': WatchSettings.front.value ? 'front' : 'back',
+            'voice': WatchSettings.voice.value,
+            'buzz': WatchSettings.buzz.value,
+            'wide_shots': WatchSettings.wide.value,
+          },
+        });
+      } catch (e) {
+        _log.append({'type': 'error', 'what': 'recording would not start', 'detail': '$e'});
+        return;
+      }
+      if (!mounted || !_watching) {
+        rec.stop();
+        return;
+      }
+      _rec = rec;
+    } else {
+      rec.setBackground(false);
+    }
+    _wide = null;
+    final min = lens.minZoom;
+    final canWide = WatchSettings.wide.value &&
+        _wideOff == null &&
+        Platform.isAndroid &&
+        !WatchSettings.front.value &&
+        lens.kind == 'wide' &&
+        min != null &&
+        min < 1.0;
+    if (WatchSettings.wide.value && !canWide && _wideOff == null) {
+      rec.write(('wide_unavailable', {'lens': lens.toJson(), 'front': WatchSettings.front.value}));
+    }
+    if (!canWide) return;
+    _wide = WideExcursion(
+      setZoom: c.setZoomLevel,
+      nowMs: () => _clock.elapsedMilliseconds,
+      wideZoom: min,
+      onEvent: (k, f) {
+        _rec?.write((k, {'seg': _rec?.session.segment.n, ...f}));
+        if (k == 'wide_off') {
+          _wideOff = _wide?.offReason ?? 'off';
+          _log.append({'type': 'wide_off', ...f, 'tMs': _clock.elapsedMilliseconds});
+          if (mounted) setState(() {});
+        }
+      },
+    );
+    rec.write(('wide_start', {'wide_zoom': min, 'interval_ms': _wide!.intervalMs, 'idle_ms': _wide!.idleMs}));
+  }
+
+  Future<void> _refreshConditions() async {
+    await _cond.refresh(_rec?.dir, () async {
+      final b = Battery();
+      final level = await b.batteryLevel;
+      final st = await b.batteryState;
+      return (
+        level,
+        st == BatteryState.charging || st == BatteryState.full
+            ? true
+            : st == BatteryState.discharging
+                ? false
+                : null
+      );
+    });
+    if (!mounted || !_watching) return;
+    _updateWarnings();
+  }
+
+  void _updateWarnings() {
+    final rec = _rec;
+    final ms = rec?.clock.elapsedMilliseconds ?? 0;
+    final perHour = rec == null || ms < 60000 || rec.session.photos == 0
+        ? (rec == null ? 0 : 1 << 30) // ~1 GB/h guess until measured
+        : (rec.session.photoBytes * 3600000 / ms).round();
+    final since = rec == null ? null : ms - (rec.lastPhotoMs ?? 0);
+    final w = watchWarnings(_cond, bytesPerHour: perHour, msSincePhoto: since);
+    for (final x in w) {
+      if (_loggedWarnings.add(x)) {
+        rec?.write(('warn', {'what': x.name, 'on': true}));
+        _log.append({'type': 'warn', 'what': x.name, 'tMs': _clock.elapsedMilliseconds});
+        // Once, gently: these do not stop the reading.
+        HapticFeedback.heavyImpact();
+        if (WatchSettings.voice.value) _voice.say(warningText(x)).ignore();
+      }
+    }
+    for (final x in _loggedWarnings.difference(w.toSet()).toList()) {
+      _loggedWarnings.remove(x);
+      rec?.write(('warn', {'what': x.name, 'on': false}));
+    }
+    setState(() => _warnings = w);
+  }
+
+  /// Under 200 MB free: stop saving stills (the reader goes on).
+  bool get _storageOk => _cond.free == null || _cond.free! > 200 * 1024 * 1024;
+
+  void _writeStatus() {
+    final rec = _rec;
+    if (rec == null) return;
+    final ex = _wide;
+    rec.write(('status', {
+      'seg': rec.session.segment.n,
+      'phase': rec.session.phase.name,
+      'photos': rec.session.photos,
+      'bytes': rec.session.photoBytes,
+      ..._cond.toJson(),
+      'bg': rec.session.backgrounded,
+      'skipped_busy': rec.pacer.skippedBusy,
+      'watch': {
+        'peeks': _pipe.peeks.length,
+        'reads': _pipe.counts.read,
+        'hand': widget.host.watchHandNumber,
+        if (_health.problem != null) 'problem': _health.problem,
+      },
+      'wide': ex == null
+          ? {'on': false, if (_wideOff != null) 'off': _wideOff}
+          : {'on': !ex.off, 'excursions': ex.excursions, 'stills': ex.stills, 'aborts': ex.aborts, 'saved': rec.wideStills},
+    }));
   }
 
   /// A new pipeline problem: buzz the phone (and say it in the earbuds),
@@ -323,6 +503,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       'tMs': _clock.elapsedMilliseconds,
       'at': DateTime.now().toIso8601String(),
     });
+    _rec?.write(('watch_error', {'what': problem, if (detail != null) 'detail': '$detail'}));
     () async {
       for (var i = 0; i < 3; i++) {
         await HapticFeedback.heavyImpact();
@@ -334,7 +515,9 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
-  void _stopWatching() {
+  /// [end]: the owner stopped (or left): the recording ends too. Else the
+  /// camera is only going away for a while (background, restart).
+  void _stopWatching({bool end = true}) {
     if (!_watching) return;
     _watching = false;
     _ticker?.cancel();
@@ -342,11 +525,28 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     _healthTicker?.cancel();
     _healthTicker = null;
     final c = _cam;
+    final ex = _wide;
+    _wide = null;
+    if (ex != null) {
+      final away = ex.away;
+      ex.stop(end ? 'stopped' : 'camera released');
+      // Never leave the camera on the ultra-wide for the next start.
+      if (away && c != null) c.setZoomLevel(1.0).ignore();
+    }
+    _shownAway = false;
     if (c != null && c.value.isStreamingImages) c.stopImageStream().ignore();
     WakelockPlus.disable();
     final t = _clock.elapsedMilliseconds;
     _pipe.flush(t);
     _drainPeeks();
+    _writeStatus();
+    if (end) {
+      _rec?.stop();
+      _rec = null;
+      _wideOff = null;
+    } else {
+      _rec?.setBackground(true);
+    }
     _sampleBattery().then((_) {
       final s = WatchSessionSummary(t, _pipe.counts, _pipe.peeks, battery: List.of(_battery));
       _log.append({...s.toJson(), 'end': DateTime.now().toIso8601String()});
@@ -364,7 +564,9 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
 
   void _drainPeeks() {
     while (_peeksLogged < _pipe.peeks.length) {
-      _log.append(_pipe.peeks[_peeksLogged++].toJson());
+      final j = _pipe.peeks[_peeksLogged++].toJson();
+      _log.append(j);
+      _rec?.write(('watch_peek', j));
     }
   }
 
@@ -408,6 +610,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         'mirror': _pipe.mirror,
       });
     }
+    final rec = _rec;
+    if (rec != null && !_recordFrame(rec, img, t)) return;
     final job = _pipe.onFrame(watchFrameFromCamera(img), t);
     _setStatus(_pipe.status(t));
     for (final (_, seen) in _pipe.lookEnds) {
@@ -439,6 +643,36 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     });
   }
 
+  /// Recording: wide shots and the ~1/s still. False when the frame is not
+  /// for the card reader (switching lenses, or the ultra-wide).
+  bool _recordFrame(WatchRecorder rec, CameraImage img, int t) {
+    final rotation = _pipe.rotation;
+    rec.onFirstFrame(img, rotation);
+    final ex = _wide;
+    if (ex != null) {
+      final quiet = _pipe.status(t) == WatchStatus.idle ? t - _pipe.lastCardLikeMs : 0;
+      final use = ex.onFrame(t,
+          quietMs: quiet,
+          luma: ex.wantsLuma ? sampledMeanLuma(img.planes.first.bytes) : null,
+          grid: ex.wantsGrid ? watchFrameFromCamera(img).lumaGrid(16, 9) : null);
+      if (ex.away != _shownAway && mounted) setState(() => _shownAway = ex.away);
+      if (use == WideUse.wideStill && _storageOk) {
+        unawaited(rec.save(img, rec.clock.elapsedMilliseconds,
+            rotation: rotation, lensKind: 'ultra_wide', zoom: ex.wideZoom, wide: {'excursion': ex.excursions}));
+      }
+      if (use != WideUse.read) return false;
+    }
+    final now = rec.clock.elapsedMilliseconds;
+    if (_storageOk && rec.pacer.due(now)) {
+      final lens = _lens;
+      unawaited(rec.save(img, now,
+          rotation: rotation,
+          lensKind: WatchSettings.front.value ? 'front' : (lens?.kind ?? 'wide'),
+          zoom: lens?.zoom ?? 1.0));
+    }
+    return true;
+  }
+
   void _setStatus(WatchStatus s) {
     if (s != _status && mounted) setState(() => _status = s);
   }
@@ -456,6 +690,16 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   void _apply(WatchDecision d, int episode) {
     final h = widget.host;
     _pipe.noteDecision(d);
+    // Every decision into the recording, with the hand it was for.
+    _rec?.write(('watch_decision', {
+      'action': d.action.name,
+      'cards': d.cards.map(cardToString).join(' '),
+      'hand': h.watchHandNumber,
+      'episode': episode,
+      'scene': _pipe.sceneEpoch,
+      'certainty': d.certainty,
+      if (d.evidence != null) ...d.evidence!.toJson(),
+    }));
     switch (d.action) {
       case WatchAction.fill:
       case WatchAction.correct:
@@ -463,7 +707,12 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       case WatchAction.newHand:
       case WatchAction.newHandUnread:
         _pipe.votesAfter(d);
+        final carry = _carryAction();
         _waitDealer = !h.watchNewHand(d.cards, episode: episode, scene: _pipe.sceneEpoch);
+        if (carry != null) {
+          h.watchSetAction(carry);
+          _rec?.write(('watch_action_moved', {'action': carry.name, 'hand': h.watchHandNumber}));
+        }
       case WatchAction.confirm:
       case WatchAction.ignore:
         return;
@@ -495,6 +744,31 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     if (text != null && WatchSettings.voice.value) _voice.say(text);
   }
 
+  /// A pad action given after the peek that turned out to start a new hand
+  /// was meant for the new hand (the reader was a beat slower than the
+  /// tap): take it off the closing hand and return it, to put on the new
+  /// one. Null otherwise.
+  PreAction? _carryAction() {
+    final at = _padAtMs;
+    final a = widget.host.watchPendingAction;
+    final peek = _pipe.currentPeek ?? (_pipe.peeks.isEmpty ? null : _pipe.peeks.last);
+    if (at == null || a == null || peek == null || at < peek.startMs) return null;
+    widget.host.watchSetAction(null);
+    return a;
+  }
+
+  /// The pad on the black screen: the logger's own gesture, on the hand
+  /// being played.
+  void _padAction(PreAction? a) {
+    final h = widget.host;
+    h.watchSetAction(a);
+    _padAtMs = _clock.elapsedMilliseconds;
+    final f = {'action': a?.name ?? 'undo', 'hand': h.watchHandNumber, 'cards_read': _lastCards != null};
+    _rec?.write(('watch_action', f));
+    _log.append({'type': 'action', 't': _clock.elapsedMilliseconds, ...f});
+    setState(() {});
+  }
+
   Future<void> _fix() async {
     await widget.host.watchFixCards(context);
     if (!mounted) return;
@@ -505,6 +779,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   }
 
   void _nextHand() {
+    _rec?.write(('watch_next_hand', {'hand': widget.host.watchHandNumber}));
     widget.host.watchNextHand();
     _pipe.resetVotes();
     setState(() {
@@ -622,6 +897,44 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
             },
           ),
         ),
+        ValueListenableBuilder(
+          valueListenable: WatchSettings.record,
+          builder: (_, v, __) => Column(children: [
+            SwitchListTile(
+              key: const Key('watch-record'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Also record the table'),
+              subtitle: const Text('Keeps about one photo a second from this camera on the phone, for '
+                  'reviewing the night later (Recordings below; Share zip exports it). Sharper camera '
+                  'gives 1080p photos.'),
+              value: v,
+              onChanged: (x) => WatchSettings.set(WatchSettings.record, WatchSettings.recordKey, x),
+            ),
+            if (v)
+              ValueListenableBuilder(
+                valueListenable: WatchSettings.wide,
+                builder: (_, w, __) => SwitchListTile(
+                  key: const Key('watch-wide'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Wide shots between peeks'),
+                  subtitle: const Text('While you are not peeking, every few seconds a quick photo on the '
+                      'ultra-wide lens (Android). Cards are never read from it.'),
+                  value: w,
+                  onChanged: (x) => WatchSettings.set(WatchSettings.wide, WatchSettings.wideKey, x),
+                ),
+              ),
+          ]),
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const Key('watch-recordings'),
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const RecordingsScreen())),
+            icon: const Icon(Icons.folder_open_outlined, size: 18),
+            label: const Text('Recordings & export'),
+          ),
+        ),
         const SizedBox(height: 12),
         FilledButton.icon(
           onPressed: c == null ? null : _startWatching,
@@ -629,11 +942,16 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
           label: const Text('Start watching'),
         ),
         const SizedBox(height: 8),
-        Text(
-            'The screen goes black and stays on (the camera only works while the app is open). '
-            'Nothing is recorded: each frame is dropped once checked, only the cards it reads '
-            'are kept. If it is unsure it logs nothing; the card slots always work by hand.',
-            style: t.bodySmall),
+        ValueListenableBuilder(
+          valueListenable: WatchSettings.record,
+          builder: (_, rec, __) => Text(
+              'The screen goes black and stays on (the camera only works while the app is open). '
+              '${rec ? 'Photos are kept on this phone only, never uploaded. ' : 'Nothing is recorded: each frame is dropped once checked, only the cards it reads are kept. '}'
+              'If it is unsure it logs nothing; the card slots always work by hand. '
+              'The dim pad at the bottom logs your action like the logger\'s: do nothing = fold, '
+              'tap = call, swipe up = raise, swipe down = undo, sideways = next hand.',
+              style: t.bodySmall),
+        ),
         // Tester tools: developer mode only (About → tap the version 7 times).
         if (DevMode.on.value) ...[
           const SizedBox(height: 4),
@@ -720,7 +1038,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   /// From the black screen after a problem: a fresh camera and session,
   /// back into watching.
   Future<void> _restartWatching() async {
-    _stopWatching();
+    _stopWatching(end: false);
     _watching = true; // _initCamera resumes into watching
     await _restartCamera();
   }
@@ -729,30 +1047,63 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
 
   Widget _black(BuildContext context) {
     const dim = Color(0x66FFFFFF);
+    const amber = Color(0xFFFFB300);
     final dot = switch (_status) {
       WatchStatus.idle => const Color(0xFF555555),
       WatchStatus.burst => const Color(0xFFB8860B),
       WatchStatus.reading => const Color(0xFF2E7D32),
     };
     final cards = _lastCards;
+    final rec = _rec;
     return PopScope(
       onPopInvoked: (_) => _stopWatching(),
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(
-          child: Stack(children: [
-            Positioned(
-              top: 10,
-              right: 12,
-              child: Semantics(
-                label: 'Watching: ${_status.name}',
-                child: Container(width: 8, height: 8, decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
-              ),
+          child: Column(children: [
+            // Top: Stop / Next hand and the status dots, away from the pad.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 12, 0),
+              child: Row(children: [
+                TextButton(
+                  onPressed: () {
+                    _stopWatching();
+                    setState(() {});
+                  },
+                  child: const Text('Stop', style: TextStyle(color: dim)),
+                ),
+                TextButton(
+                  onPressed: _nextHand,
+                  child: const Text('Next hand', style: TextStyle(color: dim)),
+                ),
+                const Spacer(),
+                if (rec != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Text('rec ${rec.session.photos}',
+                        key: const Key('watch-rec'), style: const TextStyle(color: Color(0x44FFFFFF), fontSize: 11)),
+                  ),
+                if (_shownAway)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Semantics(
+                      label: 'wide shot',
+                      child: Container(
+                          key: const Key('watch-wide-dot'),
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(color: Color(0xFF3D5A80), shape: BoxShape.circle)),
+                    ),
+                  ),
+                Semantics(
+                  label: 'Watching: ${_status.name}',
+                  child: Container(width: 8, height: 8, decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
+                ),
+              ]),
             ),
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: 12,
+            const Spacer(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 if (_health.problem != null)
                   Padding(
@@ -760,13 +1111,25 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Column(children: [
                       Text('${_health.problem}: not reading cards',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Color(0xFFFFB300), fontSize: 15)),
+                          textAlign: TextAlign.center, style: const TextStyle(color: amber, fontSize: 15)),
                       TextButton(
                         onPressed: _restartWatching,
-                        child: const Text('Restart camera', style: TextStyle(color: Color(0xFFFFB300))),
+                        child: const Text('Restart camera', style: TextStyle(color: amber)),
                       ),
                     ]),
+                  ),
+                for (final w in _warnings)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(warningText(w),
+                        key: Key('watch-warn-${w.name}'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: amber, fontSize: 13)),
+                  ),
+                if (rec != null && _wideOff != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text('Wide shots off: $_wideOff', style: const TextStyle(color: dim, fontSize: 12)),
                   ),
                 if (WatchSettings.voice.value)
                   ValueListenableBuilder(
@@ -793,25 +1156,35 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
                         style: const TextStyle(color: dim, fontSize: 13)),
                     onPressed: _fix,
                   ),
-                const SizedBox(height: 8),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  TextButton(
-                    onPressed: () {
-                      _stopWatching();
-                      setState(() {});
-                    },
-                    child: const Text('Stop', style: TextStyle(color: dim)),
-                  ),
-                  TextButton(
-                    onPressed: _nextHand,
-                    child: const Text('Next hand', style: TextStyle(color: dim)),
-                  ),
-                ]),
+                const SizedBox(height: 10),
               ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: WatchActionArea(host: widget.host, onAction: _padAction, onNext: _nextHand),
             ),
           ]),
         ),
       ),
     );
   }
+}
+
+/// The black screen's action pad: the logger's gesture pad, dark and dim,
+/// on the hand being played. Shows only the action (never the cards).
+class WatchActionArea extends StatelessWidget {
+  final WatchHost host;
+  final ValueChanged<PreAction?> onAction;
+  final VoidCallback onNext;
+  const WatchActionArea({super.key, required this.host, required this.onAction, required this.onNext});
+
+  @override
+  Widget build(BuildContext context) => ActionPad(
+        key: const Key('watch-action-pad'),
+        pending: host.watchPendingAction,
+        onAction: onAction,
+        onNext: onNext,
+        lowLight: true,
+        height: 190,
+      );
 }

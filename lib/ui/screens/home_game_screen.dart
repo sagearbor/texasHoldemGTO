@@ -377,6 +377,14 @@ class _LoggerState extends State<_Logger> implements WatchHost {
     _watch.manualCards(hasCards ? _cards : null, DateTime.now().millisecondsSinceEpoch);
   }
 
+  @override
+  PreAction? get watchPendingAction => widget.session.pendingAction;
+
+  @override
+  void watchSetAction(PreAction? a) {
+    if (mounted) _tap(a);
+  }
+
   /// The one Camera entry: Watch my cards, with "Just one photo" inside
   /// for Snap my cards.
   Future<void> _openWatch() async {

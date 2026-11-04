@@ -110,9 +110,12 @@ const helpTopics = {
             'or leaves: the menu at the top right, Players & seats.'),
     HelpTip('Cards are optional: tap the card slots, or Camera.',
         'Camera opens Watch my cards (Beta): prop the phone beside you, aim, Start. The screen goes black and '
-            'your cards are read when you peek, on the phone; nothing is recorded or uploaded. With earbuds '
-            'it says them quietly. Wrong? Tap the chip on the black screen. "Just one photo" reads a single '
-            'photo instead. Remembered your cards late? Enter them and tap "That was hand...".'),
+            'your cards are read when you peek, on the phone; nothing is uploaded, and nothing is recorded '
+            'unless you turn on "Also record the table" (photos stay on the phone, export from Recordings). '
+            'The dim pad at the bottom of the black screen logs your action: tap call, swipe up raise, down '
+            'undo, sideways next hand; doing nothing is a fold. With earbuds it says the cards quietly. '
+            'Wrong? Tap the chip on the black screen. "Just one photo" reads a single photo instead. '
+            'Remembered your cards late? Enter them and tap "That was hand...".'),
     HelpTip('Board caller: hold the mic button and say the flop.',
         'For example "flop king of hearts seven of spades four of clubs", then "turn jack diamonds". Or tap '
             'the keyboard to type "Kh 7s 4c". Speech is recognised on the phone and never recorded.'),
