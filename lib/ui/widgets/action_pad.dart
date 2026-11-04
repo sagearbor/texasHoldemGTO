@@ -17,12 +17,19 @@ class ActionPad extends StatefulWidget {
   final bool skipped;
   final ValueChanged<PreAction?> onAction;
   final VoidCallback? onNext;
+
+  /// Dark and dim (Watch my cards' black screen, propped facing the
+  /// table): black fill, grey text, no action colours.
+  final bool lowLight;
+  final double height;
   const ActionPad({
     super.key,
     required this.pending,
     required this.onAction,
     this.skipped = false,
     this.onNext,
+    this.lowLight = false,
+    this.height = 150,
   });
 
   @override
@@ -69,10 +76,13 @@ class _ActionPadState extends State<ActionPad> {
         : a == null
             ? 'default: do nothing'
             : 'swipe down to undo';
-    final bg = a == null
-        ? Felt.feltCard
-        : Felt.actionColor(preActionLabels[a]!, b);
-    const hint = TextStyle(color: Colors.white70, fontSize: 13);
+    final low = widget.lowLight;
+    final bg = low
+        ? Colors.black
+        : a == null
+            ? Felt.feltCard
+            : Felt.actionColor(preActionLabels[a]!, b);
+    final hint = TextStyle(color: low ? const Color(0x55FFFFFF) : Colors.white70, fontSize: 13);
     return Semantics(
       container: true,
       button: true,
@@ -98,11 +108,12 @@ class _ActionPadState extends State<ActionPad> {
               },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          height: 150,
+          height: widget.height,
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Felt.gold.withOpacity(0.6), width: 1.5),
+            border: Border.all(
+                color: low ? const Color(0x22FFFFFF) : Felt.gold.withOpacity(0.6), width: 1.5),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Column(children: [
@@ -114,8 +125,8 @@ class _ActionPadState extends State<ActionPad> {
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Text(label.toUpperCase(),
                       maxLines: 1,
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: low ? const Color(0x66FFFFFF) : Colors.white,
                           fontSize: 40,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 1.5)),
