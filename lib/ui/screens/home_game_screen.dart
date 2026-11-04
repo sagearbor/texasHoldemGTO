@@ -781,8 +781,8 @@ class _Organizer extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          '${s.players[s.buttonSeat]} is dealing · next: $next. '
-          'Organizer taps once per hand; untouched hands count as folds.',
+          // The how-to is in Help (Play); here only who deals.
+          '${s.players[s.buttonSeat]} is dealing · next: $next',
           style: t.bodySmall,
           textAlign: TextAlign.center,
         ),
