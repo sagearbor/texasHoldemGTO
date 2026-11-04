@@ -85,3 +85,14 @@ Future<bool> hasAndroidPermissions(List<String> names) async {
   if (kIsWeb || !Platform.isAndroid) return true;
   return await _call<bool>('hasPermissions', {'names': names}) ?? false;
 }
+
+/// Android: every camera Camera2 reports (listed and, for a logical
+/// multi-camera, its physical ones) with facing, focal lengths, sensor
+/// size, field of view, max JPEG / YUV size, zoom ratio range and whether
+/// physical streams are possible. Logged once per Record session for
+/// offline lens planning. Null elsewhere (or on an older native build).
+Future<Map<String, Object?>?> cameraInventory() async {
+  if (kIsWeb || !Platform.isAndroid) return null;
+  final r = await _call<Map>('cameras');
+  return r?.cast<String, Object?>();
+}

@@ -37,7 +37,9 @@ import '../radar/radar_screen.dart';
 import '../radar/radar_settings.dart';
 import '../sync/table_night_service.dart';
 import '../ui/app_settings.dart';
+import '../ui/dev_mode.dart';
 import '../ui/theme.dart';
+import 'lens_alternator.dart';
 import 'record_log.dart';
 import 'record_native.dart';
 import 'record_session.dart';
@@ -109,6 +111,7 @@ class RecordScreen extends StatefulWidget {
 const _prefPlayers = 'record_players_v1';
 const _prefRate = 'record_rate_v1';
 const _prefWidest = 'record_widest_v1';
+const _prefAltLenses = 'record_alt_lenses_v1';
 const _prefLocationAsked = 'record_location_asked_v1';
 
 /// 1080p frames, JPEG quality 85: about 300 to 500 KB a still, so 1.5 a
@@ -137,7 +140,13 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
 
   /// The lens asked for: Settings → Camera lens, or this screen's own
   /// switch when that is Automatic.
-  bool get _effWidest => useWidest(CameraLens.choice.value, featureDefault: _widest);
+  bool get _effWidest => _effAlt || useWidest(CameraLens.choice.value, featureDefault: _widest);
+
+  /// Developer experiment: stills alternate between the ultra-wide and the
+  /// normal lens (lens_alternator.dart). Off by default; the camera opens
+  /// on the ultra-wide for it.
+  bool _altLenses = false;
+  bool get _effAlt => _altLenses && DevMode.on.value;
   double _rate = 1.5;
   int? _dealerSeat;
 
@@ -151,6 +160,14 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   String? _error;
   bool _opening = false;
   CameraImage? _lastFrame;
+
+  /// The Alternate lenses scheduler for the open camera, and why there is
+  /// none when the experiment is on (e.g. no ultra-wide reachable by zoom).
+  LensAlternator? _alt;
+  String? _altUnavailable;
+
+  /// `seg/lens/WxH` already logged as a `still_size` line.
+  final Set<String> _stillSizes = {};
 
   // ----------------------------------------------------------- session
   Directory? _dir;
@@ -211,6 +228,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _tick?.cancel();
     _framingTimer?.cancel();
     _dimTimer?.cancel();
+    _dropAlt();
     final c = _cam;
     _cam = null;
     if (c != null) {
@@ -239,7 +257,16 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         _rate = (r?['rate'] as num?)?.toDouble() ?? p.getDouble(_prefRate) ?? 1.5;
         if (!recordRates.contains(_rate)) _rate = 1.5;
         _widest = p.getBool(_prefWidest) ?? true;
+        _altLenses = p.getBool(_prefAltLenses) ?? false;
       });
+      // The experiment needs the ultra-wide open: reopen if it was not.
+      if (_effAlt && _lens != null && !_opening) {
+        if (_lens!.kind != 'ultra_wide') {
+          await _switchLens(_widest);
+        } else if (_cam != null && _alt == null) {
+          setState(() => _setupAlt(_cam!, _lens!));
+        }
+      }
     } catch (_) {}
   }
 
@@ -249,6 +276,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       await p.setInt(_prefPlayers, _players);
       await p.setDouble(_prefRate, _rate);
       await p.setBool(_prefWidest, _widest);
+      await p.setBool(_prefAltLenses, _altLenses);
     } catch (_) {}
   }
 
@@ -263,6 +291,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       if (s != null && s.phase != RecordPhase.stopped && !s.backgrounded) _write(s.setBackground(true));
       final c = _cam;
       if (c == null || _opening) return;
+      _dropAlt();
       _cam = null;
       if (c.value.isStreamingImages) c.stopImageStream().ignore();
       c.dispose();
@@ -288,6 +317,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         c.dispose();
         return;
       }
+      _setupAlt(c, lens);
       await c.startImageStream(_onImage);
       setState(() {
         _cam = c;
@@ -301,8 +331,49 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     }
   }
 
+  /// Alternate lenses: a scheduler on [c] when the experiment is on and the
+  /// ultra-wide is reached by zoom (Android logical camera). Otherwise the
+  /// reason, shown on screen and logged; recording goes on single-lens.
+  void _setupAlt(CameraController c, LensInfo lens) {
+    _dropAlt();
+    _altUnavailable = null;
+    if (!_effAlt) return;
+    final min = lens.minZoom;
+    if (!Platform.isAndroid || lens.kind != 'ultra_wide' || min == null || min >= 1.0) {
+      _altUnavailable = Platform.isAndroid ? 'no ultra-wide reachable by zoom' : 'Android only for now';
+      _write(('alt_unavailable', {'reason': _altUnavailable, 'lens': lens.toJson()}));
+      return;
+    }
+    final a = LensAlternator(
+      setZoom: c.setZoomLevel,
+      nowMs: () => _clock.elapsedMilliseconds,
+      wideZoom: min,
+      intervalMs: intervalForRate(_rate),
+      onEvent: (k, f) => _write((k, {if (_session != null) 'seg': _session!.segment.n, ...f})),
+    );
+    _alt = a;
+    // Camera reopened mid-recording (back from the background): carry on.
+    if (_session?.phase == RecordPhase.recording) a.start();
+  }
+
+  void _dropAlt() {
+    _alt?.dispose();
+    _alt = null;
+  }
+
+  Future<void> _setAltLenses(bool on) async {
+    setState(() => _altLenses = on);
+    unawaited(_savePrefs());
+    if (on && _lens?.kind != 'ultra_wide') {
+      await _switchLens(_widest);
+    } else if (_cam != null && _lens != null) {
+      setState(() => _setupAlt(_cam!, _lens!));
+    }
+  }
+
   Future<void> _switchLens(bool widest) async {
     setState(() => _widest = widest);
+    _dropAlt();
     final c = _cam;
     _cam = null;
     if (c != null) {
@@ -329,20 +400,32 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       _segmentLogged = true;
       _write(s.segmentStart(width: img.width, height: img.height, rotation: _rotation));
     }
+    final alt = _alt;
     // "Table in view": a coarse luma grid against the framing reference,
-    // every 2 seconds.
-    if (_refGrid != null && t - _lastGridMs >= 2000) {
+    // every 2 seconds (alternating: only frames from the reference's lens,
+    // the ultra-wide).
+    if (_refGrid != null && t - _lastGridMs >= 2000 && (alt == null || alt.steadyLens == AltLens.ultraWide)) {
       _lastGridMs = t;
       final m = viewMatch(_refGrid!, watchFrameFromCamera(img).lumaGrid(16, 9));
       if (mounted) setState(() => _match = m);
+    }
+    if (alt != null) {
+      final still = alt.onFrame(t,
+          luma: alt.switching ? sampledMeanLuma(img.planes.first.bytes) : null, take: s.capturing);
+      if (still != null) unawaited(_save(s, img, t, alt: alt, still: still));
+      return;
     }
     if (!s.capturing || !_pacer.due(t)) return;
     unawaited(_save(s, img, t));
   }
 
-  Future<void> _save(RecordSession s, CameraImage img, int t) async {
+  /// [alt] and [still]: a still the Alternate lenses scheduler asked for
+  /// (its lens and switch timings go into the photo line).
+  Future<void> _save(RecordSession s, CameraImage img, int t, {LensAlternator? alt, AltStill? still}) async {
+    var saved = false;
+    void release() => alt == null ? _pacer.done() : alt.done(saved ? still : null);
     final dir = _dir;
-    if (dir == null) return _pacer.done();
+    if (dir == null) return release();
     final wall = DateTime.now().millisecondsSinceEpoch;
     final n = s.photos + 1;
     final rel = '${s.segment.folder}/${n.toString().padLeft(6, '0')}-$wall.jpg';
@@ -350,8 +433,28 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     try {
       final bytes = await encodeJpeg(img, '${dir.path}/$rel', quality: _quality, rotation: _rotation);
       if (bytes == null || _session != s || s.phase == RecordPhase.stopped) return;
+      final base = _log?.baseM ?? 0;
+      saved = true;
+      // Once per segment and lens: the size of the stills actually saved.
+      final kind = still == null ? s.segment.lens.kind : altLensKind(still.lens);
+      if (_stillSizes.add('${s.segment.n}/$kind/${img.width}x${img.height}')) {
+        _write(('still_size', {
+          'seg': s.segment.n,
+          'lens': kind,
+          'zoom': still?.zoom ?? s.segment.lens.zoom,
+          'w': img.width,
+          'h': img.height,
+          'rotation': _rotation,
+          'quality': _quality,
+        }));
+      }
       _write(s.photoSaved(rel, bytes,
-          width: img.width, height: img.height, encodeMs: sw.elapsedMilliseconds, lagMs: _clock.elapsedMilliseconds - t));
+          width: img.width,
+          height: img.height,
+          encodeMs: sw.elapsedMilliseconds,
+          lagMs: _clock.elapsedMilliseconds - t,
+          lens: still == null ? null : altLensKind(still.lens),
+          alt: still?.toJson((v) => base + v)));
       _lastPhotoAtMs = _clock.elapsedMilliseconds;
       // The thumbnail only every few photos: decoding a 1080p JPEG is not
       // free and the status screen is mostly dimmed anyway.
@@ -359,7 +462,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         setState(() => _latest = File('${dir.path}/$rel'));
       }
     } finally {
-      _pacer.done();
+      release();
     }
   }
 
@@ -411,6 +514,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         'quality': _quality,
         'preset': _preset.name,
         'lens_setting': CameraLens.choice.value.name,
+        if (_effAlt) 'alt_lenses': _alt != null ? true : 'unavailable: $_altUnavailable',
         'seats': 'seat 0 = the phone owner (out of view), then clockwise from above',
         'role': 'camera',
         'tz_offset_min': now.timeZoneOffset.inMinutes,
@@ -438,9 +542,27 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _dir = dir;
     _log = log;
     _session = s;
+    // Once per session (and run): the phone's cameras, for lens planning
+    // offline. Read-only; Android only (null elsewhere).
+    try {
+      final inv = await cameraInventory();
+      log.write('camera_inventory', {
+        'open': lens.toJson(),
+        'open_camera': _cam?.description.name,
+        'preview': _cam?.value.previewSize == null
+            ? null
+            : [_cam!.value.previewSize!.width.round(), _cam!.value.previewSize!.height.round()],
+        'inventory': inv,
+      });
+    } catch (e) {
+      log.write('camera_inventory', {'error': '$e'});
+    }
+    _stillSizes.clear();
     await _startHosting(log);
     _segmentLogged = false;
     _pacer.intervalMs = intervalForRate(_rate);
+    _alt?.intervalMs = intervalForRate(_rate);
+    if (_effAlt && _alt == null) _write(('alt_unavailable', {'reason': _altUnavailable}));
     WakelockPlus.enable();
     _tick?.cancel();
     _tick = Timer.periodic(const Duration(seconds: 1), _onTick);
@@ -518,6 +640,8 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _framingTimer?.cancel();
     _refGrid = null;
     _match = null;
+    // The framing check (and its reference grid) is on the ultra-wide.
+    unawaited(_alt?.hold(AltLens.ultraWide));
     setState(() {
       _stage = _Stage.framing;
       _framingLeft = _framingSeconds;
@@ -541,6 +665,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _write(s.framingDone(skipped: skipped, refGrid: _refGrid));
     if (_dealerSeat != null) _write(('dealer', {'seg': s.segment.n, 'seat': _dealerSeat}));
     _pacer.reset();
+    _alt?.start();
     _lastPhotoAtMs = _clock.elapsedMilliseconds;
     setState(() => _stage = _Stage.live);
     _poke();
@@ -552,6 +677,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _write(s.phase == RecordPhase.paused ? s.resume() : s.pause());
     _lastPhotoAtMs = _clock.elapsedMilliseconds;
     _pacer.reset();
+    _alt?.reset();
     setState(() {});
     _poke();
   }
@@ -652,6 +778,14 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         'free': _free,
         'in_view': _match == null ? null : (_match! * 100).round(),
         'bg': s.backgrounded,
+        if (_alt != null)
+          'alt': {
+            'on': _alt!.alternating,
+            'switches': _alt!.switches,
+            'switch_ms_med': _alt!.switchMsMedian,
+            'uw_per_s': _alt!.perSecond(AltLens.ultraWide),
+            'n_per_s': _alt!.perSecond(AltLens.normal),
+          },
       }));
     }
     _updateWarnings();
@@ -808,10 +942,23 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         // camera feature.
         onChanged: _opening || CameraLens.choice.value != LensChoice.auto ? null : _switchLens,
         title: const Text('Widest lens'),
-        subtitle: Text(CameraLens.choice.value == LensChoice.auto
-            ? 'Ultra-wide where the phone has one'
-            : 'Set in Settings → Camera lens: ${lensChoiceLabels[CameraLens.choice.value]}'),
+        subtitle: Text(_effAlt
+            ? 'Alternate lenses is on: starts on the ultra-wide'
+            : CameraLens.choice.value == LensChoice.auto
+                ? 'Ultra-wide where the phone has one'
+                : 'Set in Settings → Camera lens: ${lensChoiceLabels[CameraLens.choice.value]}'),
       ),
+      if (DevMode.on.value)
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: _altLenses,
+          onChanged: _opening ? null : _setAltLenses,
+          title: const Text('Alternate lenses (experiment)'),
+          subtitle: Text(_effAlt && _altUnavailable != null
+              ? 'Not on this phone: $_altUnavailable. Records with one lens.'
+              : 'Developer: stills take turns, ultra-wide then normal (1×), at the rate below, '
+                  'so each lens gets half. Switch times go in the log.'),
+        ),
       if (bleSupported)
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
@@ -947,6 +1094,11 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
           'Segment ${s.segment.n} · ${s.segment.position.name} · '
           '${s.segment.lens.kind == 'ultra_wide' ? 'ultra-wide' : 'normal lens'} · $_players players',
           style: t.bodySmall),
+      if (_alt != null) ...[
+        Text(altStatusLine(_alt!), style: t.bodySmall),
+        Text(altRateLine(_alt!), style: t.bodySmall),
+      ] else if (_effAlt && _altUnavailable != null)
+        Text('Alternating off: $_altUnavailable', style: t.bodySmall),
       const SizedBox(height: 12),
       FilledButton.icon(
         style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),

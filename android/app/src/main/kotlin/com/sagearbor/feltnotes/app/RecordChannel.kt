@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
 import android.graphics.Rect
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.graphics.YuvImage
 import android.location.Location
 import android.location.LocationManager
@@ -51,6 +53,7 @@ class RecordChannel(
                     val st = StatFs(call.argument<String>("path") ?: activity.filesDir.path)
                     result.success(mapOf("free" to st.availableBytes, "total" to st.totalBytes))
                 }
+                "cameras" -> result.success(cameraInventory())
                 "device" -> result.success(
                     mapOf(
                         "manufacturer" to Build.MANUFACTURER,
@@ -147,6 +150,103 @@ class RecordChannel(
             }
         }
         return out
+    }
+
+    // ------------------------------------------------- camera inventory
+
+    /**
+     * Every camera Camera2 reports, for planning lenses offline (crop-zoom
+     * on the main sensor vs the telephoto): the listed ids and, for a
+     * logical multi-camera, its physical ones. Read-only; opens nothing.
+     */
+    private fun cameraInventory(): Map<String, Any?> {
+        val cm = activity.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val listed = cm.cameraIdList.toList()
+        val out = mutableListOf<Map<String, Any?>>()
+        val seen = mutableSetOf<String>()
+        fun add(id: String, logicalParent: String?) {
+            if (!seen.add(id)) return
+            val c = try {
+                cm.getCameraCharacteristics(id)
+            } catch (e: Exception) {
+                out.add(mapOf("id" to id, "error" to e.toString()))
+                return
+            }
+            out.add(describeCamera(id, c, logicalParent, id in listed))
+            if (Build.VERSION.SDK_INT >= 28) {
+                for (pid in c.physicalCameraIds) add(pid, id)
+            }
+        }
+        for (id in listed) add(id, null)
+        val concurrent: List<List<String>>? = if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                cm.concurrentCameraIds.map { it.toList() }
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+        return mapOf("sdk" to Build.VERSION.SDK_INT, "cameras" to out, "concurrent_camera_ids" to concurrent)
+    }
+
+    private fun describeCamera(id: String, c: CameraCharacteristics, logicalParent: String?, listed: Boolean): Map<String, Any?> {
+        val facing = when (c.get(CameraCharacteristics.LENS_FACING)) {
+            CameraCharacteristics.LENS_FACING_BACK -> "back"
+            CameraCharacteristics.LENS_FACING_FRONT -> "front"
+            CameraCharacteristics.LENS_FACING_EXTERNAL -> "external"
+            else -> "unknown"
+        }
+        val focals = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.map { it.toDouble() }
+        val phys = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        val pixels = c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
+        val active = c.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+        val caps = c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)?.toList() ?: emptyList()
+        val logical = Build.VERSION.SDK_INT >= 28 &&
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA in caps
+        // Horizontal / vertical field of view of the sensor's long and short
+        // sides at the shortest focal length.
+        val f = focals?.minOrNull()
+        fun fov(side: Float?): Double? =
+            if (f == null || side == null || f <= 0.0) null else Math.toDegrees(2 * Math.atan(side / (2 * f)))
+        val map = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        fun maxSize(fmt: Int): List<Int>? = try {
+            map?.getOutputSizes(fmt)?.maxByOrNull { it.width.toLong() * it.height }?.let { listOf(it.width, it.height) }
+        } catch (_: Exception) {
+            null
+        }
+        val zoomRange: List<Double>? = if (Build.VERSION.SDK_INT >= 30) {
+            c.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)?.let { listOf(it.lower.toDouble(), it.upper.toDouble()) }
+        } else null
+        val sync: String? = if (logical && Build.VERSION.SDK_INT >= 28) {
+            when (c.get(CameraCharacteristics.LOGICAL_MULTI_CAMERA_SENSOR_SYNC_TYPE)) {
+                CameraCharacteristics.LOGICAL_MULTI_CAMERA_SENSOR_SYNC_TYPE_CALIBRATED -> "calibrated"
+                CameraCharacteristics.LOGICAL_MULTI_CAMERA_SENSOR_SYNC_TYPE_APPROXIMATE -> "approximate"
+                else -> null
+            }
+        } else null
+        return mapOf(
+            "id" to id,
+            "listed" to listed,
+            "physical_of" to logicalParent,
+            "facing" to facing,
+            "logical_multi_camera" to logical,
+            "physical_ids" to if (Build.VERSION.SDK_INT >= 28) c.physicalCameraIds.toList() else null,
+            // A logical multi-camera can stream its physical cameras at the
+            // same time (OutputConfiguration.setPhysicalCameraId).
+            "physical_streams" to logical,
+            "sensor_sync" to sync,
+            "focal_mm" to focals,
+            "sensor_mm" to phys?.let { listOf(it.width.toDouble(), it.height.toDouble()) },
+            "pixel_array" to pixels?.let { listOf(it.width, it.height) },
+            "active_array" to active?.let { listOf(it.width(), it.height()) },
+            "fov_deg" to listOf(fov(phys?.width), fov(phys?.height)),
+            "max_jpeg" to maxSize(ImageFormat.JPEG),
+            "max_yuv" to maxSize(ImageFormat.YUV_420_888),
+            "zoom_ratio_range" to zoomRange,
+            "max_digital_zoom" to c.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM)?.toDouble(),
+            "hardware_level" to c.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL),
+            "ois" to c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)?.toList(),
+            "min_focus_diopters" to c.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE)?.toDouble(),
+        )
     }
 
     // --------------------------------------------------------- thermal

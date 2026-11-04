@@ -119,7 +119,10 @@ class RecordSession {
   }
 
   /// A still was saved as [file] (path inside the session folder).
-  LogEntry photoSaved(String file, int bytes, {int? width, int? height, int? encodeMs, int? lagMs}) {
+  /// [lens] and [alt]: only with the Alternate lenses experiment (the
+  /// still's lens kind and its switch timings, lens_alternator.dart).
+  LogEntry photoSaved(String file, int bytes,
+      {int? width, int? height, int? encodeMs, int? lagMs, String? lens, Map<String, Object?>? alt}) {
     photos++;
     photoBytes += bytes;
     segment.photos++;
@@ -134,6 +137,8 @@ class RecordSession {
         if (height != null) 'h': height,
         if (encodeMs != null) 'enc_ms': encodeMs,
         if (lagMs != null) 'lag_ms': lagMs,
+        if (lens != null) 'lens': lens,
+        if (alt != null) 'alt': alt,
       }
     );
   }
