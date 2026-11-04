@@ -8,6 +8,7 @@ import 'package:felt_notes/gto/spots.dart';
 import 'package:felt_notes/homegame/home_game.dart';
 import 'package:felt_notes/sync/event_log.dart';
 import 'package:felt_notes/sync/night_events.dart';
+import 'package:felt_notes/sync/organizer_bridge.dart' show rosterOf;
 import 'package:felt_notes/sync/table_night_service.dart';
 import 'package:felt_notes/ui/screens/table_night_screen.dart';
 import 'package:flutter/material.dart';
@@ -57,7 +58,28 @@ void main() {
     expect(find.text(svc.night!.ticket.code), findsOneWidget);
     expect(find.textContaining('/#/tv?c='), findsOneWidget);
     expect(find.byKey(const Key('show-on-tv')), findsOneWidget, reason: 'a clear way onto the TV');
+    // The QR does not change by itself (it used to carry a clock reading
+    // and redrew every second).
+    String qr() => stableQrTicket(svc.night!.qrTicket(roster: rosterOf(m.active!))).encode();
+    final first = qr();
+    expect(first, isNot(contains('&c=')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 1100)));
+    await tester.pump(const Duration(seconds: 3));
+    expect(qr(), first);
+    expect(JoinTicket.parse(first)!.code, svc.night!.ticket.code, reason: 'still a valid join QR');
+    // Sharing lives in a compact row.
+    await tester.ensureVisible(find.byKey(const Key('sheet-sharing')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('sheet-sharing')));
+    await tester.pumpAndSettle();
     expect(find.text('Share my game with the table (TV)'), findsOneWidget);
+    // The obvious next step closes the sheet.
+    await tester.ensureVisible(find.byKey(const Key('sheet-start-playing')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('sheet-start-playing')));
+    await tester.pumpAndSettle();
+    expect(find.byType(QrImageView), findsNothing);
+    expect(find.text('open'), findsOneWidget);
     expect(tester.takeException(), isNull);
     // Ending the game night ends the table night.
     await tester.runAsync(() async {

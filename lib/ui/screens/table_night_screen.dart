@@ -460,8 +460,9 @@ class _OrganizerSheetState extends State<_OrganizerSheet> {
   @override
   void initState() {
     super.initState();
-    // Redrawn every second: the QR carries a fresh clock reading.
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+    // Picks up roster changes. The QR itself is stable: it carries no clock
+    // (see [stableQrTicket]), so redrawing does not change the pattern.
+    _tick = Timer.periodic(const Duration(seconds: 2), (_) {
       if (mounted) setState(() {});
     });
   }
@@ -495,83 +496,114 @@ class _OrganizerSheetState extends State<_OrganizerSheet> {
         ),
       );
     }
-    final ticket = s.qrTicket(roster: rosterOf(widget.session));
+    final ticket = stableQrTicket(s.qrTicket(roster: rosterOf(widget.session)));
     final url = tvUrl(ticket);
+    final cs = Theme.of(context).colorScheme;
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text('Players: photograph this once', style: t.titleMedium, textAlign: TextAlign.center),
+          Text('Players: scan this once', style: t.titleMedium, textAlign: TextAlign.center),
           const SizedBox(height: 8),
           Center(
             child: Container(
               color: Colors.white,
               padding: const EdgeInsets.all(10),
-              child: QrImageView(data: ticket.encode(), size: 240, backgroundColor: Colors.white),
+              child: QrImageView(
+                  key: const Key('sheet-qr'), data: ticket.encode(), size: 220, backgroundColor: Colors.white),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Center(child: SelectableText(ticket.code, style: t.headlineSmall)),
-          const SizedBox(height: 4),
-          Text("Play → Scan the host's code (or Join, if it lists this game). No app? They just play: you log the hands.",
+          Text("On Play: Join, or Scan the host's code. No app? You log their hands.",
               style: t.bodySmall, textAlign: TextAlign.center),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           const NearbyHostTile(),
-          TextButton.icon(
-            onPressed: () => openRadar(context),
-            icon: const Icon(Icons.radar),
-            label: const Text('Seat radar: who sits where (from the phones)'),
-          ),
-          const Divider(height: 28),
-          Text('TV', style: t.titleMedium),
-          const SizedBox(height: 4),
-          Text('Open this link on a laptop, tablet or spare phone and cast or plug it into the TV:',
-              style: t.bodySmall),
-          const SizedBox(height: 4),
-          Row(children: [
-            Expanded(child: SelectableText(url, style: t.bodyMedium)),
-            IconButton(
+          const Divider(height: 20),
+          // Secondary rows: TV, radar, sharing. The primary action is
+          // Start playing at the bottom.
+          ListTile(
+            key: const Key('show-on-tv'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.cast),
+            title: const Text('Show on the TV'),
+            subtitle: Text(url, maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: IconButton(
               tooltip: 'Copy the TV link',
-              icon: const Icon(Icons.copy),
+              icon: const Icon(Icons.copy, size: 20),
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: url));
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('TV link copied')));
               },
             ),
-          ]),
-          const SizedBox(height: 4),
-          ShowOnTvButton(url: url),
-          TextButton.icon(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                fullscreenDialog: true, builder: (_) => TvScreen(ticket: ticket, castUrl: url))),
-            icon: const Icon(Icons.tv),
-            label: const Text('Preview the TV on this phone'),
+            onTap: () => showOnTvSheet(context, url),
           ),
-          const SizedBox(height: 12),
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.radar),
+            title: const Text('Seat radar'),
+            subtitle: const Text('Who sits where, from the phones'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => openRadar(context),
+          ),
           ListenableBuilder(
             listenable: _svc,
-            builder: (context, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              SharingTile(value: _svc.sharing, onChanged: _svc.setSharing),
-              if (!_svc.sharing)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                      'As the organizer, the hand count, dealer, seating, board and blind clock still go up, '
-                      'so the TV keeps working.',
-                      style: t.bodySmall),
+            builder: (context, _) => ExpansionTile(
+              key: const Key('sheet-sharing'),
+              dense: true,
+              tilePadding: EdgeInsets.zero,
+              shape: const Border(),
+              collapsedShape: const Border(),
+              leading: Icon(_svc.sharing ? Icons.cloud_upload_outlined : Icons.cloud_off_outlined),
+              title: Text(_svc.sharing ? 'Sharing with the table: on' : 'Sharing with the table: off'),
+              subtitle: Text(_svc.statusLine(), maxLines: 1, overflow: TextOverflow.ellipsis),
+              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SharingTile(value: _svc.sharing, onChanged: _svc.setSharing),
+                if (!_svc.sharing)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                        'As the organizer, the hand count, dealer, seating, board and blind clock still go up, '
+                        'so the TV keeps working.',
+                        style: t.bodySmall),
+                  ),
+                Row(children: [
+                  Expanded(child: Text(_svc.statusLine(), style: t.bodySmall)),
+                  TextButton(onPressed: _svc.flush, child: const Text('Upload now')),
+                ]),
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      fullscreenDialog: true, builder: (_) => TvScreen(ticket: ticket, castUrl: url))),
+                  icon: const Icon(Icons.tv),
+                  label: const Text('Preview the TV on this phone'),
                 ),
-              const SizedBox(height: 10),
-              Row(children: [
-                Expanded(child: Text(_svc.statusLine(), style: t.bodySmall)),
-                TextButton(onPressed: _svc.flush, child: const Text('Upload now')),
-              ]),
-            ]),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            key: const Key('sheet-start-playing'),
+            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52), backgroundColor: cs.primary),
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('Start playing'),
           ),
         ]),
       ),
     );
   }
 }
+
+/// The QR without the organizer's clock reading. With the clock the code
+/// changed every second (it looked broken); without it the pattern only
+/// changes with the roster. A joiner's clock offset then comes from the
+/// server-time measurement every uploading phone makes (the typed-code
+/// path); phone clocks are network-synced anyway.
+JoinTicket stableQrTicket(JoinTicket t) =>
+    JoinTicket(nightId: t.nightId, secret: t.secret, organizerName: t.organizerName, roster: t.roster);
 
 // ----------------------------------------------------- entry points (setup)
 
