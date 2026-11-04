@@ -33,4 +33,24 @@ void main() {
     expect(buzzTitle(WatchAction.fill, 1.2), 'Felt Notes: cards read · 100%');
     expect(buzzTitle(WatchAction.fill, double.nan), 'Felt Notes: cards read');
   });
+
+  test('visible 6 s; one at a time; an old timer never removes a newer buzz', () {
+    expect(WatchBuzz.visibleMs, 6000);
+    final b = BuzzSlots(1);
+    final (a, none) = b.post();
+    expect(none, isNull);
+    // "Corrected": the second buzz removes the first.
+    final (c, prev) = b.post();
+    expect(prev, a);
+    expect(c, isNot(a));
+    // The first buzz's timer fires a second later: it must not touch c.
+    expect(b.expire(a), isFalse);
+    expect(b.showing, c);
+    // c's own timer removes it.
+    expect(b.expire(c), isTrue);
+    expect(b.showing, isNull);
+    // Ids never repeat, so a timer from a previous session cannot match.
+    final (d, _) = b.post();
+    expect({a, c}.contains(d), isFalse);
+  });
 }
