@@ -7,6 +7,7 @@ import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -16,6 +17,8 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity: FlutterActivity() {
     private var record: RecordChannel? = null
     private var ble: BleChannel? = null
+    // Cast to a TV: mDNS discovery of Chromecasts needs multicast delivered.
+    private var castLock: WifiManager.MulticastLock? = null
 
     // Runtime permission prompts for the native channels (record mode's
     // location, Bluetooth for nearby games): one callback per request code.
@@ -47,8 +50,13 @@ class MainActivity: FlutterActivity() {
         ble = BleChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         // "Show on the TV" (lib/ui/tv/show_on_tv.dart): the TV link in the
         // browser, or the system screen-cast settings. false = not possible.
+        // multicastLock: held while Cast to a TV looks for Chromecasts.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "felt_notes/tv_cast")
             .setMethodCallHandler { call, result ->
+                if (call.method == "multicastLock") {
+                    result.success(setCastLock(call.argument<Boolean>("on") == true))
+                    return@setMethodCallHandler
+                }
                 val intent = when (call.method) {
                     "openUrl" -> Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url") ?: ""))
                     "castSettings" -> Intent(Settings.ACTION_CAST_SETTINGS)
@@ -89,6 +97,27 @@ class MainActivity: FlutterActivity() {
                     result.error("audio_route", e.toString(), null)
                 }
             }
+    }
+
+    private fun setCastLock(on: Boolean): Boolean = try {
+        if (on) {
+            val lock = castLock ?: (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+                .createMulticastLock("felt_notes_cast").also {
+                    it.setReferenceCounted(false)
+                    castLock = it
+                }
+            if (!lock.isHeld) lock.acquire()
+        } else {
+            castLock?.let { if (it.isHeld) it.release() }
+        }
+        true
+    } catch (e: Exception) {
+        false
+    }
+
+    override fun onDestroy() {
+        setCastLock(false)
+        super.onDestroy()
     }
 
     private fun kind(type: Int): String = when (type) {

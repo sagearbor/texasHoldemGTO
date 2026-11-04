@@ -59,6 +59,12 @@
 	<string>Felt Notes uses Bluetooth to find a home game hosted by a phone at your table, so you can join it with one tap without internet, and to measure how far apart the phones in that game are. It only looks for other phones running Felt Notes.</string>
 	<key>NSNearbyInteractionUsageDescription</key>
 	<string>While you are in a home game, Felt Notes measures how far apart the iPhones in that game are, to test working out who sits where. It is only used during a game or while recording the table.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Felt Notes looks for a Chromecast on your Wi-Fi so it can show tonight's table on the TV. It only sends the table code, never your screen or your cards.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_googlecast._tcp</string>
+	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

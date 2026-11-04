@@ -1,13 +1,19 @@
-// "Show on the TV": how to get the table TV page onto a real TV, for an
-// organizer who cannot find Cast. No Google Cast sender: a custom receiver
-// needs a paid Cast developer registration (zero-cost rule), so this hands
-// the link to the browser (Chrome's ⋮ → Cast… tab cast) or opens the
-// phone's own screen-cast settings. Native side: MainActivity.kt and
-// AppDelegate.swift, channel `felt_notes/tv_cast`.
+// "Show on the TV": how to get the table TV page onto a real TV.
+// 1. Cast to a TV (Android): a small built-in Google Cast sender starts the
+//    Felt Notes TV receiver (web/cast/index.html, Cast app 2537B496) on a
+//    Chromecast and hands it tonight's code; the TV then runs on its own.
+//    See lib/ui/tv/cast/ and docs/CASTING.md.
+// 2. Fallbacks: the link in the browser (Chrome's ⋮ → Cast… tab cast), the
+//    phone's own screen-cast settings, or copy the link.
+// Native side: MainActivity.kt and AppDelegate.swift, channel
+// `felt_notes/tv_cast`.
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import 'cast/cast_panel.dart';
+import 'tv_controller.dart' show ticketFromTvInput;
 
 const tvCastChannel = MethodChannel('felt_notes/tv_cast');
 
@@ -30,6 +36,10 @@ Future<bool> openInBrowser(String url) => _call('openUrl', {'url': url});
 
 /// Android: the system Cast / screen-cast settings.
 Future<bool> openCastSettings() => _call('castSettings');
+
+/// Android: hold (or release) a Wi-Fi MulticastLock so mDNS replies from
+/// Cast devices reach the app while it looks for TVs.
+Future<bool> multicastLock(bool on) => _call('multicastLock', {'on': on});
 
 /// The organizer's "Show on the TV" button.
 class ShowOnTvButton extends StatelessWidget {
@@ -57,7 +67,10 @@ class ShowOnTvSheet extends StatelessWidget {
 
   /// Tests set the platform; null = the device's.
   final TargetPlatform? platform;
-  const ShowOnTvSheet({super.key, required this.url, this.platform});
+
+  /// Tests pass fake Cast services; null = the real sender.
+  final CastServices? cast;
+  const ShowOnTvSheet({super.key, required this.url, this.platform, this.cast});
 
   void _say(BuildContext context, String text) =>
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text)));
@@ -66,14 +79,26 @@ class ShowOnTvSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final ios = (platform ?? defaultTargetPlatform) == TargetPlatform.iOS;
+    // Cast is Android-only for now (iOS needs Apple's multicast entitlement
+    // to find the TV); the web app has no sender.
+    final code = ticketFromTvInput(url)?.code;
+    final canCast = !kIsWeb && !ios && code != null;
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('Show the table on the TV', style: t.titleMedium),
           const SizedBox(height: 4),
-          Text('The TV page runs in any browser. Pick one way:', style: t.bodySmall),
+          Text(
+              canCast
+                  ? 'Cast it to a Chromecast, or open the TV page in any browser:'
+                  : 'The TV page runs in any browser. Pick one way:',
+              style: t.bodySmall),
           const SizedBox(height: 8),
+          if (canCast) ...[
+            CastToTvPanel(code: code, services: cast ?? CastServices.real(multicastLock)),
+            const Divider(),
+          ],
           ListTile(
             key: const Key('tv-open-browser'),
             contentPadding: EdgeInsets.zero,
