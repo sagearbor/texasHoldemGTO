@@ -565,7 +565,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
             contentPadding: EdgeInsets.zero,
             title: const Text('Buzz my watch'),
             subtitle: const Text('One buzz when your cards are read (with how sure it is, '
-                'e.g. 87%: peek again when it is low), two when corrected. The '
+                'usually 65-80%: peek again when it is well below that), two when corrected. The '
                 'notification never shows the cards. Apple Watch: only while the iPhone is locked, '
                 'so not during Watch mode.'),
             value: v,
