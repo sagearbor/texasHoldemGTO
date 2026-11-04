@@ -1419,7 +1419,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(12, 10, 4, 6),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(s.id, style: t.titleSmall),
+                      Text('${s.id}${s.summary.start?['mode'] == 'watch' ? ' · Watch my cards' : ''}',
+                          style: t.titleSmall),
                       Text(
                           '${elapsedLabel(s.summary.durationMs)} · ${s.summary.photos} photos · '
                           '${s.summary.segments} segment${s.summary.segments == 1 ? '' : 's'} · ${s.summary.marks} marks'

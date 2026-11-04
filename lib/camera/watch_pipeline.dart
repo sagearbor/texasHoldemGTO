@@ -667,6 +667,10 @@ class WatchPipeline {
   int _lastReadMs = -1 << 40;
 
   bool get readerBusy => _busy;
+
+  /// Frame-clock ms of the last card-like change (the peek gate's
+  /// candidate); very negative before the first. Read-only.
+  int get lastCardLikeMs => _lastCandidateMs;
   PeekRecord? get currentPeek => _peek;
 
   WatchStatus status(int tMs) =>

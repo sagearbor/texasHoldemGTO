@@ -77,7 +77,9 @@ Future<List<StoredSession>> listSessions() async {
 Future<StoredSession?> interruptedSession() async {
   try {
     for (final s in await listSessions()) {
-      if (s.summary.interrupted) return s;
+      // Watch my cards recordings are closed by the next Watch session
+      // (watch_recorder.dart), never resumed into Record the table.
+      if (s.summary.interrupted && s.summary.start?['mode'] != 'watch') return s;
     }
   } catch (_) {}
   return null;
