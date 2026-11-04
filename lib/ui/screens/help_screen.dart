@@ -128,7 +128,9 @@ const _topics = {
           '"Someone new" there and they are seated where they dealt.',
       'Someone joins or leaves: the menu at the top right → Players & seats.',
       'Raise or fold mistakes in unopened pots pop up with a "Why?" link.',
-      'The TV icon opens the dashboard. Mirror (cast) your phone screen to the TV to show it. '
+      'The TV icon opens the dashboard. To put a table night on the TV, use Show on the TV → '
+          'Cast to a TV (Android, same Wi-Fi as a Chromecast): the TV runs the table by itself '
+          'and your phone stays free. Or mirror (cast) your phone screen. '
           'By default it only shows hands from 15+ minutes ago, so nobody reads the last hand '
           'off the screen. Tap the clock at the top to choose Instant up to 60 minutes.',
       'Undo last fixes a mis-tap. End the game night from the menu at the top right. Past nights are on the History tab.',
@@ -180,7 +182,9 @@ const _topics = {
           'Start. The QR icon at the top shows a QR: each player taps "Scan the host\'s code" on '
           'Play and photographs it once (or types the code), picks their name and '
           'then taps only Call or Raise on hands they play; you keep tapping Next hand for '
-          'everyone. Phones work without signal and upload when they can. For the TV, open the '
+          'everyone. Phones work without signal and upload when they can. For the TV, tap Show on '
+          'the TV → Cast to a TV and pick the Chromecast (phone and TV on the same Wi-Fi; only '
+          'the night code is sent, never your screen or your cards). No Chromecast? Open the '
           'link under the QR on a laptop, tablet or spare phone and cast or plug it in: it shows '
           'the blind clock, everyone\'s hands, VPIP and PFR, recent hands and big hands, and '
           'turns amber if your phone stops uploading.',
