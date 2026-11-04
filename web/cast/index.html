@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<!--
+  Felt Notes TV: the Google Cast custom receiver (Cast application ID
+  2537B496, receiver URL https://sagearbor.github.io/texasHoldemGTO/cast/).
+
+  A phone running Felt Notes launches this page on a Chromecast, then sends
+  {"code": "<night code>"} on urn:x-cast:com.sagearbor.feltnotes. The page
+  shows the existing TV route (../#/tv?c=CODE, the Flutter web app) full
+  screen in an iframe. A new code swaps the iframe. For desktop testing,
+  ?c=CODE in this page's URL does the same without a phone.
+
+  Chromecast hardware is weak: the iframe holds the existing TV route only
+  (the small TvApp in lib/main.dart, no trainer), nothing else runs here,
+  and the CAF media player is not loaded (skipPlayersLoad).
+
+  No build step: web/ is copied as-is into the Flutter web build, so this
+  file is served at /texasHoldemGTO/cast/. Docs: docs/CASTING.md.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Felt Notes TV</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #07110C; color: #E8F0EA;
+      font-family: "Google Sans", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    #tv {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      border: 0; display: none; background: #07110C;
+    }
+    /* TV-safe area: 5% each side, so an overscanning TV crops nothing. */
+    #wait {
+      position: fixed; inset: 5%;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      text-align: center;
+    }
+    #wait h1 { margin: 0; font-size: 6vw; font-weight: 800; color: #E6C25A; letter-spacing: .02em; }
+    #wait p { margin: 2vw 0 0; font-size: 2.6vw; color: #9FB3A8; }
+    #wait .dots::after { content: ""; animation: dots 2s steps(4) infinite; }
+    @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  </style>
+</head>
+<body>
+  <div id="wait">
+    <h1>Felt Notes</h1>
+    <p>waiting for the game code<span class="dots"></span></p>
+  </div>
+  <iframe id="tv" title="Felt Notes table" allow="autoplay"></iframe>
+
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <script>
+    'use strict';
+    var NAMESPACE = 'urn:x-cast:com.sagearbor.feltnotes';
+    // Night codes look like ABCD2345-WXYZ6789; anything else is ignored.
+    var CODE_RE = /^[A-Za-z0-9-]{3,64}$/;
+    var current = null;
+
+    function show(code) {
+      if (typeof code !== 'string') return;
+      code = code.trim();
+      if (!CODE_RE.test(code) || code === current) return;
+      current = code;
+      var frame = document.getElementById('tv');
+      // Relative to /texasHoldemGTO/cast/, so the site's base href applies.
+      frame.src = '../#/tv?c=' + encodeURIComponent(code);
+      frame.style.display = 'block';
+      document.getElementById('wait').style.display = 'none';
+    }
+
+    // Desktop testing: /texasHoldemGTO/cast/?c=CODE
+    try {
+      var q = new URLSearchParams(window.location.search).get('c');
+      if (q) show(q);
+    } catch (e) {}
+
+    // Outside a Cast device (a desktop browser) the SDK may be missing or
+    // refuse to start; the ?c= path above still works.
+    try {
+      if (window.cast && cast.framework) {
+        var context = cast.framework.CastReceiverContext.getInstance();
+        context.addCustomMessageListener(NAMESPACE, function (event) {
+          var data = event.data;
+          if (typeof data === 'string') {
+            try { data = JSON.parse(data); } catch (e) { data = null; }
+          }
+          if (data && data.code) show(String(data.code));
+        });
+        var options = new cast.framework.CastReceiverOptions();
+        // A dashboard, not a player: never shut down for being idle, and
+        // do not load the media player libraries.
+        options.disableIdleTimeout = true;
+        options.skipPlayersLoad = true;
+        options.customNamespaces = {};
+        options.customNamespaces[NAMESPACE] = cast.framework.system.MessageType.JSON;
+        options.statusText = 'Felt Notes TV';
+        context.start(options);
+      }
+    } catch (e) {
+      if (window.console) console.warn('Felt Notes cast receiver:', e);
+    }
+  </script>
+</body>
+</html>
