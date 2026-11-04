@@ -20,7 +20,6 @@ import '../widgets/board_row.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/story_tags.dart';
 import 'blind_clock_screen.dart';
-import 'crew_screen.dart';
 import '../app_settings.dart';
 import '../dev_mode.dart';
 import 'dashboard_screen.dart';
@@ -35,7 +34,10 @@ class HomeGameScreen extends StatelessWidget {
 
   /// When set, graded home-game misses are queued as leak drills.
   final TrainerModel? trainer;
-  const HomeGameScreen({super.key, required this.model, this.trainer});
+
+  /// Setup only: the back arrow to the Play screen ("Host a game" flow).
+  final VoidCallback? onBack;
+  const HomeGameScreen({super.key, required this.model, this.trainer, this.onBack});
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +47,10 @@ class HomeGameScreen extends StatelessWidget {
         final s = model.active;
         return Scaffold(
           appBar: AppBar(
-            title: Text(s == null ? 'Home game' : s.name),
+            leading: s == null && onBack != null
+                ? BackButton(onPressed: onBack)
+                : null,
+            title: Text(s == null ? 'Host a game' : s.name),
             actions: [
               const GlossaryButton(),
               const HelpButton(HelpTopic.homeGame),
@@ -144,7 +149,6 @@ class _SetupState extends State<_Setup> {
     final p = players;
     if (hero >= p.length) hero = 0;
     if (button >= p.length || (!learn && button < 0)) button = learn ? -1 : 0;
-    final past = widget.model.sessions.reversed.toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
       children: [
@@ -251,58 +255,12 @@ class _SetupState extends State<_Setup> {
             label: const Text('Record the table'),
           ),
         ],
-        const SizedBox(height: 8),
-        const TableNightEntry(),
-        if (past.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => CrewScreen(model: widget.model))),
-            icon: const Icon(Icons.groups_outlined),
-            label: const Text('Crew & season'),
-          ),
-        ],
-        if (past.isNotEmpty) ...[
-          const SizedBox(height: 28),
-          Text('Past game nights', style: t.titleMedium),
-          for (final s in past)
-            Card(
-              child: ListTile(
-                title: Text(s.name),
-                subtitle: Text(_summary(widget.model, s)),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  TextButton(
-                    child: const Text('Recap'),
-                    onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                            fullscreenDialog: true,
-                            builder: (_) =>
-                                RecapScreen(model: widget.model, session: s))),
-                  ),
-                  IconButton(
-                    tooltip: 'Dashboard',
-                    icon: const Icon(Icons.bar_chart),
-                    onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                            fullscreenDialog: true,
-                            builder: (_) => DashboardScreen(
-                                model: widget.model, session: s))),
-                  ),
-                ]),
-              ),
-            ),
-        ],
       ],
     );
   }
 }
 
 String _date(DateTime d) => '${d.month}/${d.day}';
-
-String _summary(HomeGameModel m, HomeSession s) {
-  final st = computeStats(s.hands, m.library);
-  return '${st.logged} hands · VPIP ${pct(st.vpipPct)} · PFR ${pct(st.pfrPct)}';
-}
 
 class _Logger extends StatefulWidget {
   final HomeGameModel model;

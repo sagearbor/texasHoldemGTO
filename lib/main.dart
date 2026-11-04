@@ -8,7 +8,6 @@ import 'camera/lens.dart';
 import 'gto/spots.dart';
 import 'homegame/home_game.dart';
 import 'nearby/nearby_service.dart';
-import 'nearby/nearby_ui.dart';
 import 'record/record_screen.dart';
 import 'trainer/trainer_model.dart';
 import 'ui/app_settings.dart';
@@ -17,7 +16,9 @@ import 'ui/dev_mode.dart';
 import 'ui/screens/charts_screen.dart';
 import 'ui/screens/equity_screen.dart';
 import 'ui/screens/help_screen.dart';
-import 'ui/screens/home_game_screen.dart';
+import 'ui/screens/history_screen.dart';
+import 'ui/screens/learn_screen.dart';
+import 'ui/screens/play_screen.dart';
 import 'ui/screens/stats_screen.dart';
 import 'ui/screens/train_screen.dart';
 import 'sync/table_night_service.dart';
@@ -119,12 +120,19 @@ class Shell extends StatefulWidget {
 }
 
 class _ShellState extends State<Shell> {
+  /// Bottom tabs: 0 Learn (where the app opens), 1 Play, 2 History.
   int tab = 0;
+
+  /// Inside Learn: 0 Train, 1 Charts, 2 Equity, 3 Stats.
+  int learnTab = 0;
+
+  static const _play = 1;
 
   @override
   void initState() {
     super.initState();
     shellTabs.addListener(_onTabRequest);
+    _syncLooking();
     WidgetsBinding.instance
         .addPostFrameCallback((_) async {
       await maybeShowWelcome(context, widget.model);
@@ -133,44 +141,68 @@ class _ShellState extends State<Shell> {
     });
   }
 
+  /// Bluetooth looks for games only while Play is on screen (battery).
+  void _syncLooking() => NearbyService.instance.setLooking(tab == _play);
+
+  /// Requests (e.g. the leak test's "Drill my leaks") ask for tab 0, which
+  /// is Train: Learn, its first section.
   void _onTabRequest() {
-    if (mounted) setState(() => tab = shellTabs.tab);
+    if (!mounted) return;
+    setState(() {
+      tab = 0;
+      learnTab = 0;
+    });
+    _syncLooking();
   }
 
   @override
   void dispose() {
     shellTabs.removeListener(_onTabRequest);
+    NearbyService.instance.setLooking(false);
     super.dispose();
+  }
+
+  void _train() {
+    setState(() {
+      tab = 0;
+      learnTab = 0;
+    });
+    _syncLooking();
   }
 
   void _drill(String spotId) {
     widget.model.focus(spotId);
-    setState(() => tab = 0);
+    _train();
   }
 
   @override
   Widget build(BuildContext context) {
     final m = widget.model;
     final pages = [
-      TrainScreen(model: m),
-      ChartsScreen(
-          library: m.library,
-          onDrill: _drill,
-          model: m,
-          onDrillWeak: (spotId, targets) {
-            m.drillWeakHands(spotId, targets);
-            setState(() => tab = 0);
-          }),
-      EquityScreen(library: m.library),
-      StatsScreen(model: m, onDrill: _drill),
-      HomeGameScreen(model: widget.home, trainer: m),
+      LearnScreen(
+        index: learnTab,
+        onIndex: (i) => setState(() => learnTab = i),
+        pages: [
+          TrainScreen(model: m),
+          ChartsScreen(
+              library: m.library,
+              onDrill: _drill,
+              model: m,
+              onDrillWeak: (spotId, targets) {
+                m.drillWeakHands(spotId, targets);
+                _train();
+              }),
+          EquityScreen(library: m.library),
+          StatsScreen(model: m, onDrill: _drill),
+        ],
+      ),
+      PlayScreen(model: widget.home, trainer: m),
+      HistoryScreen(model: widget.home),
     ];
     const dests = [
-      (Icons.fitness_center, 'Train'),
-      (Icons.grid_on, 'Charts'),
-      (Icons.percent, 'Equity'),
-      (Icons.insights, 'Stats'),
-      (Icons.groups, 'Home game'),
+      (Icons.school_outlined, 'Learn'),
+      (Icons.style_outlined, 'Play'),
+      (Icons.history, 'History'),
     ];
     final content = Center(
       child: ConstrainedBox(
@@ -178,7 +210,10 @@ class _ShellState extends State<Shell> {
         child: IndexedStack(index: tab, children: pages),
       ),
     );
-    void select(int i) => setState(() => tab = i);
+    void select(int i) {
+      setState(() => tab = i);
+      _syncLooking();
+    }
     // Wide screens (desktop browser, TV, tablet landscape): a rail on the left
     // instead of a 1920-px-wide bottom bar under a 640-px column.
     if (MediaQuery.sizeOf(context).width > 900) {
@@ -197,15 +232,15 @@ class _ShellState extends State<Shell> {
                 ],
               ),
               const VerticalDivider(width: 1),
-              Expanded(child: Column(children: [Expanded(child: content), const NearbyGameBanner()])),
+              Expanded(child: content),
             ],
           ),
         ),
       );
     }
     return Scaffold(
-      // A game hosted at this table: the one-tap join card, on every tab.
-      body: Column(children: [Expanded(child: content), const NearbyGameBanner()]),
+      // Games nearby are listed on Play (Bluetooth looks only there).
+      body: content,
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: select,
