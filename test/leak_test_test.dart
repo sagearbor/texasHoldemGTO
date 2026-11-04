@@ -224,6 +224,10 @@ void main() {
 
       expect(find.text('Welcome to Felt Notes'), findsOneWidget);
       expect(find.textContaining('stays on your phone'), findsOneWidget);
+      // Continue waits for a name.
+      expect(tester.widget<FilledButton>(find.byKey(const Key('onboarding-continue'))).onPressed, isNull);
+      await tester.enterText(find.byKey(const Key('onboarding-name')), 'Host');
+      await tester.pump();
       await tap(tester, find.text('Continue'));
       await tap(tester, find.widgetWithText(FilledButton, 'Take the 60-second leak test'));
 
@@ -267,7 +271,11 @@ void main() {
       await tester.runAsync(m.load);
       await launch(tester, m);
       expect(find.text('Welcome to Felt Notes'), findsOneWidget);
-      await tap(tester, find.text('Skip intro'));
+      expect(find.text('Skip intro'), findsNothing, reason: 'the name is required');
+      await tester.enterText(find.byKey(const Key('onboarding-name')), 'Host');
+      await tester.pump();
+      await tap(tester, find.byKey(const Key('onboarding-continue')));
+      await tap(tester, find.text('Skip'));
       expect(find.text('home'), findsOneWidget);
     });
 

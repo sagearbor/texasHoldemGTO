@@ -8,6 +8,7 @@ import '../../gto/spots.dart';
 import '../../trainer/leak_test.dart';
 import '../../trainer/trainer_model.dart';
 import '../app_settings.dart';
+import '../player_name.dart';
 import '../theme.dart';
 import '../widgets/playing_card.dart';
 
@@ -20,8 +21,7 @@ class OnboardingFlow extends StatefulWidget {
   final TrainerModel model;
   final bool showWelcome;
   final Random? rng;
-  const OnboardingFlow(
-      {super.key, required this.model, this.showWelcome = true, this.rng});
+  const OnboardingFlow({super.key, required this.model, this.showWelcome = true, this.rng});
 
   @override
   State<OnboardingFlow> createState() => _OnboardingFlowState();
@@ -68,7 +68,6 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     final body = switch (stage) {
       _Stage.welcome => _WelcomeCard(
           onNext: () => setState(() => stage = _Stage.offer),
-          onSkip: _close,
         ),
       _Stage.offer => _OfferCard(onStart: _start, onSkip: _close),
       _Stage.test => _TestHand(
@@ -84,26 +83,31 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
           onExplore: _close,
         ),
     };
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: Text(stage == _Stage.welcome ? 'Felt Notes' : 'Leak test'),
-        actions: [
-          if (stage != _Stage.verdict)
-            IconButton(
-              tooltip: 'Close',
-              icon: const Icon(Icons.close),
-              onPressed: _close,
-            ),
-        ],
-      ),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              child: body,
+    return PopScope(
+      // Android back cannot skip the name step either.
+      canPop: stage != _Stage.welcome,
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: Text(stage == _Stage.welcome ? 'Felt Notes' : 'Leak test'),
+          actions: [
+            // No way past the name step but Continue (the name is required).
+            if (stage != _Stage.verdict && stage != _Stage.welcome)
+              IconButton(
+                tooltip: 'Close',
+                icon: const Icon(Icons.close),
+                onPressed: _close,
+              ),
+          ],
+        ),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                child: body,
+              ),
             ),
           ),
         ),
@@ -112,9 +116,30 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
   }
 }
 
-class _WelcomeCard extends StatelessWidget {
-  final VoidCallback onNext, onSkip;
-  const _WelcomeCard({required this.onNext, required this.onSkip});
+class _WelcomeCard extends StatefulWidget {
+  final VoidCallback onNext;
+  const _WelcomeCard({required this.onNext});
+
+  @override
+  State<_WelcomeCard> createState() => _WelcomeCardState();
+}
+
+class _WelcomeCardState extends State<_WelcomeCard> {
+  late final _name = TextEditingController(text: AppSettings.playerName.value);
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  bool get _valid => AppSettings.normalizePlayerName(_name.text) != null;
+
+  Future<void> _continue() async {
+    if (!_valid) return;
+    await AppSettings.setPlayerName(_name.text);
+    widget.onNext();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -133,33 +158,26 @@ class _WelcomeCard extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('Welcome to Felt Notes', style: t.headlineSmall),
           const SizedBox(height: 14),
-          line(Icons.fitness_center,
-              'A poker trainer: see a hand, tap what you would do, and get graded against GTO.'),
-          line(Icons.grid_on, 'Charts for every preflop spot, plus an equity calculator.'),
-          line(Icons.groups, 'A home-game tracker for your own hands at poker night.'),
-          line(Icons.lock_outline,
-              'Everything stays on your phone. No account, no uploads.'),
+          line(Icons.school_outlined, 'Learn: drill hands against GTO, charts, equity.'),
+          line(Icons.style_outlined, 'Play: log your own hands at poker night.'),
+          line(Icons.lock_outline, 'Everything stays on your phone. No account, no uploads.'),
+          const SizedBox(height: 10),
+          // Required, asked once: it names you at every game night.
+          Text(playerNameQuestion, style: t.titleMedium),
           const SizedBox(height: 8),
-          // Asked once, here: joining a home game later is then one tap.
-          const TextField(
-            key: Key('onboarding-name'),
-            textCapitalization: TextCapitalization.words,
-            maxLength: 24,
-            decoration: InputDecoration(
-              labelText: 'Your name at the poker table (optional)',
-              helperText: 'Used when you join a home game. Change it in Settings.',
-              border: OutlineInputBorder(),
-              counterText: '',
-            ),
-            onChanged: AppSettings.setPlayerName,
+          PlayerNameField(
+            key: const Key('onboarding-name'),
+            controller: _name,
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (_) => _continue(),
           ),
           const SizedBox(height: 12),
           FilledButton(
-            onPressed: onNext,
+            key: const Key('onboarding-continue'),
+            onPressed: _valid ? _continue : null,
             style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
             child: const Text('Continue'),
           ),
-          TextButton(onPressed: onSkip, child: const Text('Skip intro')),
         ]),
       ),
     );
@@ -179,8 +197,7 @@ class _OfferCard extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Icon(Icons.timer_outlined, size: 40, color: Felt.accent(context)),
           const SizedBox(height: 10),
-          Text('Take the 60-second leak test',
-              style: t.headlineSmall, textAlign: TextAlign.center),
+          Text('Take the 60-second leak test', style: t.headlineSmall, textAlign: TextAlign.center),
           const SizedBox(height: 10),
           Text(
             '10 borderline hands from opens, blind defence and short-stack '
@@ -206,11 +223,7 @@ class _TestHand extends StatelessWidget {
   final LeakTestItem item;
   final int index, total;
   final ValueChanged<int> onAnswer;
-  const _TestHand(
-      {required this.item,
-      required this.index,
-      required this.total,
-      required this.onAnswer});
+  const _TestHand({required this.item, required this.index, required this.total, required this.onAnswer});
 
   @override
   Widget build(BuildContext context) {
@@ -219,14 +232,15 @@ class _TestHand extends StatelessWidget {
     final spot = item.spot;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Row(children: [
-        Expanded(
-            child: Text('Hand ${index + 1} of $total', style: t.labelLarge)),
-        Text(switch (spot.format) {
-          SpotFormat.cash100 => '6-max · 100bb',
-          SpotFormat.pushFold => 'Heads-up',
-          SpotFormat.pushFold3 => '3-handed',
-          SpotFormat.rejam => 'Short stack',
-        }, style: t.labelMedium),
+        Expanded(child: Text('Hand ${index + 1} of $total', style: t.labelLarge)),
+        Text(
+            switch (spot.format) {
+              SpotFormat.cash100 => '6-max · 100bb',
+              SpotFormat.pushFold => 'Heads-up',
+              SpotFormat.pushFold3 => '3-handed',
+              SpotFormat.rejam => 'Short stack',
+            },
+            style: t.labelMedium),
       ]),
       const SizedBox(height: 6),
       LinearProgressIndicator(value: index / total, color: Felt.accent(context)),
@@ -254,18 +268,14 @@ class _TestHand extends StatelessWidget {
                     style: FilledButton.styleFrom(
                       backgroundColor: Felt.actionColor(spot.actions[i], b),
                       foregroundColor:
-                          spot.actions[i] == 'Fold' && b == Brightness.light
-                              ? Colors.black87
-                              : Colors.white,
+                          spot.actions[i] == 'Fold' && b == Brightness.light ? Colors.black87 : Colors.white,
                       minimumSize: const Size.fromHeight(52),
                       padding: const EdgeInsets.symmetric(horizontal: 6),
                     ),
                     onPressed: () => onAnswer(i),
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: Text(spot.actions[i],
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      child: Text(spot.actions[i], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                     ),
                   ),
                 ),
@@ -282,24 +292,22 @@ class _VerdictView extends StatelessWidget {
   final LeakVerdict verdict;
   final List<LeakTestAnswer> answers;
   final VoidCallback onDrill, onExplore;
-  const _VerdictView(
-      {required this.verdict,
-      required this.answers,
-      required this.onDrill,
-      required this.onExplore});
+  const _VerdictView({required this.verdict, required this.answers, required this.onDrill, required this.onExplore});
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final v = verdict;
-    final missed = [for (final a in answers) if (a.isMiss) a];
+    final missed = [
+      for (final a in answers)
+        if (a.isMiss) a
+    ];
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Card(
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(children: [
-            Text('${v.correct} / ${v.total}',
-                style: t.displaySmall?.copyWith(color: Felt.accent(context))),
+            Text('${v.correct} / ${v.total}', style: t.displaySmall?.copyWith(color: Felt.accent(context))),
             const SizedBox(height: 4),
             Text(v.headline, style: t.titleMedium, textAlign: TextAlign.center),
           ]),
@@ -310,8 +318,7 @@ class _VerdictView extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(v.leaks.isEmpty ? 'Your leaks' : 'Your biggest leaks',
-                style: t.titleMedium),
+            Text(v.leaks.isEmpty ? 'Your leaks' : 'Your biggest leaks', style: t.titleMedium),
             const SizedBox(height: 8),
             for (final s in v.sentences)
               Padding(
@@ -366,7 +373,5 @@ class _VerdictView extends StatelessWidget {
 }
 
 /// Opens the leak test (Help → Retake), skipping the welcome card.
-Future<void> openLeakTest(BuildContext context, TrainerModel model) =>
-    Navigator.of(context).push(MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => OnboardingFlow(model: model, showWelcome: false)));
+Future<void> openLeakTest(BuildContext context, TrainerModel model) => Navigator.of(context)
+    .push(MaterialPageRoute(fullscreenDialog: true, builder: (_) => OnboardingFlow(model: model, showWelcome: false)));

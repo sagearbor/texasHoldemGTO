@@ -6,6 +6,8 @@ import '../../nearby/nearby_service.dart';
 import '../../nearby/nearby_ui.dart' show askBluetooth, joinNearbyGame;
 import '../../sync/table_night_service.dart';
 import '../../trainer/trainer_model.dart';
+import '../app_settings.dart';
+import '../player_name.dart';
 import '../theme.dart';
 import 'glossary_screen.dart';
 import 'help_screen.dart';
@@ -75,7 +77,10 @@ class _PlayScreenState extends State<PlayScreen> {
             ),
           );
         }
-        return _Hub(onHost: () => setState(() => _hosting = true));
+        return _Hub(onHost: () async {
+          // The name goes on the seat list and the TV: asked once.
+          if (await ensurePlayerName(context) && mounted) setState(() => _hosting = true);
+        });
       },
     );
   }
@@ -91,15 +96,19 @@ class _Hub extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Play'),
-        actions: const [GlossaryButton(), HelpButton(HelpTopic.homeGame)],
+        actions: const [GlossaryButton(), HelpButton(HelpTopic.play)],
       ),
       body: ListenableBuilder(
-        listenable: Listenable.merge([_near, _tn]),
+        listenable: Listenable.merge([_near, _tn, AppSettings.playerName]),
         builder: (context, _) {
           final joined = _tn.night != null && !_tn.isOrganizer;
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             children: [
+              if (AppSettings.playerName.value.trim().isEmpty) ...[
+                const _NameMissing(),
+                const SizedBox(height: 16),
+              ],
               if (joined) ...[
                 FilledButton.tonalIcon(
                   key: const Key('play-back-to-night'),
@@ -128,8 +137,11 @@ class _Hub extends StatelessWidget {
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 key: const Key('play-scan'),
-                onPressed: () =>
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const JoinTableNightScreen())),
+                onPressed: () async {
+                  final ok = await ensurePlayerName(context);
+                  if (!ok || !context.mounted) return;
+                  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const JoinTableNightScreen()));
+                },
                 icon: const Icon(Icons.qr_code_scanner),
                 label: const Text("Scan the host's code"),
               ),
@@ -145,6 +157,28 @@ class _Hub extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Loud while the player has no name: game nights need it.
+class _NameMissing extends StatelessWidget {
+  const _NameMissing();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      key: const Key('play-name-missing'),
+      color: cs.errorContainer,
+      child: ListTile(
+        leading: Icon(Icons.badge_outlined, color: cs.onErrorContainer),
+        title: Text('Set your name', style: TextStyle(color: cs.onErrorContainer, fontWeight: FontWeight.w600)),
+        subtitle: Text('$playerNameNeeded: it names you at the table.',
+            style: TextStyle(color: cs.onErrorContainer)),
+        trailing: Icon(Icons.chevron_right, color: cs.onErrorContainer),
+        onTap: () => askPlayerName(context),
       ),
     );
   }

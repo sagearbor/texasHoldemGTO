@@ -22,6 +22,8 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({'seen_welcome_v1': true});
     AppSettings.resetMemory();
+    // A name is set: Play does not ask for it (see player_name_test).
+    AppSettings.playerName.value = 'Host';
     await DevMode.load();
   });
 
@@ -128,11 +130,28 @@ void main() {
     expect(find.text('Record the table'), findsOneWidget);
   });
 
-  testWidgets('Help describes the three tabs; Record the table only in developer mode', (tester) async {
-    await tester.pumpWidget(const MaterialApp(home: HelpScreen(focus: HelpTopic.homeGame)));
+  testWidgets('Help: one line per tab topic; Record the table only in developer mode', (tester) async {
+    tester.view.physicalSize = const Size(412 * 3, 915 * 3);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(const MaterialApp(home: HelpScreen(focus: HelpTopic.play)));
     await tester.pumpAndSettle();
-    expect(find.text('Play & History'), findsOneWidget);
-    expect(find.textContaining('three tabs: Learn'), findsOneWidget);
-    expect(find.textContaining('Record the table:'), findsNothing);
+    // This screen's topic first, then every tab's topic once.
+    expect(find.byKey(const Key('help-focus')), findsOneWidget);
+    for (final s in ['Learn: Train', 'Learn: Charts', 'Learn: Equity', 'Learn: Stats', 'Play', 'History']) {
+      await tester.scrollUntilVisible(find.text(s), 100, scrollable: find.byType(Scrollable).first);
+      expect(find.text(s), findsOneWidget, reason: s);
+    }
+    await tester.pumpWidget(const MaterialApp(home: HelpTopicScreen(topic: HelpTopic.play)));
+    await tester.pumpAndSettle();
+    expect(find.text('Folded? Do nothing. Played it? Use the big pad.'), findsOneWidget);
+    expect(find.textContaining('Record the table'), findsNothing);
+    DevMode.on.value = true;
+    addTearDown(() => DevMode.on.value = false);
+    await tester.pumpWidget(const MaterialApp(home: HelpTopicScreen(topic: HelpTopic.play, key: ValueKey(2))));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.textContaining('Record the table'), 100,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.textContaining('Record the table'), findsOneWidget);
   });
 }

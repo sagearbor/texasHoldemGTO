@@ -15,7 +15,7 @@ import '../sync/night_events.dart' show codeAlphabet;
 import '../sync/table_night_service.dart';
 import '../ui/app_settings.dart';
 import '../ui/dev_mode.dart';
-import '../ui/screens/settings_screen.dart' show editPlayerName;
+import '../ui/player_name.dart' show askPlayerName;
 import '../ui/screens/table_night_screen.dart' show PlayerPadScreen;
 import '../ui/theme.dart';
 import 'ble_payload.dart';
@@ -151,7 +151,7 @@ Future<String> _joinName(BuildContext context) async {
     if (neutral != null) return neutral;
   } catch (_) {}
   if (context.mounted) {
-    final n = await editPlayerName(context, title: 'Your name for the table (once)');
+    final n = await askPlayerName(context);
     if (n != null && n.isNotEmpty) return n;
   }
   final r = math.Random();
