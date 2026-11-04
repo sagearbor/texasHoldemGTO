@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../sync/night_events.dart' show codeAlphabet;
 import '../sync/table_night_service.dart';
 import '../ui/app_settings.dart';
+import '../ui/dev_mode.dart';
 import '../ui/screens/settings_screen.dart' show editPlayerName;
 import '../ui/screens/table_night_screen.dart' show PlayerPadScreen;
 import '../ui/theme.dart';
@@ -185,7 +186,9 @@ Future<void> joinNearbyGame(BuildContext context, NearbyGame g) async {
 
 /// "Where are you sitting?" for the seating experiment: tap a spot on the
 /// table, host at the bottom. Clearly optional; logged with the time.
+/// Developer mode only: players are never asked where they sit.
 Future<void> showSeatCalibration(BuildContext context) async {
+  if (!DevMode.on.value) return;
   final picked = await showModalBottomSheet<Offset>(
     context: context,
     isScrollControlled: true,
@@ -316,8 +319,9 @@ class NearbyHostTile extends StatelessWidget {
 
 /// Android phones with UWB hardware only, once in a game with Bluetooth
 /// allowed: explain, then ask for the UWB permission. Everyone else: no
-/// prompt, nothing happens.
+/// prompt, nothing happens. Developer mode only (seating experiment).
 Future<void> maybeAskUwb(BuildContext context) async {
+  if (!DevMode.on.value) return;
   if (kIsWeb || !Platform.isAndroid || !_near.allowed) return;
   try {
     final c = await AndroidUwb().ensurePermission(() async {

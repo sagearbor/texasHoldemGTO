@@ -22,6 +22,7 @@ import '../widgets/story_tags.dart';
 import 'blind_clock_screen.dart';
 import 'crew_screen.dart';
 import '../app_settings.dart';
+import '../dev_mode.dart';
 import 'dashboard_screen.dart';
 import 'glossary_screen.dart';
 import 'help_screen.dart';
@@ -84,7 +85,8 @@ class HomeGameScreen extends StatelessWidget {
                   },
                   itemBuilder: (_) => [
                     const PopupMenuItem(value: 'clock', child: Text('Blind clock')),
-                    if (recordModeSupported)
+                    // A data-collection tool: developer mode only.
+                    if (recordModeSupported && DevMode.on.value)
                       const PopupMenuItem(value: 'record', child: Text('Record the table')),
                     const PopupMenuItem(value: 'radar', child: Text('Seat radar')),
                     const PopupMenuItem(
@@ -241,7 +243,7 @@ class _SetupState extends State<_Setup> {
           icon: const Icon(Icons.timer_outlined),
           label: const Text('Blind clock'),
         ),
-        if (recordModeSupported) ...[
+        if (recordModeSupported && DevMode.on.value) ...[
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: () => openRecordMode(context),
