@@ -5,6 +5,7 @@ import 'package:felt_notes/main.dart';
 import 'package:felt_notes/trainer/trainer_model.dart';
 import 'package:felt_notes/ui/app_settings.dart';
 import 'package:felt_notes/ui/dev_mode.dart';
+import 'package:felt_notes/ui/screens/help_screen.dart';
 import 'package:felt_notes/ui/screens/history_screen.dart';
 import 'package:felt_notes/ui/screens/play_screen.dart';
 import 'package:felt_notes/ui/theme.dart';
@@ -126,5 +127,13 @@ void main() {
     await tester.scrollUntilVisible(find.text('Record the table'), 100,
         scrollable: find.byType(Scrollable).first);
     expect(find.text('Record the table'), findsOneWidget);
+  });
+
+  testWidgets('Help describes the three tabs; Record the table only in developer mode', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: HelpScreen(focus: HelpTopic.homeGame)));
+    await tester.pumpAndSettle();
+    expect(find.text('Play & History'), findsOneWidget);
+    expect(find.textContaining('three tabs: Learn'), findsOneWidget);
+    expect(find.textContaining('Record the table:'), findsNothing);
   });
 }

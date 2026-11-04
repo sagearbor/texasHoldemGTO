@@ -4,11 +4,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../app_data.dart';
 import '../../learn/glossary.dart';
 import '../../trainer/trainer_model.dart';
+import '../dev_mode.dart';
 import '../theme.dart';
 import 'about_screen.dart';
 import 'glossary_screen.dart';
 import 'leak_test_screen.dart';
 import 'settings_screen.dart';
+
+/// Help lines about developer-mode tools start with this.
+const _devOnlyPrefix = 'Record the table:';
 
 enum HelpTopic { train, charts, equity, stats, homeGame, terms }
 
@@ -96,10 +100,16 @@ const _topics = {
     ]
   ),
   HelpTopic.homeGame: (
-    Icons.groups,
-    'Home game',
+    Icons.style_outlined,
+    'Play & History',
     [
-      'Before the game: type who is playing (any order), pick yourself, then Start. '
+      'The app has three tabs: Learn (Train, Charts, Equity and Stats, picked at the top), '
+          'Play (your home game) and History (past nights). It opens on Learn.',
+      'Play is one screen: games hosted at your table show up at the top by themselves '
+          '(Bluetooth) with a Join button, then Host a game, then "Scan the host\'s code", and '
+          '"This device is the TV" at the bottom. While a night runs on this phone, Play shows it.',
+      'Host a game: the names are filled in for you (your name, then Player 2, Player 3…); '
+          'edit them, pick yourself, then Start. '
           'Leave "Learn the seats from the deal" on and you never type the seat order.',
       'First orbit, organizer only: tap the name of whoever is dealing, each hand, as the '
           'deal goes round. That tap order becomes the seating. After one orbit the button '
@@ -121,12 +131,13 @@ const _topics = {
       'The TV icon opens the dashboard. Mirror (cast) your phone screen to the TV to show it. '
           'By default it only shows hands from 15+ minutes ago, so nobody reads the last hand '
           'off the screen. Tap the clock at the top to choose Instant up to 60 minutes.',
-      'Undo last fixes a mis-tap. End the game night from the menu at the top right. Past nights stay listed.',
-      'Snap my cards (Beta): tap the camera next to the card slots, then take or pick a photo '
+      'Undo last fixes a mis-tap. End the game night from the menu at the top right. Past nights are on the History tab.',
+      'Camera (under the card slots) opens Watch my cards. For a single photo instead, tap '
+          '"Just one photo" at the top of it (Snap my cards, Beta): take or pick a photo '
           'of your two cards so the corners show. It reads them on your device (nothing is '
           'uploaded) and also hints the street from the board cards it sees; always check the '
           'cards before saving.',
-      'Watch my cards (Beta): tap it under the card slots, prop the phone up beside you with '
+      'Watch my cards (Beta): tap Camera under the card slots, prop the phone up beside you with '
           'the camera towards your cards, aim with the preview, then Start. The screen goes black '
           '(it must stay open: phones only lend the camera to the app on screen). Peek at your '
           'cards as usual: once a few frames agree, they are put on this hand and, if you wear '
@@ -152,22 +163,22 @@ const _topics = {
       'Remembered your cards late? Enter them, tap "That was hand…" and pick the hand by its '
           'board: they go on that hand instead of the one being played now.',
       'With boards the Night Recap adds flops seen and your best made hand.',
-      'Blind clock: from the setup screen or the menu at the top right. It starts as a '
+      'Blind clock: from the Host a game screen or the menu at the top right. It starts as a '
           'cash game (stakes on the TV, no timer). For a tournament pick Tournament clock in '
           'its menu: a big countdown, levels and breaks you can edit. It keeps time even if '
           'the phone sleeps.',
       'End game night shows the Night Recap: best hand, cold streaks, card luck, awards and '
           '"Dealer of Doom" (who dealt you the worst cards). Copy it for the group chat.',
-      'Crew & season (setup screen): everyone who has played, attendance streaks and your '
+      'Crew & season (History tab): everyone who has played, attendance streaks and your '
           'trends from night to night.',
       'Optional extras: tag a memorable hand (Bad beat, Cooler…) under the logger; it shows in '
-          'the recap and, after the delay, on the dashboard. "Draw for the button" at setup deals '
+          'the recap and, after the delay, on the dashboard. "Draw for the button" on Host a game deals '
           'a card to each seat (high card deals, ♠ > ♥ > ♦ > ♣ break ties). The menu at the top right → My result stores '
           'your own buy-in and cash-out (just you — nobody else\'s money is tracked). '
           'Badges for milestones are on Crew & season.',
       'Table nights (other phones and a TV): leave "Let other phones and a TV join" on at '
-          'Start. The QR icon at the top shows a QR: each player taps Join a table night on '
-          'the setup screen and photographs it once (or types the code), picks their name and '
+          'Start. The QR icon at the top shows a QR: each player taps "Scan the host\'s code" on '
+          'Play and photographs it once (or types the code), picks their name and '
           'then taps only Call or Raise on hands they play; you keep tapping Next hand for '
           'everyone. Phones work without signal and upload when they can. For the TV, open the '
           'link under the QR on a laptop, tablet or spare phone and cast or plug it in: it shows '
@@ -181,9 +192,9 @@ const _topics = {
           'as "private". The data has no account behind it (an anonymous id), is readable only '
           'with the night\'s code, and is deleted after about 60 days. Your money never leaves '
           'the phone.',
-      'Nearby game (no internet): tap Find a game nearby once and allow Bluetooth. When a '
-          'phone at your table hosts a game (an organizer, or Record the table with "Let phones '
-          'nearby join"), a "Nearby game" card appears above the tabs: tap Join. It uses the '
+      'Games nearby (no internet): on Play, tap Find games nearby once and allow Bluetooth. When a '
+          'phone at your table hosts a game, it is listed at the top of Play: tap Join. It only '
+          'looks while Play is on screen. It uses the '
           'name you gave at the start (Settings → Your name at the table). While you are in a '
           'game the phone also notes how strong the other Felt Notes phones\' Bluetooth signals '
           'are, for a seat-finding experiment; that is never shown and stays on the phone with '
@@ -209,7 +220,7 @@ const _topics = {
       'VPIP: % of hands you voluntarily put money in before the flop.',
       'PFR: % of hands you raised before the flop. Compared with VPIP it shows how aggressive you are.',
       'Positions: UTG (first to act) → HJ → CO → BTN (dealer, acts last) → SB → BB.',
-      'More terms: the Glossary (book icon at the top of Train and Home game, or at the top '
+      'More terms: the Glossary (book icon at the top of Train, Play and History, or at the top '
           'of this page). Tap a seat on the table diagram to look it up.',
     ]
   ),
@@ -258,6 +269,7 @@ class HelpScreen extends StatelessWidget {
                 expandedCrossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   for (final line in e.value.$3)
+                    if (DevMode.on.value || !line.startsWith(_devOnlyPrefix))
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [

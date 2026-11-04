@@ -155,7 +155,7 @@ class _JoinTableNightScreenState extends State<JoinTableNightScreen> {
     final t = Theme.of(context).textTheme;
     final ticket = _scanned;
     return Scaffold(
-      appBar: AppBar(title: const Text('Join a table night')),
+      appBar: AppBar(title: const Text("Scan the host's code")),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Text(
           'The organizer logs the hands; you tap only when you play one. '
@@ -513,7 +513,7 @@ class _OrganizerSheetState extends State<_OrganizerSheet> {
           const SizedBox(height: 8),
           Center(child: SelectableText(ticket.code, style: t.headlineSmall)),
           const SizedBox(height: 4),
-          Text('Home game → Join a table night. No app? They just play: you log the hands.',
+          Text("Play → Scan the host's code (or Join, if it lists this game). No app? They just play: you log the hands.",
               style: t.bodySmall, textAlign: TextAlign.center),
           const SizedBox(height: 10),
           const NearbyHostTile(),

@@ -307,7 +307,7 @@ class NearbyHostTile extends StatelessWidget {
           Expanded(
             child: Text(
                 on
-                    ? 'Phones nearby with Felt Notes open see "Nearby game" and join with one tap.'
+                    ? 'Phones nearby with Felt Notes open on Play see this game and join with one tap.'
                     : (_near.poweredOn ? 'This phone cannot advertise over Bluetooth.' : 'Bluetooth is off.'),
                 style: t.bodySmall),
           ),

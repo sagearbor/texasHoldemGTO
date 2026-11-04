@@ -630,7 +630,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
     messenger.showSnackBar(SnackBar(
-      content: Text('Saved ${s.photos} photos. Export: Home game → Record the table → Recordings.'),
+      content: Text('Saved ${s.photos} photos. Export: Play → Host a game → Record the table → Recordings.'),
     ));
   }
 
