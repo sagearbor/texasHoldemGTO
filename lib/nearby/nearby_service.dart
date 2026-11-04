@@ -190,11 +190,27 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
     if (allowed) await _onNightAsync();
   }
 
+  /// Out of a game, the search for hosts runs only while the Play tab is
+  /// on screen (battery): the shell switches this as tabs change.
+  bool _looking = false;
+  bool get looking => _looking;
+
+  void setLooking(bool on) {
+    if (on == _looking) return;
+    _looking = on;
+    if (!_started || !allowed || _paused) return;
+    if (on) {
+      _schedule(Duration.zero);
+    } else if (!_sensing) {
+      _timer?.cancel();
+    }
+  }
+
   void _schedule(Duration d) {
     _timer?.cancel();
     if (!allowed || _paused) return;
-    // Out of a game, only look while the app is on screen.
-    if (!_foreground && !_sensing) return;
+    // Out of a game, only look while the app and the Play tab are on screen.
+    if (!_sensing && (!_foreground || !_looking)) return;
     _timer = Timer(d, () async {
       await _scanOnce();
       final soon = _soon;
