@@ -12,6 +12,11 @@
 // --frame-frac: the image is a crop whose short side is that fraction of
 // the camera frame's (glyph-size limits are relative to the frame).
 //
+// Testing a new deck (e.g. camera_data/dino/, photos + labels.json with
+// "IMG.jpg": "Ks 9s"): convert with to_rgba.py, rename the label keys to
+// the .rgba names, and score BEFORE tuning anything on that deck; keep a
+// held-out split that no training or threshold ever sees.
+//
 // Reported per image: hero cards, and with --labels a hand is RIGHT when
 // both confident hero cards are the truth, WRONG when any confident hero
 // card is not in the truth, else UNREAD; plus card-level counts.
