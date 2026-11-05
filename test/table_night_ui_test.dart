@@ -107,8 +107,12 @@ void main() {
     expect(sw.value, isFalse, reason: 'a joiner shares nothing unless they turn it on');
     expect(find.text('Share my hands with the table (for stats)'), findsOneWidget);
     expect(find.textContaining('only after the hand'), findsOneWidget, reason: 'one honest line');
+    // Seat-finding signals: their own switch, on by default.
+    expect(tester.widget<SwitchListTile>(find.byKey(const Key('share-seat-signals'))).value, isTrue);
     await tester.enterText(find.byType(TextField).first, 'abcd2345-wxyz6789');
     await tester.enterText(find.byType(TextField).last, 'Ann');
+    await tester.scrollUntilVisible(find.text('Join'), 200, scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
     await tester.runAsync(() async {
       await tester.tap(find.text('Join'));
       await Future<void>.delayed(const Duration(milliseconds: 200));

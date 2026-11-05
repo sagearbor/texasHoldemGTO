@@ -28,6 +28,7 @@ import '../../nearby/nearby_ui.dart' show FindNearbyButton, NearbyHostTile, mayb
 import '../app_settings.dart';
 import '../theme.dart';
 import '../tv/tv_controller.dart' show ticketFromTvInput;
+import 'cloud_status_row.dart';
 import '../tv/show_on_tv.dart';
 import '../tv/tv_screen.dart';
 import '../widgets/playing_card.dart';
@@ -61,12 +62,35 @@ class SharingTile extends StatelessWidget {
   }
 }
 
-/// A player in someone else's night: private by default, sharing under
-/// Advanced ("Share my hands with the table (for stats)").
+/// The seat-finding switch (Bluetooth readings for the seat radar): ON by
+/// default, separate from sharing hands; nothing about cards.
+class SeatSignalsTile extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const SeatSignalsTile({super.key, required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+        key: const Key('share-seat-signals'),
+        contentPadding: EdgeInsets.zero,
+        value: value,
+        onChanged: onChanged,
+        title: const Text('Share seat-finding signals (Bluetooth)'),
+        subtitle: Text(TableNightService.seatSignalsLine, style: Theme.of(context).textTheme.bodySmall),
+        isThreeLine: true,
+      );
+}
+
+/// A player in someone else's night: hands private by default, sharing
+/// under Advanced ("Share my hands with the table (for stats)"), next to
+/// the seat-finding switch (on by default).
 class JoinerSharingTile extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
-  const JoinerSharingTile({super.key, required this.value, required this.onChanged});
+  final bool seat;
+  final ValueChanged<bool>? onSeatChanged;
+  const JoinerSharingTile(
+      {super.key, required this.value, required this.onChanged, this.seat = true, this.onSeatChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -101,6 +125,7 @@ class JoinerSharingTile extends StatelessWidget {
             subtitle: Text(TableNightService.joinerSharingLine, style: t.bodySmall),
             isThreeLine: true,
           ),
+          if (onSeatChanged != null) SeatSignalsTile(value: seat, onChanged: onSeatChanged!),
         ],
       ),
     ]);
@@ -127,6 +152,9 @@ class _JoinTableNightScreenState extends State<JoinTableNightScreen> {
   /// Joining someone's night keeps everything on this phone unless the
   /// player turns sharing on (Advanced).
   bool _share = false;
+
+  /// Seat-finding signals (Bluetooth): on unless the player turns them off.
+  bool _seat = true;
 
   @override
   void dispose() {
@@ -180,7 +208,8 @@ class _JoinTableNightScreenState extends State<JoinTableNightScreen> {
           name: name,
           claimPid: _claim,
           scannedAtMs: _scanned != null ? _scannedAt! : DateTime.now().millisecondsSinceEpoch,
-          sharing: _share);
+          sharing: _share,
+          seatSignals: _seat);
     } catch (e) {
       if (mounted) setState(() => _error = 'Could not join ($e).');
       return;
@@ -251,7 +280,11 @@ class _JoinTableNightScreenState extends State<JoinTableNightScreen> {
           decoration: const InputDecoration(labelText: 'Your name (as the organizer typed it)'),
         ),
         const SizedBox(height: 16),
-        JoinerSharingTile(value: _share, onChanged: (v) => setState(() => _share = v)),
+        JoinerSharingTile(
+            value: _share,
+            onChanged: (v) => setState(() => _share = v),
+            seat: _seat,
+            onSeatChanged: (v) => setState(() => _seat = v)),
         const SizedBox(height: 8),
         FilledButton(onPressed: _busy ? null : _join, child: const Text('Join')),
         if (_error != null) ...[
@@ -425,13 +458,13 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
               style: t.bodySmall,
             ),
             const SizedBox(height: 16),
-            JoinerSharingTile(value: s.sharing, onChanged: (v) => _svc.setSharing(v)),
+            JoinerSharingTile(
+                value: s.sharing,
+                onChanged: (v) => _svc.setSharing(v),
+                seat: s.sharingSeat,
+                onSeatChanged: (v) => _svc.setSharingSeat(v)),
             const SizedBox(height: 12),
-            Row(children: [
-              Icon(s.uploader?.lastError == null ? Icons.cloud_done_outlined : Icons.cloud_off_outlined, size: 18),
-              const SizedBox(width: 8),
-              Expanded(child: Text(_svc.statusLine(), style: t.bodySmall)),
-            ]),
+            CloudStatusRow(status: _svc.cloudStatus()),
             const SizedBox(height: 16),
             Card(
               child: Padding(
@@ -568,6 +601,8 @@ class _OrganizerSheetState extends State<_OrganizerSheet> {
           Center(child: SelectableText(ticket.code, style: t.headlineSmall)),
           Text("On Play: Join, or Scan the host's code. No app? You log their hands.",
               style: t.bodySmall, textAlign: TextAlign.center),
+          const SizedBox(height: 6),
+          ListenableBuilder(listenable: _svc, builder: (context, _) => CloudStatusRow(status: _svc.cloudStatus())),
           const SizedBox(height: 8),
           const NearbyHostTile(),
           const Divider(height: 20),
@@ -613,6 +648,7 @@ class _OrganizerSheetState extends State<_OrganizerSheet> {
               expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 SharingTile(value: _svc.sharing, onChanged: _svc.setSharing),
+                SeatSignalsTile(value: _svc.sharingSeat, onChanged: _svc.setSharingSeat),
                 if (!_svc.sharing)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),

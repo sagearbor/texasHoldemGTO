@@ -126,4 +126,14 @@ class EventLog {
     }
     return true;
   }
+
+  /// Is sharing seat-finding signals (Bluetooth readings) on, per the
+  /// latest share event that says (`bt`). ON unless turned off: they reveal
+  /// nothing about cards.
+  bool get sharingSeat {
+    for (final e in _events.reversed) {
+      if (e.kind == EventKind.share && e.data['bt'] is bool) return e.data['bt'] == true;
+    }
+    return true;
+  }
 }

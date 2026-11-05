@@ -37,9 +37,13 @@ night's log.
    the sharing switch. It comes back from the QR icon on the hand logger.
 2. **Join.** A player: Home game → Join a table night → photograph the QR
    (ML Kit reads it on the phone; or type the code), tap their name from
-   the organizer's list, Join. A joiner is private by default: only the
-   join (name) goes up unless they turn on Advanced, "Share my hands with
-   the table (for stats)" (also on the pad; one-tap nearby joins too).
+   the organizer's list, Join. A joiner's hands are private by default:
+   the join (name) goes up, and the seat-finding signals (see below), but
+   no taps or cards unless they turn on Advanced, "Share my hands with the
+   table (for stats)" (also on the pad; one-tap nearby joins too). Next to
+   it, "Share seat-finding signals (Bluetooth)" is ON by default: which
+   Felt Notes phones this one hears and how loud, plus the phone model,
+   for the seat radar. Nothing about cards or actions.
    That is the only moment phones need to be near each other.
 3. **During the night nobody needs a network.** The organizer runs the
    hand logger exactly as before (first-orbit dealer taps, Next hand, own
@@ -68,7 +72,7 @@ source of truth; the cloud copy can always be rebuilt from it.
 | `play` | any | `e, a, f?` | one tap: entry no., call / raise / fold, facing |
 | `cards` | any | `e, c, h?, done?` | own hole cards for entry `e` (cloud copy: `{e}` only) |
 | `undo` | any | `e` | withdraw entry `e` |
-| `share` | any | `on` | sharing with the table on / off (recorded at join) |
+| `share` | any | `on, bt?` | hand sharing on / off (recorded at join); `bt: false` = seat-finding signals off (absent = on) |
 | `leave` | any | | gone for the night |
 | `seats` | organizer | `seats: [[pid, name]..]` | clockwise table from the next hand on |
 | `hand` | organizer | `n, d` | hand `n` starts now, dealer pid `d` |
@@ -196,10 +200,13 @@ nights/{nightId}/cards/{deviceId}_{e} {uid, deviceId, e, c: [a, b], at, expireAt
   it; `count` must equal the events list and never shrink in place (a
   stale re-upload cannot erase events); the owner may delete it (sharing
   turned off). Members read every log.
-* **What a log holds** (`cloudEvents`): sharing **on**: everything, except
-  that a `cards` event is cut down to `{e}` ("had cards"). Sharing **off**:
-  only `join`, `share`, `leave` and the organizer's bookkeeping (`seats`,
-  `hand`, `unhand`, `board`, `end`, `clock`); no `play`, `cards` or `undo`.
+* **What a log holds** (`cloudEvents`): always `join`, `share`, `leave`
+  and the organizer's bookkeeping (`seats`, `hand`, `unhand`, `board`,
+  `end`, `clock`). Seat-finding signals (`seatSignals`: `sense`, `device`,
+  `seat`) by their own switch, **on** by default for hosts and joiners
+  (they say who sits near whom, nothing about cards). Hand sharing **on**:
+  `play`, `undo` and `cards` cut down to `{e}` ("had cards"); **off** (the
+  default): none of them.
   Switching off rewrites the log (delete + write when it shrinks) and
   deletes the card documents, so what was shared is gone.
 * **Cards** never sit in a log. A phone writes a card document for an
@@ -249,7 +256,17 @@ and delete, TV member).
   reply means one identical rewrite; the merge unions by `deviceId_seq`.
 * **Offline:** failures back off 5 s, 10 s ... capped at 1 minute (failed
   requests cost nothing); going to the background or coming back flushes
-  at once.
+  at once. A cloud that failed to start is tried again every 30 s (and by
+  the Retry button). The host's QR sheet, the player pad and the seat
+  radar show one line: "Connected · last upload 1 min ago" or "Offline:
+  <step> failed <when> (<error>)".
+* **Seat radar cadence:** while a night is on, each phone scans Bluetooth
+  4 s every 10 s and writes a `sense` event per ~15 s window; uploads go
+  at most every 20 s; the open radar fetches every 10 s and uses each
+  phone's last 6 windows. Battery: the radio is busy about 40 % of the
+  time during a night (was ~13 % at 30 s), roughly 2 to 4 % battery an
+  hour more on a Pixel; reads: about 6 per minute per phone's log while
+  the radar is open on the host.
 * **Late joiner:** counts from the first hand after the organizer seats
   them (or every hand, if never seated).
 * **Leaving:** a player's `leave` stops their hands even if the organizer
@@ -297,6 +314,10 @@ region or a paid plan (the owner's call: never enable billing here).
 
 * Cloud is **on** by default (`lib/sync/cloud_config.dart`); Firebase is
   started only the first time a table night needs it, never at launch.
+  It must be the **[DEFAULT]** Firebase app: cloud_firestore's
+  `instanceFor(app:)` still calls `Firebase.app()`, so a named app alone
+  fails on phones with `[core/no-app]` (builds up to 0.3.3+42: no phone
+  ever reached Firestore). `test/firebase_init_test.dart` guards it.
   `--dart-define=FELT_CLOUD=false` builds a local-only app;
   `--dart-define=FELT_FB_PROJECT=demo-feltnotes --dart-define=FELT_FB_EMULATOR=10.0.2.2:8012`
   points at a local emulator.

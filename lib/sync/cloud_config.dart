@@ -33,11 +33,26 @@ CloudLogs? _cloud;
 String? cloudError;
 Future<CloudLogs?>? _opening;
 
+/// Tests: the cloud the app gets instead of Firebase (null = the real one).
+Future<CloudLogs?> Function()? debugOpenCloud;
+
+/// When the last failed start was (a later call tries again).
+int? _failedAtMs;
+
 /// The cloud backend, or null for local-only. Never throws: any failure to
 /// start (no network is NOT one: Firebase starts offline) means local-only
-/// for this run, and the night still works from the phone's own log.
+/// for now, and the night still works from the phone's own log. A failed
+/// start is tried again on a later call (at most every 30 s) instead of
+/// being remembered for the whole run.
 Future<CloudLogs?> openCloud() {
+  final fake = debugOpenCloud;
+  if (fake != null) return fake();
   if (!cloudSyncEnabled) return Future.value(null);
+  final failed = _failedAtMs;
+  if (failed != null && _cloud == null && DateTime.now().millisecondsSinceEpoch - failed > 30000) {
+    _opening = null;
+    _failedAtMs = null;
+  }
   return _opening ??= _open();
 }
 
@@ -57,9 +72,11 @@ Future<CloudLogs?> _open() async {
       emulator: fbEmulator.isEmpty ? null : fbEmulator,
       authEmulator: fbAuthEmulator.isEmpty ? null : fbAuthEmulator,
     );
+    cloudError = null;
   } catch (e) {
     cloudError = '$e';
     _cloud = null;
+    _failedAtMs = DateTime.now().millisecondsSinceEpoch;
   }
   return _cloud;
 }

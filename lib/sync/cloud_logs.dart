@@ -14,9 +14,13 @@
 /// phone.
 ///
 /// What leaves the phone ([cloudEvents], [releasedCards]):
-///   * sharing off: only the join (name), the sharing switch and leaving,
-///     plus the organizer's table bookkeeping (seats, hand starts, board,
-///     blind clock) so the TV still runs. No taps, no cards.
+///   * always: the join (name), the sharing switches and leaving, plus the
+///     organizer's table bookkeeping (seats, hand starts, board, blind
+///     clock) so the TV still runs.
+///   * seat-finding signals ([seatSignals]: Bluetooth readings, the phone
+///     model, the "where are you sitting" tap): ON by default, their own
+///     switch. They say who sits near whom, nothing about cards.
+///   * hand sharing off (the default): no taps, no cards.
 ///   * sharing on: taps as they happen; the log says only "had cards"; the
 ///     cards themselves go to a card document once the hand is over (a later
 ///     entry exists, the organizer closed it, or [cardHoldMs] passed), and
@@ -120,23 +124,27 @@ List<DeviceLog> logsFromParts(Iterable<LogPart> parts) {
   ];
 }
 
-/// Kinds that are a player's own: they stay on the phone while sharing is
-/// off (the seating experiment's readings too).
+/// A player's hands: they stay on the phone while hand sharing is off.
 const _playerOwn = {
   EventKind.play,
   EventKind.cards,
   EventKind.undo,
+};
+
+/// Seat-finding signals (the seat radar): Bluetooth / UWB readings of the
+/// other phones, this phone's model, and the optional "where are you
+/// sitting" tap. Nothing about cards or actions; their own switch, ON by
+/// default.
+const seatSignals = {
   EventKind.device,
   EventKind.sense,
   EventKind.seat,
 };
 
 /// The cloud copy of a phone's log: see the library comment.
-List<NightEvent> cloudEvents(Iterable<NightEvent> events, {required bool sharing}) => [
+List<NightEvent> cloudEvents(Iterable<NightEvent> events, {required bool sharing, bool seat = true}) => [
       for (final e in events)
-        if (!_playerOwn.contains(e.kind))
-          e
-        else if (sharing)
+        if (seatSignals.contains(e.kind) ? seat : (!_playerOwn.contains(e.kind) || sharing))
           e.kind == EventKind.cards ? e.withData({'e': e.data['e']}) : e
     ];
 
@@ -258,6 +266,14 @@ class Uploader {
   /// Last error, for a small "not uploaded yet" hint in the UI.
   Object? lastError;
 
+  /// When [lastError] happened, and the step that failed ("sign-in /
+  /// joining the night", "upload").
+  int? lastErrorAtMs;
+  String? lastErrorStep;
+
+  /// Attempts so far this run (the status line says "trying" vs "never ran").
+  int attempts = 0;
+
   Uploader({
     required this.log,
     required this.cloud,
@@ -278,7 +294,7 @@ class Uploader {
 
   /// part -> (events, fingerprint), what the cloud should hold now.
   Map<int, (List<NightEvent>, String)> _planParts() {
-    final evs = cloudEvents(log.events, sharing: log.sharing);
+    final evs = cloudEvents(log.events, sharing: log.sharing, seat: log.sharingSeat);
     final byPart = <int, List<NightEvent>>{};
     for (final e in evs) {
       byPart.putIfAbsent(partOf(e.seq), () => []).add(e);
@@ -320,12 +336,17 @@ class Uploader {
 
   Future<UploadResult> drainOnce() async {
     if (_busy) return UploadResult.nothing;
-    if (!pending) return UploadResult.nothing;
     _busy = true;
+    var step = 'upload';
     try {
+      // Inside the try: an exception here must not kill the upload loop.
+      if (!pending) return UploadResult.nothing;
+      attempts++;
       if (log.meta['up.joined'] != true) {
+        step = 'sign-in / joining the night';
         await cloud.join(ticket, deviceId: log.deviceId, name: name);
         await log.setMeta('up.joined', true);
+        step = 'upload';
       }
       // Twice at most: the first write may measure the skew, which the
       // last part then carries.
@@ -340,6 +361,8 @@ class Uploader {
       return UploadResult.uploaded;
     } catch (e) {
       lastError = e;
+      lastErrorAtMs = now();
+      lastErrorStep = step;
       return UploadResult.failed;
     } finally {
       _busy = false;
@@ -451,9 +474,21 @@ class Uploader {
     _timer?.cancel();
     _timer = Timer(d, () async {
       if (_stopped) return;
-      final r = await drainOnce();
+      var r = UploadResult.failed;
+      try {
+        r = await drainOnce();
+      } catch (e) {
+        lastError = e;
+        lastErrorAtMs = now();
+      }
       if (_stopped) return;
-      _schedule(r == UploadResult.failed ? backoff.next() : _idleWait());
+      Duration wait;
+      try {
+        wait = r == UploadResult.failed ? backoff.next() : _idleWait();
+      } catch (_) {
+        wait = minInterval;
+      }
+      _schedule(wait);
     });
   }
 }

@@ -110,7 +110,10 @@ String? nextDealer(List<Seat> seats, String? dealerPid) {
 /// [CloudLogs] (null in the default build: local only).
 class LocalTableSync implements TableSync {
   final EventLog log;
-  final CloudLogs? cloud;
+
+  /// Null while local-only; a cloud that started late is attached with
+  /// [attachCloud].
+  CloudLogs? cloud;
   final int Function() now;
   final String myName;
   @override
@@ -182,6 +185,7 @@ class LocalTableSync implements TableSync {
     String? claimPid,
     required int scannedAtMs,
     bool sharing = true,
+    bool seatSignals = true,
     CloudLogs? cloud,
     int Function()? now,
     String? role,
@@ -198,7 +202,7 @@ class LocalTableSync implements TableSync {
       // "camera": a Record-the-table phone, never counted as a player.
       if (role != null) 'role': role,
     }, ms: scannedAtMs);
-    await s._append(EventKind.share, {'on': sharing});
+    await s._append(EventKind.share, {'on': sharing, if (!seatSignals) 'bt': false});
     return s;
   }
 
@@ -248,12 +252,24 @@ class LocalTableSync implements TableSync {
     bool listen = false,
     void Function()? onStatus,
   }) {
+    _syncArgs = (minInterval, listen, onStatus);
     final c = cloud;
     if (c == null) return;
     uploader ??= Uploader(
         log: log, cloud: c, ticket: ticket, name: myName, now: now, minInterval: minInterval, onChange: onStatus)
       ..start();
     if (listen) _listen(c);
+  }
+
+  (Duration, bool, void Function()?)? _syncArgs;
+
+  /// The cloud started after this night did (it failed to start at first):
+  /// use it from now on, and start uploading if [startSync] already ran.
+  void attachCloud(CloudLogs c) {
+    if (cloud != null || _disposed) return;
+    cloud = c;
+    final a = _syncArgs;
+    if (a != null) startSync(minInterval: a.$1, listen: a.$2, onStatus: a.$3);
   }
 
   /// When the cloud last sent the other phones' logs (this phone's clock).
@@ -474,7 +490,16 @@ class LocalTableSync implements TableSync {
   @override
   Future<void> setSharing(bool on) async {
     if (on == sharing) return;
-    await _append(EventKind.share, {'on': on});
+    await _append(EventKind.share, {'on': on, if (!sharingSeat) 'bt': false});
+  }
+
+  /// Seat-finding signals (Bluetooth readings, phone model, seat tap) go to
+  /// the table: ON by default, separate from hand sharing.
+  bool get sharingSeat => log.sharingSeat;
+
+  Future<void> setSharingSeat(bool on) async {
+    if (on == sharingSeat) return;
+    await _append(EventKind.share, {'on': sharing, 'bt': on});
   }
 
   @override

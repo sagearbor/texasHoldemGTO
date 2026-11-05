@@ -129,12 +129,23 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
   // --------------------------------------------------------------- player
 
   Future<LocalTableSync> join(JoinTicket t,
-      {required String name, String? claimPid, required int scannedAtMs, required bool sharing, String? role}) async {
+      {required String name,
+      String? claimPid,
+      required int scannedAtMs,
+      required bool sharing,
+      bool seatSignals = true,
+      String? role}) async {
     await _detach();
     final store = _store ??= await SharedPrefsStore.open();
     final cloud = await openCloud();
     final sync = await LocalTableSync.join(store, t,
-        name: name, claimPid: claimPid, scannedAtMs: scannedAtMs, sharing: sharing, cloud: cloud, role: role);
+        name: name,
+        claimPid: claimPid,
+        scannedAtMs: scannedAtMs,
+        sharing: sharing,
+        seatSignals: seatSignals,
+        cloud: cloud,
+        role: role);
     await _attach(sync);
     return sync;
   }
@@ -193,6 +204,44 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
 
   bool get sharing => night?.sharing ?? true;
 
+  /// Seat-finding signals (Bluetooth) to the table: ON by default.
+  bool get sharingSeat => night?.sharingSeat ?? true;
+
+  Future<void> setSharingSeat(bool on) async {
+    final s = night;
+    if (s == null) return;
+    await s.setSharingSeat(on);
+    s.uploader?.flushNow();
+    notifyListeners();
+  }
+
+  Timer? _cloudRetry;
+
+  /// The cloud failed to start when this night began: try again (every
+  /// 30 s while a night is on, or now from the "retry" button). Returns
+  /// whether the night has a cloud now.
+  Future<bool> retryCloud() async {
+    final s = night;
+    if (s == null) return false;
+    if (s.cloud != null) {
+      s.uploader?.flushNow();
+      return true;
+    }
+    final c = await openCloud();
+    if (c == null || night != s) return false;
+    s.attachCloud(c);
+    notifyListeners();
+    return true;
+  }
+
+  void _watchCloud() {
+    _cloudRetry?.cancel();
+    if (night?.cloud != null) return;
+    _cloudRetry = Timer.periodic(const Duration(seconds: 30), (t) async {
+      if (night == null || await retryCloud()) t.cancel();
+    });
+  }
+
   /// Upload right now (button, or app lifecycle).
   void flush() => night?.uploader?.flushNow();
 
@@ -202,6 +251,7 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     // Nobody listens live on a phone (the TV does): saves a read per
     // change per phone. The pad fetches once on demand.
     s.startSync(onStatus: notifyListeners);
+    _watchCloud();
     if (s.isOrganizer && s.log.meta['standalone'] != true) {
       _bridge = OrganizerBridge(s);
       await _onHomeAsync();
@@ -257,6 +307,36 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
 
   // ---------------------------------------------------------------- views
 
+  /// Connected or not, and why, for the host's QR sheet and the radar:
+  /// "Connected · last upload 1 min ago" or "Offline: <reason>".
+  CloudStatus cloudStatus() {
+    final s = night;
+    if (s == null) return const CloudStatus(false, 'Offline: not in a table night.');
+    final up = s.uploader;
+    if (s.cloud == null || up == null) {
+      return CloudStatus(
+          false,
+          cloudError == null
+              ? 'Offline: this build has no cloud.'
+              : 'Offline: the cloud did not start (${_short(cloudError!)}). Trying again every 30 s.');
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final ok = up.lastOkMs;
+    final last = ok == null ? 'never uploaded' : 'last upload ${_ago(now - ok)}';
+    final err = up.lastError;
+    if (err != null) {
+      final at = up.lastErrorAtMs == null ? '' : ' ${_ago(now - up.lastErrorAtMs!)}';
+      return CloudStatus(false, 'Offline: ${up.lastErrorStep ?? 'upload'} failed$at (${_short('$err')}). $last; retrying.');
+    }
+    if (ok == null) return CloudStatus(false, up.attempts == 0 ? 'Connecting…' : 'Connecting (signing in)…');
+    return CloudStatus(true, 'Connected · $last${up.pending ? ' · sending…' : ''}');
+  }
+
+  static String _short(String e) {
+    final one = e.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return one.length > 140 ? '${one.substring(0, 140)}…' : one;
+  }
+
   /// One line, honest about where things are.
   String statusLine() {
     final s = night;
@@ -279,8 +359,13 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
 
   /// A player who joins someone's night: what stays on the phone (all of
   /// it, unless they turn sharing on).
-  static const joinerPrivateLine = 'Your cards and hands stay on this phone. The table sees only that you '
-      'joined (your name).';
+  static const joinerPrivateLine = 'Your cards and hands stay on this phone. The table sees that you '
+      'joined (your name) and, for the seat radar, which phones yours hears over Bluetooth.';
+
+  /// The seat-signal switch, in one line.
+  static const seatSignalsLine = 'On (the default): which Felt Notes phones yours hears over Bluetooth, '
+      'how strongly, and your phone model, so the seat radar can tell who sits where. Nothing about '
+      'your cards or actions.';
 
   /// The joiner's advanced switch, in one line.
   static const joinerSharingLine = 'Off (the default): nothing about your hands leaves this phone. On: your '
@@ -302,6 +387,14 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     final n = s.ticket.organizerName;
     return n.isEmpty ? 'Table ${s.nightId}' : "$n's table";
   }
+}
+
+/// [TableNightService.cloudStatus]: one line, and whether the night is
+/// reaching the cloud.
+class CloudStatus {
+  final bool connected;
+  final String line;
+  const CloudStatus(this.connected, this.line);
 }
 
 String _ago(int ms) {

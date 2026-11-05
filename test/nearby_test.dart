@@ -145,14 +145,18 @@ void main() {
     });
   });
 
-  test('seating events stay on the phone while sharing is off', () {
+  test('seat-finding signals have their own switch (on by default), apart from hands', () {
     final evs = [
       const NightEvent(deviceId: 'D', seq: 1, kind: EventKind.join, ms: 1, data: {'name': 'x'}),
       const NightEvent(deviceId: 'D', seq: 2, kind: EventKind.device, ms: 2),
       const NightEvent(deviceId: 'D', seq: 3, kind: EventKind.sense, ms: 3),
       const NightEvent(deviceId: 'D', seq: 4, kind: EventKind.seat, ms: 4),
     ];
-    expect(cloudEvents(evs, sharing: false).map((e) => e.kind), [EventKind.join]);
+    // Hands private, seat signals on (the defaults): the radar still works.
+    expect(cloudEvents(evs, sharing: false), hasLength(4));
+    // Seat signals off: only the join, whatever hand sharing says.
+    expect(cloudEvents(evs, sharing: false, seat: false).map((e) => e.kind), [EventKind.join]);
+    expect(cloudEvents(evs, sharing: true, seat: false).map((e) => e.kind), [EventKind.join]);
     expect(cloudEvents(evs, sharing: true), hasLength(4));
   });
 
