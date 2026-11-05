@@ -55,6 +55,14 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
   String? advertising;
   bool advertiseFailed = false;
 
+  /// The native error code of the last failed advert (Android
+  /// AdvertiseCallback codes), for the logs.
+  int? advertCode;
+
+  /// Bumped per advertise call: a slow answer to an older call must not
+  /// overwrite the newer one's result.
+  int _advertGen = 0;
+
   bool _foreground = true;
   String? _loopNight;
   bool _scanning = false;
@@ -274,6 +282,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
       _afterScan(got, now);
+      await _retryAdvert();
     } catch (e) {
       debugPrint('nearby scan: $e');
     } finally {
@@ -324,8 +333,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
         await bleStopAdvertising();
         if (uwb) await uwbStop();
       } else {
-        advertiseFailed = !await bleAdvertise(want,
-            name: name, connectable: uwb && !kIsWeb && Platform.isAndroid && n != null);
+        await _advertise(want, name: name, inNight: n != null);
         if (uwb) await uwbStart(n?.deviceId ?? _selfDevice!);
       }
       notifyListeners();
@@ -341,6 +349,35 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
     }
     if (changed) _schedule(_sensing ? const Duration(seconds: 2) : _interval);
   }
+
+  /// Starts advertising [uuid] and records the result: in the local
+  /// log, debug output, and (via [_phoneState]'s `adv`) every `sense`
+  /// event the cloud gets. Build 45's test: a son's phone never listed the
+  /// host's game and nothing said whether the host was advertising.
+  Future<void> _advertise(String uuid, {String? name, required bool inNight}) async {
+    final gen = ++_advertGen;
+    final ok = await bleAdvertise(uuid, name: name, connectable: uwb && !kIsWeb && Platform.isAndroid && inNight);
+    if (gen != _advertGen) return; // a newer advert went out meanwhile
+    advertiseFailed = !ok;
+    if (ok) advertCode = null;
+    final f = {'ok': ok, 'uuid': uuid, if (!ok && advertCode != null) 'code': advertCode};
+    _line('advert_result', f);
+    debugPrint('nearby advert: $f');
+  }
+
+  /// A failed advert (or one Bluetooth dropped) is tried again on the next
+  /// scan round instead of never: [advertising] is the wish, the radio
+  /// may not have it.
+  Future<void> _retryAdvert() async {
+    if (!advertiseFailed || advertising == null || !poweredOn || _paused) return;
+    _line('advert_retry', {'code': advertCode});
+    advertising = null;
+    await _onNightAsync();
+  }
+
+  /// `adv` in the logs and sense events: what this phone's advert is
+  /// doing.
+  String get advertStatus => advertStatusOf(advertising, failed: advertiseFailed, code: advertCode);
 
   // --------------------------------------------------------- radar pulse
 
@@ -477,6 +514,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
         'app': app,
         'uwb': uwb,
         'key': _selfKey,
+        'adv': advertStatus,
         if (_recording || _tn.isCamera) 'role': 'camera',
       };
       await n.appendEvent(EventKind.device, data);
@@ -547,7 +585,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
       final st = await b.batteryState;
       chg = st == BatteryState.charging || st == BatteryState.full;
     } catch (_) {}
-    return {'fg': _foreground, 'scr': await screenOn(), 'bat': bat, 'chg': chg};
+    return {'fg': _foreground, 'scr': await screenOn(), 'bat': bat, 'chg': chg, 'adv': advertStatus};
   }
 
   /// iPhone pairs: the phone whose own key sorts first starts the token
@@ -656,11 +694,19 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
           if (u != null) _uwbAsked.remove(u);
         }
       case 'bt':
+        final was = poweredOn;
         poweredOn = e['on'] == true;
         if (_sensing) _line('ble_event', e);
+        // Bluetooth back on: the radio lost the advert, send it again.
+        if (poweredOn && !was && advertising != null) {
+          advertising = null;
+          unawaited(_onNightAsync());
+        }
         notifyListeners();
-      case 'scanFailed':
       case 'advert':
+        if (e['ok'] == false) advertCode = (e['code'] as num?)?.toInt();
+        if (_sensing) _line('ble_event', e);
+      case 'scanFailed':
       case 'screen':
         if (_sensing) _line('ble_event', e);
     }
@@ -688,4 +734,11 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
       _timer?.cancel();
     }
   }
+}
+
+/// "none" (not advertising), "ok", "fail" or "fail:<code>".
+String advertStatusOf(String? advertising, {required bool failed, int? code}) {
+  if (advertising == null) return 'none';
+  if (!failed) return 'ok';
+  return code == null ? 'fail' : 'fail:$code';
 }

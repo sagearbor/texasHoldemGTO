@@ -1,4 +1,5 @@
 import 'package:felt_notes/nearby/ble_payload.dart';
+import 'package:felt_notes/nearby/nearby_service.dart' show advertStatusOf;
 import 'package:felt_notes/nearby/pulse.dart';
 import 'package:felt_notes/radar/radar_model.dart';
 import 'package:felt_notes/sync/night_events.dart';
@@ -21,6 +22,37 @@ void main() {
         BleSighting(uuids: [u0], rssi: -60, ms: 1),
         BleSighting(uuids: [u7], rssi: -55, ms: 2),
       ]).single.advert.nightId, 'ABCD2345');
+    });
+  });
+
+  group('build 45 discovery (Nov 5 morning: the son never saw the host)', () {
+    test("the owner's two host nights parse and list at every pulse counter, one game each", () {
+      for (final night in ['8D78KJ6H', 'Q96XDUG8']) {
+        final sightings = [
+          for (var c = 0; c < 256; c++)
+            BleSighting(
+                uuids: [advertUuid(GameAdvert(night, 'WXYZ6789', pulse: c))],
+                rssi: -70 + c % 9,
+                ms: 1000 + c,
+                nameBytes: nameData('Sage')),
+        ];
+        for (final s in sightings) {
+          expect((s.advert as GameAdvert).nightId, night);
+        }
+        final g = gamesIn(sightings, sinceMs: 0);
+        expect(g, hasLength(1), reason: 'keyed by night, not by the raw UUID');
+        expect(g.single.label, "Sage's game");
+        expect(g.single.ticket.nightId, night);
+        // A single sighting with a non-zero counter is enough.
+        expect(gamesIn([sightings[200]]), hasLength(1));
+      }
+    });
+
+    test('advert status for the logs and sense events', () {
+      expect(advertStatusOf(null, failed: false), 'none');
+      expect(advertStatusOf('u', failed: false), 'ok');
+      expect(advertStatusOf('u', failed: true), 'fail');
+      expect(advertStatusOf('u', failed: true, code: 2), 'fail:2');
     });
   });
 

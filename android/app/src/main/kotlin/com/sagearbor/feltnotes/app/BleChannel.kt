@@ -249,8 +249,13 @@ class BleChannel(
             }
 
             override fun onStartFailure(errorCode: Int) {
-                advertiser = null
-                advertOk = false
+                // Only if still the current advert: a late failure of an
+                // older one must not orphan the newer (it could then
+                // never be stopped).
+                if (advertiser === this) {
+                    advertiser = null
+                    advertOk = false
+                }
                 lastAdvertCode = errorCode
                 lastAdvertMs = now()
                 emit(mapOf("type" to "advert", "ok" to false, "requested" to requested, "code" to errorCode))
