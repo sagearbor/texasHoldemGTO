@@ -61,6 +61,52 @@ class SharingTile extends StatelessWidget {
   }
 }
 
+/// A player in someone else's night: private by default, sharing under
+/// Advanced ("Share my hands with the table (for stats)").
+class JoinerSharingTile extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const JoinerSharingTile({super.key, required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Icon(value ? Icons.cloud_upload_outlined : Icons.lock_outline, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+              value
+                  ? 'You share your hands with the table (Advanced, below).'
+                  : TableNightService.joinerPrivateLine,
+              key: const Key('joiner-private-line'),
+              style: t.bodyMedium),
+        ),
+      ]),
+      ExpansionTile(
+        key: const Key('joiner-advanced'),
+        initiallyExpanded: value,
+        tilePadding: EdgeInsets.zero,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        title: Text('Advanced', style: t.titleSmall),
+        children: [
+          SwitchListTile(
+            key: const Key('joiner-share'),
+            contentPadding: EdgeInsets.zero,
+            value: value,
+            onChanged: onChanged,
+            title: const Text('Share my hands with the table (for stats)'),
+            subtitle: Text(TableNightService.joinerSharingLine, style: t.bodySmall),
+            isThreeLine: true,
+          ),
+        ],
+      ),
+    ]);
+  }
+}
+
 // ------------------------------------------------------------------- join
 
 class JoinTableNightScreen extends StatefulWidget {
@@ -77,7 +123,10 @@ class _JoinTableNightScreenState extends State<JoinTableNightScreen> {
   String? _claim;
   String? _error;
   bool _busy = false;
-  bool _share = true;
+
+  /// Joining someone's night keeps everything on this phone unless the
+  /// player turns sharing on (Advanced).
+  bool _share = false;
 
   @override
   void dispose() {
@@ -202,8 +251,8 @@ class _JoinTableNightScreenState extends State<JoinTableNightScreen> {
           decoration: const InputDecoration(labelText: 'Your name (as the organizer typed it)'),
         ),
         const SizedBox(height: 16),
-        SharingTile(value: _share, onChanged: (v) => setState(() => _share = v)),
-        const SizedBox(height: 16),
+        JoinerSharingTile(value: _share, onChanged: (v) => setState(() => _share = v)),
+        const SizedBox(height: 8),
         FilledButton(onPressed: _busy ? null : _join, child: const Text('Join')),
         if (_error != null) ...[
           const SizedBox(height: 12),
@@ -370,11 +419,13 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
               ),
             ]),
             Text(
-              'Cards are optional. Add them before your tap; they go to the table only after the hand.',
+              s.sharing
+                  ? 'Cards are optional. Add them before your tap; they go to the table only after the hand.'
+                  : 'Cards are optional, for your own stats; they stay on this phone.',
               style: t.bodySmall,
             ),
             const SizedBox(height: 16),
-            SharingTile(value: s.sharing, onChanged: (v) => _svc.setSharing(v)),
+            JoinerSharingTile(value: s.sharing, onChanged: (v) => _svc.setSharing(v)),
             const SizedBox(height: 12),
             Row(children: [
               Icon(s.uploader?.lastError == null ? Icons.cloud_done_outlined : Icons.cloud_off_outlined, size: 18),

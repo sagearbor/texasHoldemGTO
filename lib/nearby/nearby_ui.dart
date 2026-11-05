@@ -162,14 +162,14 @@ Future<String> _joinName(BuildContext context) async {
   return neutral;
 }
 
-/// One tap: join with the remembered name, sharing on (the product
-/// default, switchable on the pad), then the optional calibration and the
-/// player pad.
+/// One tap: join with the remembered name, private (a joiner's cards and
+/// hands stay on the phone; "Share my hands with the table" is under
+/// Advanced on the pad), then the optional calibration and the player pad.
 Future<void> joinNearbyGame(BuildContext context, NearbyGame g) async {
   final name = await _joinName(context);
   if (!context.mounted) return;
   try {
-    await _tn.join(g.ticket, name: name, scannedAtMs: DateTime.now().millisecondsSinceEpoch, sharing: true);
+    await _tn.join(g.ticket, name: name, scannedAtMs: DateTime.now().millisecondsSinceEpoch, sharing: false);
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not join ($e)')));

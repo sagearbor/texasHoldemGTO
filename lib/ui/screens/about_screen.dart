@@ -23,8 +23,9 @@ const privacyPolicyUrl = 'https://sagearbor.github.io/texasHoldemGTO/privacy.htm
 
 const privacyStatement = 'No account. No ads, no tracking, no analytics. '
     'Everything stays on this device, except a table night you start or join: '
-    'then that night\'s game goes to the table under an anonymous id (sharing '
-    'can be switched off) and is deleted after about 60 days.';
+    'then that night\'s game goes to the table under an anonymous id and is '
+    'deleted after about 60 days. Joining someone\'s night shares only your '
+    'name unless you turn on sharing your hands.';
 
 const backupStatement = 'A backup is a file you keep: you choose where it '
     'goes (Files, Drive, email, a computer). Felt Notes never uploads it.';

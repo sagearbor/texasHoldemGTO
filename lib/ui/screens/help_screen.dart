@@ -126,8 +126,10 @@ const helpTopics = {
     HelpTip('Blind clock: Host a game, or the menu at the top right.',
         'Starts as a cash game (stakes, no timer). Tournament clock: countdown, levels and breaks you can edit.'),
     HelpTip('What a table night shares.',
-        'On by default: your call / raise taps, and your cards only after the hand is over. Off: nothing of yours '
-            'leaves the phone. No account (an anonymous id), readable only with the night\'s code, deleted after '
+        'Joining someone\'s night: nothing of yours leaves the phone (only that you joined, by name) unless you '
+            'turn on Advanced, "Share my hands with the table (for stats)": then your call / raise taps, and your '
+            'cards only after the hand is over. Hosting: your taps are shared by default, never your cards before '
+            'the hand is over; the switch is on the QR sheet. No account (an anonymous id), readable only with the night\'s code, deleted after '
             'about 60 days. Your money never leaves the phone.'),
     HelpTip('End game night (top right menu) shows the Night Recap.',
         'Best hand, cold streaks, card luck, awards and "Dealer of Doom". Copy it for the group chat.'),

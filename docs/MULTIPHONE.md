@@ -37,7 +37,9 @@ night's log.
    the sharing switch. It comes back from the QR icon on the hand logger.
 2. **Join.** A player: Home game → Join a table night → photograph the QR
    (ML Kit reads it on the phone; or type the code), tap their name from
-   the organizer's list, check the sharing switch (on by default), Join.
+   the organizer's list, Join. A joiner is private by default: only the
+   join (name) goes up unless they turn on Advanced, "Share my hands with
+   the table (for stats)" (also on the pad; one-tap nearby joins too).
    That is the only moment phones need to be near each other.
 3. **During the night nobody needs a network.** The organizer runs the
    hand logger exactly as before (first-orbit dealer taps, Next hand, own

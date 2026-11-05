@@ -276,6 +276,16 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     return ok == null ? 'Connecting…' : 'Up to date ($ago).';
   }
 
+  /// A player who joins someone's night: what stays on the phone (all of
+  /// it, unless they turn sharing on).
+  static const joinerPrivateLine = 'Your cards and hands stay on this phone. The table sees only that you '
+      'joined (your name).';
+
+  /// The joiner's advanced switch, in one line.
+  static const joinerSharingLine = 'Off (the default): nothing about your hands leaves this phone. On: your '
+      'taps (call / raise), the cards you enter (only after the hand is over) and your stats go to the '
+      'table and its TV.';
+
   /// What the switch says it shares, in one line.
   static const sharingLine =
       'On: your taps (call / raise), the cards you enter (only after the hand '

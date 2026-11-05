@@ -242,6 +242,11 @@ class _NearbyGames extends StatelessWidget {
             ]),
           ),
         ),
+      Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text('Joining keeps your cards and hands on this phone.',
+            key: const Key('nearby-private'), style: t.bodySmall, textAlign: TextAlign.center),
+      ),
     ]);
   }
 }

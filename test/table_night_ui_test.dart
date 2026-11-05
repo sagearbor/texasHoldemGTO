@@ -2,10 +2,11 @@
 // (Firebase cannot start in a widget test, so the night is local-only):
 // starting a game night with the switch on makes it a table night whose log
 // follows the hand logger; the organizer sheet shows the QR and the sharing
-// switch; a player joins with sharing on by default and gets the pad.
+// switch; a player joins private by default (sharing under Advanced) and gets the pad.
 
 import 'package:felt_notes/gto/spots.dart';
 import 'package:felt_notes/homegame/home_game.dart';
+import 'package:felt_notes/sync/cloud_logs.dart' show cloudEvents;
 import 'package:felt_notes/sync/event_log.dart';
 import 'package:felt_notes/sync/night_events.dart';
 import 'package:felt_notes/sync/organizer_bridge.dart' show rosterOf;
@@ -90,14 +91,21 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('player: join screen has sharing on by default; the pad taps', (tester) async {
+  testWidgets('player: joining is private by default (sharing under Advanced); the pad taps', (tester) async {
     SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(390, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(const MaterialApp(home: JoinTableNightScreen()));
-    final sw = tester.widget<SwitchListTile>(find.byType(SwitchListTile));
-    expect(sw.value, isTrue, reason: 'sharing defaults to on');
+    // The join confirmation says it plainly, before Join.
+    expect(find.text(TableNightService.joinerPrivateLine), findsOneWidget);
+    // The switch is tucked under Advanced, off.
+    expect(find.byKey(const Key('joiner-share')), findsNothing);
+    await tester.tap(find.text('Advanced'));
+    await tester.pumpAndSettle();
+    final sw = tester.widget<SwitchListTile>(find.byKey(const Key('joiner-share')));
+    expect(sw.value, isFalse, reason: 'a joiner shares nothing unless they turn it on');
+    expect(find.text('Share my hands with the table (for stats)'), findsOneWidget);
     expect(find.textContaining('only after the hand'), findsOneWidget, reason: 'one honest line');
     await tester.enterText(find.byType(TextField).first, 'abcd2345-wxyz6789');
     await tester.enterText(find.byType(TextField).last, 'Ann');
@@ -110,13 +118,18 @@ void main() {
     }
     final svc = TableNightService.instance;
     expect(svc.night?.isOrganizer, isFalse);
-    expect(svc.night!.sharing, isTrue);
+    expect(svc.night!.sharing, isFalse);
+    expect(find.text(TableNightService.joinerPrivateLine), findsOneWidget, reason: 'the pad says it too');
     expect(find.text('Raise'), findsOneWidget);
     await tester.runAsync(() async {
       await tester.tap(find.text('Raise'));
       await Future<void>.delayed(const Duration(milliseconds: 50));
     });
-    expect(svc.night!.localEvents.where((e) => e.kind == EventKind.play).length, 1);
+    final local = svc.night!.localEvents;
+    expect(local.where((e) => e.kind == EventKind.play).length, 1, reason: 'kept on the phone');
+    // Nothing of the player's own goes up: only the join and the switch.
+    final up = cloudEvents(local, sharing: svc.night!.sharing);
+    expect(up.where((e) => e.kind == EventKind.play || e.kind == EventKind.cards), isEmpty);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
