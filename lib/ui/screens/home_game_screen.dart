@@ -293,6 +293,21 @@ class _LoggerState extends State<_Logger> implements WatchHost {
     super.initState();
     // The slots start empty: so does what End game night would log.
     widget.session.slotCards = null;
+    autoWatchRequest.addListener(_onAutoWatch);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onAutoWatch());
+  }
+
+  @override
+  void dispose() {
+    autoWatchRequest.removeListener(_onAutoWatch);
+    super.dispose();
+  }
+
+  /// A game just started: straight into Watch, watching (Settings).
+  void _onAutoWatch() {
+    if (!autoWatchRequest.value || !mounted) return;
+    autoWatchRequest.value = false;
+    _openWatch(autoStart: true);
   }
 
   bool get hasCards => !cards.contains(null);
@@ -414,8 +429,8 @@ class _LoggerState extends State<_Logger> implements WatchHost {
 
   /// The one Camera entry: Watch my cards, with "Just one photo" inside
   /// for Snap my cards.
-  Future<void> _openWatch() async {
-    final photo = await openWatchMode(context, this, offerOnePhoto: snapCardsSupported);
+  Future<void> _openWatch({bool autoStart = false}) async {
+    final photo = await openWatchMode(context, this, offerOnePhoto: snapCardsSupported, autoStart: autoStart);
     if (photo && mounted) await _snapCards();
   }
 

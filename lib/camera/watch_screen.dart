@@ -102,6 +102,11 @@ class WatchSettings {
   static const buzzKey = 'watch_buzz_v1';
   static const recordKey = 'watch_record_v1';
   static const wideKey = 'watch_wide_v1';
+  static const autoStartKey = 'watch_auto_start_v1';
+
+  /// Settings → Game nights: "Start watching my cards when a game starts".
+  /// On by default where Watch can run.
+  static final autoStart = ValueNotifier<bool>(watchModeSupported);
 
   static final voice = ValueNotifier<bool>(true);
   static final front = ValueNotifier<bool>(false);
@@ -131,6 +136,7 @@ class WatchSettings {
     buzz.value = p.getBool(buzzKey) ?? false;
     record.value = p.getBool(recordKey) ?? DevMode.on.value;
     wide.value = p.getBool(wideKey) ?? true;
+    autoStart.value = watchModeSupported && (p.getBool(autoStartKey) ?? true);
   }
 
   static Future<void> set(ValueNotifier<bool> n, String key, bool v) async {
@@ -141,14 +147,27 @@ class WatchSettings {
 
 /// True when the player picked "Just one photo" instead (the caller then
 /// opens Snap my cards); only offered with [offerOnePhoto].
-Future<bool> openWatchMode(BuildContext context, WatchHost host, {bool offerOnePhoto = false}) async {
+Future<bool> openWatchMode(BuildContext context, WatchHost host,
+    {bool offerOnePhoto = false, bool autoStart = false}) async {
   await WatchSettings.load();
   if (!context.mounted) return false;
   final r = await Navigator.of(context).push<bool>(MaterialPageRoute(
     fullscreenDialog: true,
-    builder: (_) => WatchScreen(host: host, offerOnePhoto: offerOnePhoto),
+    builder: (_) => WatchScreen(host: host, offerOnePhoto: offerOnePhoto, autoStart: autoStart),
   ));
   return r == true;
+}
+
+/// A game night just started (the QR sheet closed, or there was none) and
+/// Settings says to go straight into Watch: the hand logger, which hosts
+/// Watch, takes the request (once) as soon as it is on screen.
+final autoWatchRequest = ValueNotifier<bool>(false);
+
+/// Asks the logger to open Watch and start watching, when the setting is
+/// on and this phone can run Watch.
+Future<void> requestAutoWatch() async {
+  await WatchSettings.load();
+  if (watchModeSupported && WatchSettings.autoStart.value) autoWatchRequest.value = true;
 }
 
 const _deviceDegrees = {
@@ -174,7 +193,11 @@ class WatchScreen extends StatefulWidget {
 
   /// Shows "Just one photo" on the setup page (pops with true).
   final bool offerOnePhoto;
-  const WatchScreen({super.key, required this.host, this.offerOnePhoto = false});
+
+  /// Start watching as soon as the camera is open (a game just started);
+  /// no camera (or no permission): the setup page, as when opened by hand.
+  final bool autoStart;
+  const WatchScreen({super.key, required this.host, this.offerOnePhoto = false, this.autoStart = false});
 
   @override
   State<WatchScreen> createState() => _WatchScreenState();
@@ -267,6 +290,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     }
   }
 
+  bool _autoStarted = false;
+
   /// The permission prompt makes the app "inactive" while the camera is
   /// still opening: do not open a second one on "resumed".
   bool _opening = false;
@@ -309,6 +334,9 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       });
       if (_watching) {
         _watching = false;
+        await _startWatching();
+      } else if (widget.autoStart && !_autoStarted) {
+        _autoStarted = true;
         await _startWatching();
       }
     } catch (e) {

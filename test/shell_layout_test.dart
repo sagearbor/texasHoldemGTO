@@ -20,7 +20,7 @@ void main() {
     lib = SpotLibrary(buildCashSpots(), await loadPushFoldSpots(), await loadVsRandom());
   });
   setUp(() async {
-    SharedPreferences.setMockInitialValues({'seen_welcome_v1': true});
+    SharedPreferences.setMockInitialValues({'seen_welcome_v1': true, 'watch_auto_start_v1': false});
     AppSettings.resetMemory();
     // A name is set: Play does not ask for it (see player_name_test).
     AppSettings.playerName.value = 'Host';

@@ -27,6 +27,7 @@ import '../../radar/radar_screen.dart';
 import '../../nearby/nearby_ui.dart' show FindNearbyButton, NearbyHostTile, maybeAskUwb, showSeatCalibration;
 import '../app_settings.dart';
 import '../theme.dart';
+import '../../camera/watch_screen.dart' show requestAutoWatch;
 import '../tv/tv_controller.dart' show ticketFromTvInput;
 import 'cloud_status_row.dart';
 import '../tv/show_on_tv.dart';
@@ -761,12 +762,18 @@ class TableNightStartSwitch extends StatelessWidget {
 /// Called right after the setup screen started a night. The setup screen
 /// is gone by then (the logger replaced it), so the sheet opens on the
 /// navigator.
+///
+/// However the sheet closes (Start playing, or swiped away), the game then
+/// goes straight into Watch my cards when Settings says so.
 Future<void> afterGameNightStart(NavigatorState nav, HomeGameModel model) async {
   final s = model.active;
-  if (s == null || !_svc.ready || !_svc.startWithTableNight) return;
-  await _svc.organize(s);
-  if (nav.mounted) await maybeAskUwb(nav.context);
-  if (nav.mounted) await showTableNightSheet(nav.context, s);
+  if (s == null) return;
+  if (_svc.ready && _svc.startWithTableNight) {
+    await _svc.organize(s);
+    if (nav.mounted) await maybeAskUwb(nav.context);
+    if (nav.mounted) await showTableNightSheet(nav.context, s);
+  }
+  if (nav.mounted && model.active == s) await requestAutoWatch();
 }
 
 /// The table icon on the hand logger (organizer of this night).

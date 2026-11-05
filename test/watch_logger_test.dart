@@ -25,7 +25,8 @@ void main() {
   });
 
   Future<HomeGameModel> fresh({bool learn = false, int button = 0}) async {
-    SharedPreferences.setMockInitialValues({});
+    // These tests drive the logger: no auto Watch on Start.
+    SharedPreferences.setMockInitialValues({'watch_auto_start_v1': false});
     final m = HomeGameModel(lib);
     await m.load();
     m.start(

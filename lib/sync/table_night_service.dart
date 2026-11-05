@@ -48,7 +48,15 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Attach once, after the home-game model has loaded. Never throws.
   Future<void> init(HomeGameModel home, {KeyValueStore? store}) async {
-    if (_started) return;
+    if (_started) {
+      // A new home-game model (tests build one each): follow that one.
+      if (!identical(home, _home)) {
+        _home?.removeListener(_onHome);
+        _home = home;
+        home.addListener(_onHome);
+      }
+      return;
+    }
     _started = true;
     _home = home;
     try {

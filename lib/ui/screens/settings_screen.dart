@@ -6,7 +6,7 @@ import '../../nearby/nearby_ble.dart' show bleSupported;
 import '../../app_data.dart';
 import '../../camera/lens.dart';
 import '../../camera/watch_log_store.dart';
-import '../../camera/watch_screen.dart' show watchModeSupported;
+import '../../camera/watch_screen.dart' show WatchSettings, watchModeSupported;
 import '../../homegame/home_game.dart';
 import '../../homegame/my_result.dart';
 import '../../poker/cards.dart';
@@ -148,6 +148,19 @@ class SettingsScreen extends StatelessWidget {
               ],
               _Label('Currency for My result (${moneyLabel(42.5, signed: true)})'),
               _CurrencyChoices(current: AppSettings.currency.value),
+              if (watchModeSupported)
+                ValueListenableBuilder<bool>(
+                  valueListenable: WatchSettings.autoStart,
+                  builder: (context, on, _) => SwitchListTile(
+                    key: const Key('settings-auto-watch'),
+                    contentPadding: EdgeInsets.zero,
+                    value: on,
+                    onChanged: (v) => WatchSettings.set(WatchSettings.autoStart, WatchSettings.autoStartKey, v),
+                    title: const Text('Start watching my cards when a game starts'),
+                    subtitle: const Text('After Start playing, Watch opens and starts with your Watch settings. '
+                        'Off: the hand logger, as before.'),
+                  ),
+                ),
             ]),
             Card(
               child: ListTile(

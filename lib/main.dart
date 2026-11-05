@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'app_data.dart';
 import 'camera/lens.dart';
+import 'camera/watch_screen.dart' show WatchSettings;
 import 'gto/spots.dart';
 import 'homegame/home_game.dart';
 import 'nearby/nearby_service.dart';
@@ -63,6 +64,7 @@ class _FeltNotesAppState extends State<FeltNotesApp> {
       final h = HomeGameModel(lib);
       await Future.wait(
           [m.load(), h.load(), ChartPrefs.load(), AppSettings.load(), DevMode.load(), CameraLens.load()]);
+      await WatchSettings.load(); // after DevMode (its record default)
       // Resumes a table night this phone was in (no network until one is).
       unawaited(TableNightService.instance.init(h).then((_) => NearbyService.instance.init()));
       if (mounted) {
