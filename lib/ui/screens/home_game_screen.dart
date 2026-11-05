@@ -333,10 +333,9 @@ class _LoggerState extends State<_Logger> implements WatchHost {
   /// graded miss is still queued as a drill).
   void _afterClose(int before, {bool quiet = false}) {
     final s = widget.session;
-    setState(() {
-      cards = [null, null];
-      facing = Facing.unopened;
-    });
+    cards = [null, null];
+    facing = Facing.unopened;
+    if (mounted) setState(() {});
     _watch.handClosed();
     if (s.hands.length <= before) return;
     final last = s.hands.last;
@@ -348,7 +347,7 @@ class _LoggerState extends State<_Logger> implements WatchHost {
       if (st.misses.isNotEmpty) {
         final (h, spot, _) = st.misses.first;
         widget.trainer?.addExternalMisses([(spot.id, h.hand!.index)]);
-        if (quiet) return;
+        if (quiet || !mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${h.hand!.name} from ${h.position}: GTO says '
               '${strategyLine(spot, h.hand!)}'),
@@ -360,7 +359,7 @@ class _LoggerState extends State<_Logger> implements WatchHost {
         ));
       }
     }
-    if (quiet) return;
+    if (quiet || !mounted) return;
     showBadgeSnack(context, widget.model.claimNewBadges());
   }
 
@@ -385,7 +384,8 @@ class _LoggerState extends State<_Logger> implements WatchHost {
 
   @override
   void watchSetCards(List<int> c) {
-    if (mounted) setState(() => cards = [c[0], c[1]]);
+    cards = [c[0], c[1]];
+    if (mounted) setState(() {});
   }
 
   /// Closes the hand being played from the black screen, first orbit
@@ -403,7 +403,8 @@ class _LoggerState extends State<_Logger> implements WatchHost {
 
   @override
   bool watchNewHand(List<int> c, {int? episode, int? scene}) {
-    if (!mounted) return false;
+    // Never gated on `mounted`: Watch must reach the night even if this
+    // logger was rebuilt under it (build 45 logged 0 hands that way).
     final now = DateTime.now().millisecondsSinceEpoch;
     // Before build 41 this only swapped the cards in during the first
     // orbit (learned seats), so no hand Watch saw there was ever logged.
@@ -417,14 +418,13 @@ class _LoggerState extends State<_Logger> implements WatchHost {
         _watch.onLookEnd(c.toSet(), now);
       }
     }
-    setState(() => cards = c.length == 2 ? [c[0], c[1]] : [null, null]);
+    cards = c.length == 2 ? [c[0], c[1]] : [null, null];
+    if (mounted) setState(() {});
     return canMove;
   }
 
   @override
-  void watchNextHand() {
-    if (mounted) _watchClose();
-  }
+  void watchNextHand() => _watchClose();
 
   @override
   Future<void> watchFixCards(BuildContext context) async {
@@ -438,9 +438,7 @@ class _LoggerState extends State<_Logger> implements WatchHost {
   PreAction? get watchPendingAction => _night.pendingAction;
 
   @override
-  void watchSetAction(PreAction? a) {
-    if (mounted) _tap(a);
-  }
+  void watchSetAction(PreAction? a) => _tap(a);
 
   /// The one Camera entry: Watch my cards, with "Just one photo" inside
   /// for Snap my cards.

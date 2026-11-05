@@ -130,6 +130,13 @@ class _ShellState extends State<Shell> {
 
   static const _play = 1;
 
+  /// The tab stack keeps its state when the layout swaps between the
+  /// bottom bar and the side rail (a Pixel turned sideways is 915 dp
+  /// wide): without it the hand logger under Watch was rebuilt from
+  /// scratch, and Watch kept talking to the dead one (build 45: no tap
+  /// or hand reached the night).
+  final _tabsKey = GlobalKey(debugLabel: 'shell-tabs');
+
   @override
   void initState() {
     super.initState();
@@ -223,7 +230,7 @@ class _ShellState extends State<Shell> {
     final content = Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 640),
-        child: IndexedStack(index: tab, children: pages),
+        child: IndexedStack(key: _tabsKey, index: tab, children: pages),
       ),
     );
     void select(int i) {
