@@ -166,6 +166,11 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
   /// Scans are readings (logged), not just a search for games.
   bool get _sensing => _inGame || _recording;
 
+  /// When this phone last heard its own night's host advertising (a
+  /// player; this run). With no cloud, a host gone quiet for minutes most
+  /// likely ended the game.
+  int? hostHeardMs;
+
   /// Scan cadence while sensing (a table night or Record the table).
   static const sensingInterval = Duration(seconds: 10);
 
@@ -240,7 +245,9 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
         ..removeWhere((s) => s.ms < now - 120000)
         ..addAll(got);
       final mine = _tn.night?.nightId;
-      final g = gamesIn(_recent, sinceMs: now - 120000).where((x) => x.advert.nightId != mine).toList();
+      final all = gamesIn(_recent, sinceMs: now - 120000);
+      if (mine != null && all.any((x) => x.advert.nightId == mine)) hostHeardMs = now;
+      final g = all.where((x) => x.advert.nightId != mine).toList();
       _quietScans = g.isEmpty ? _quietScans + 1 : 0;
       final changed = g.length != games.length || [for (var i = 0; i < g.length; i++) g[i].advert.nightId != games[i].advert.nightId].any((x) => x);
       games = g;

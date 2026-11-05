@@ -11,6 +11,9 @@ import 'package:felt_notes/sync/cloud_logs.dart';
 import 'package:felt_notes/sync/event_log.dart';
 import 'package:felt_notes/sync/night_events.dart';
 import 'package:felt_notes/sync/table_night_service.dart';
+import 'package:felt_notes/sync/table_sync.dart';
+import 'package:felt_notes/ui/screens/table_night_screen.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -129,5 +132,46 @@ void main() {
     });
     expect(svc.cloudStatus().connected, isTrue);
     await tester.runAsync(() => svc.leave());
+  });
+
+  testWidgets('the host ends the game: the pad says so and goes back', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final cloud = FakeCloudLogs();
+    debugOpenCloud = () async => cloud;
+    final svc = TableNightService.instance;
+    late LocalTableSync host;
+    await tester.runAsync(() async {
+      host = await LocalTableSync.organize(MemoryStore(),
+          organizerName: 'Sage', selfPid: 'Sage', roster: const [Seat('Sage', 'Sage'), Seat('Kid', 'Kid')], cloud: cloud);
+      await Uploader(log: host.log, cloud: cloud, ticket: host.ticket, name: 'Sage').drainOnce();
+      await svc.join(host.ticket, name: 'Kid', scannedAtMs: DateTime.now().millisecondsSinceEpoch, sharing: false);
+      await host.endNight();
+      await Uploader(log: host.log, cloud: cloud, ticket: host.ticket, name: 'Sage').drainOnce();
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () =>
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PlayerPadScreen())),
+            child: const Text('pad'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('pad'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+    }
+    expect(find.text('Sage ended the game'), findsOneWidget);
+    expect(find.byType(PlayerPadScreen), findsNothing);
+    expect(svc.night, isNull, reason: 'left the night');
+    await tester.pumpWidget(const SizedBox());
+    // The leave keeps uploading for a while (15 s timer): let it finish.
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(seconds: 16));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    }
   });
 }

@@ -37,6 +37,9 @@ import 'home_game_screen.dart' show pickTwoCards;
 
 TableNightService get _svc => TableNightService.instance;
 
+/// No cloud and the host's Bluetooth advert unheard this long: offer Leave.
+const hostQuietMs = 5 * 60000;
+
 /// The sharing switch, the same everywhere: one line says what it shares.
 class SharingTile extends StatelessWidget {
   final bool value;
@@ -319,11 +322,41 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
     _tick = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() {});
     });
+    // Did the host end the game? One fetch every 90 s (reads are the free
+    // tier's tight spot).
+    _endCheck = Timer.periodic(const Duration(seconds: 90), (_) => _refresh());
+  }
+
+  Timer? _endCheck;
+  bool _leaving = false;
+
+  /// The host ended the game (their log says so): say it and go back.
+  Future<void> _hostEnded() async {
+    final s = _svc.night;
+    if (_leaving || s == null || !s.organizerEnded) return;
+    _leaving = true;
+    final who = s.ticket.organizerName.isEmpty ? 'The host' : s.ticket.organizerName;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final nav = Navigator.of(context);
+    await _svc.leave();
+    messenger?.showSnackBar(SnackBar(content: Text('$who ended the game')));
+    nav.popUntil((r) => r.isFirst);
+  }
+
+  /// No cloud: the host's Bluetooth advert for this night has been gone a
+  /// while (one tap to leave, never automatic).
+  bool get _hostQuiet {
+    final s = _svc.night;
+    if (s == null || !NearbyService.instance.allowed || (s.cloud != null && _svc.cloudStatus().connected)) return false;
+    final heard = NearbyService.instance.hostHeardMs;
+    final since = heard ?? (s.log.meta['started'] as int?);
+    return since != null && DateTime.now().millisecondsSinceEpoch - since > hostQuietMs;
   }
 
   @override
   void dispose() {
     _tick?.cancel();
+    _endCheck?.cancel();
     super.dispose();
   }
 
@@ -333,6 +366,7 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
     setState(() => _refreshing = true);
     await s.refresh();
     if (mounted) setState(() => _refreshing = false);
+    if (mounted) await _hostEnded();
   }
 
   Future<void> _do(Future<void> Function() f) async {
@@ -412,6 +446,23 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
               ),
               const SizedBox(height: 12),
             ],
+            if (_hostQuiet)
+              Card(
+                key: const Key('host-quiet'),
+                child: ListTile(
+                  leading: const Icon(Icons.logout),
+                  title: const Text("The host's game seems to have ended"),
+                  subtitle: const Text('Their phone has not been heard for 5 minutes.'),
+                  trailing: TextButton(
+                    onPressed: () async {
+                      final nav = Navigator.of(context);
+                      await _svc.leave();
+                      nav.popUntil((r) => r.isFirst);
+                    },
+                    child: const Text('Leave'),
+                  ),
+                ),
+              ),
             Text('Tap only when you put money in. Every other hand counts as a fold.', style: t.bodyLarge),
             const SizedBox(height: 16),
             Row(children: [

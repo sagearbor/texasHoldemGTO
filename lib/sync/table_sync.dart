@@ -244,6 +244,18 @@ class LocalTableSync implements TableSync {
     return null;
   }
 
+  /// A player: the organizer's uploaded log says the night is over (End
+  /// game night on the host's phone).
+  bool get organizerEnded {
+    if (isOrganizer) return false;
+    final org = organizerDeviceId;
+    for (final l in _remote) {
+      if (l.deviceId == deviceId || (org != null && l.deviceId != org)) continue;
+      if (l.events.any((e) => e.kind == EventKind.end)) return true;
+    }
+    return false;
+  }
+
   /// Starts uploading when a [cloud] is configured (no-op in a local-only
   /// build). With [listen] (the organizer) it also follows everyone else's
   /// uploads live; players fetch once on demand ([refresh]) to save reads.
