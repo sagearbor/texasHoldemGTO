@@ -736,9 +736,13 @@ class HomeGameModel extends ChangeNotifier {
   /// before anyone was tapped the hand being played is taken as dealt by
   /// the first name. Without this every hand Watch saw in the first orbit
   /// was dropped (build 40 field report: "0 hands logged").
-  void nextHandBlind({List<int>? cards}) {
+  ///
+  /// [untappedUnknown] (Watch my cards): a hand with no tap closes as
+  /// unknown ("not recorded"), not as the default fold.
+  void nextHandBlind({List<int>? cards, bool untappedUnknown = false}) {
     final s = active;
     if (s == null) return;
+    if (untappedUnknown && s.pendingAction == null) s.pendingSkip = true;
     if (!s.handInProgress) {
       final n = s.learnedSeats;
       if (n == null) return;

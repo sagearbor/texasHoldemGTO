@@ -17,7 +17,8 @@
 /// table session, and "Wide shots between peeks" (watch_wide.dart) adds an
 /// ultra-wide still every few seconds while the gate is idle. The black
 /// screen has a dim action pad (the logger's: tap call, swipe up raise,
-/// swipe down undo, sideways next hand) for the hand being played.
+/// swipe down undo, sideways next hand; here hold = fold and no tap = not
+/// recorded, unknown) for the hand being played.
 library;
 
 import 'dart:async';
@@ -954,8 +955,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
               'The screen goes black and stays on (the camera only works while the app is open). '
               '${rec ? 'Photos are kept on this phone only, never uploaded. ' : 'Nothing is recorded: each frame is dropped once checked, only the cards it reads are kept. '}'
               'If it is unsure it logs nothing; the card slots always work by hand. '
-              'The dim pad at the bottom logs your action like the logger\'s: do nothing = fold, '
-              'tap = call, swipe up = raise, swipe down = undo, sideways = next hand.',
+              'The dim pad at the bottom logs your action: no tap = not recorded, tap = call, '
+              'swipe up = raise, hold = fold, swipe down = undo, sideways = next hand.',
               style: t.bodySmall),
         ),
         // Tester tools: developer mode only (About → tap the version 7 times).
@@ -1192,5 +1193,6 @@ class WatchActionArea extends StatelessWidget {
         onNext: onNext,
         lowLight: true,
         height: 190,
+        untappedUnknown: true,
       );
 }

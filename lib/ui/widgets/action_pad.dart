@@ -11,7 +11,8 @@ const _swipeSpeed = 300.0;
 /// Big no-look input for the hand being played: tap = call / limp, swipe
 /// up = raise, swipe down = undo (back to the default fold), swipe sideways
 /// = next hand (when [onNext] is set). Each gesture buzzes differently so
-/// you never have to look. Doing nothing is a fold.
+/// you never have to look. Doing nothing is a fold (on Watch my cards,
+/// [untappedUnknown]: "not recorded", and a long press is the fold).
 class ActionPad extends StatefulWidget {
   final PreAction? pending;
   final bool skipped;
@@ -22,6 +23,10 @@ class ActionPad extends StatefulWidget {
   /// table): black fill, grey text, no action colours.
   final bool lowLight;
   final double height;
+
+  /// Watch my cards: doing nothing records "not recorded" (unknown), not a
+  /// fold; a long press is the explicit fold.
+  final bool untappedUnknown;
   const ActionPad({
     super.key,
     required this.pending,
@@ -30,6 +35,7 @@ class ActionPad extends StatefulWidget {
     this.onNext,
     this.lowLight = false,
     this.height = 150,
+    this.untappedUnknown = false,
   });
 
   @override
@@ -49,6 +55,11 @@ class _ActionPadState extends State<ActionPad> {
     widget.onAction(PreAction.raise);
   }
 
+  void _fold() {
+    HapticFeedback.mediumImpact();
+    widget.onAction(PreAction.fold);
+  }
+
   void _undo() {
     HapticFeedback.selectionClick();
     widget.onAction(null);
@@ -66,15 +77,16 @@ class _ActionPadState extends State<ActionPad> {
   Widget build(BuildContext context) {
     final b = Theme.of(context).brightness;
     final a = widget.pending;
+    final unk = widget.untappedUnknown;
     final label = widget.skipped
         ? 'Not seen'
         : a == null
-            ? 'Fold'
+            ? (unk ? 'Not recorded' : 'Fold')
             : preActionLabels[a]!;
     final sub = widget.skipped
         ? 'saved as unknown'
         : a == null
-            ? 'default: do nothing'
+            ? (unk ? 'no tap = not recorded' : 'default: do nothing')
             : 'swipe down to undo';
     final low = widget.lowLight;
     final bg = low
@@ -87,10 +99,11 @@ class _ActionPadState extends State<ActionPad> {
       container: true,
       button: true,
       label: 'Action pad: $label. Tap for call, swipe up for raise, '
-          'swipe down to undo${widget.onNext == null ? '' : ', swipe sideways for next hand'}',
+          '${unk ? 'hold for fold, ' : ''}swipe down to undo${widget.onNext == null ? '' : ', swipe sideways for next hand'}',
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _call,
+        onLongPress: unk ? _fold : null,
         onVerticalDragStart: (_) => _dy = 0,
         onVerticalDragUpdate: (d) => _dy += d.delta.dy,
         onVerticalDragEnd: (d) {
@@ -137,9 +150,11 @@ class _ActionPadState extends State<ActionPad> {
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
-                  widget.onNext == null
-                      ? 'tap = call · swipe up = raise · swipe down = undo'
-                      : 'tap = call · up = raise · down = undo · sideways = next hand',
+                  unk
+                      ? 'no tap = not recorded · tap = call · up = raise · hold = fold · down = undo'
+                      : widget.onNext == null
+                          ? 'tap = call · swipe up = raise · swipe down = undo'
+                          : 'tap = call · up = raise · down = undo · sideways = next hand',
                   maxLines: 1,
                   style: hint),
             ),

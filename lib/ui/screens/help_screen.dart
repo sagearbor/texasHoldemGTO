@@ -112,8 +112,8 @@ const helpTopics = {
         'Camera opens Watch my cards (Beta): prop the phone beside you, aim, Start. The screen goes black and '
             'your cards are read when you peek, on the phone; nothing is uploaded, and nothing is recorded '
             'unless you turn on "Also record the table" (photos stay on the phone, export from Recordings). '
-            'The dim pad at the bottom of the black screen logs your action: tap call, swipe up raise, down '
-            'undo, sideways next hand; doing nothing is a fold. With earbuds it says the cards quietly. '
+            'The dim pad at the bottom of the black screen logs your action: tap call, swipe up raise, hold '
+            'fold, down undo, sideways next hand; no tap = not recorded (not counted as a fold). With earbuds it says the cards quietly. '
             'Wrong? Tap the chip on the black screen. "Just one photo" reads a single photo instead. '
             'Remembered your cards late? Enter them and tap "That was hand...".'),
     HelpTip('Board caller: hold the mic button and say the flop.',

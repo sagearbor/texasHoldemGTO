@@ -165,7 +165,8 @@ void main() {
       ),
     ));
     final pad = find.byKey(const Key('watch-action-pad'));
-    expect(find.text('FOLD'), findsOneWidget);
+    expect(find.text('NOT RECORDED'), findsOneWidget, reason: 'Watch: no tap is not a fold');
+    expect(find.textContaining('hold = fold'), findsOneWidget);
     // Never the cards.
     expect(find.textContaining('A♠'), findsNothing);
     expect(find.textContaining('As'), findsNothing);
@@ -182,11 +183,17 @@ void main() {
     await tester.drag(pad, const Offset(0, 120));
     await tester.pump();
     expect(m.active!.pendingAction, isNull);
-    expect(find.text('FOLD'), findsOneWidget);
+    expect(find.text('NOT RECORDED'), findsOneWidget);
+
+    await tester.longPress(pad);
+    await tester.pump();
+    expect(m.active!.pendingAction, PreAction.fold, reason: 'hold = explicit fold');
+    await tester.drag(pad, const Offset(0, 120));
+    await tester.pump();
 
     await tester.drag(pad, const Offset(0, -120));
     await tester.pump();
-    expect(actions, [PreAction.call, PreAction.raise, null, PreAction.raise]);
+    expect(actions, [PreAction.call, PreAction.raise, null, PreAction.fold, null, PreAction.raise]);
 
     // Sideways: next hand. The raise lands on the hand with the read cards.
     await tester.drag(pad, const Offset(-150, 0));
@@ -195,6 +202,6 @@ void main() {
     expect(h.action, PreAction.raise);
     expect(h.cards, [parseCard('As'), parseCard('Kd')]);
     expect(m.active!.pendingAction, isNull);
-    expect(find.text('FOLD'), findsOneWidget);
+    expect(find.text('NOT RECORDED'), findsOneWidget);
   });
 }

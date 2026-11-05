@@ -365,7 +365,8 @@ class _LoggerState extends State<_Logger> implements WatchHost {
     final s = widget.model.active;
     if (s == null || (!s.handInProgress && !s.learning)) return false;
     final before = s.hands.length;
-    widget.model.nextHandBlind(cards: _cards);
+    // Watch: an untapped hand is "not recorded" (unknown), not a fold.
+    widget.model.nextHandBlind(cards: _cards, untappedUnknown: true);
     _afterClose(before, quiet: true);
     return s.hands.length > before;
   }

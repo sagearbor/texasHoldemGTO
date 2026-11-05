@@ -103,12 +103,12 @@ void main() {
     expect(m.active!.hands[0].cards, cards('As Kd'));
     expect(m.active!.hands[0].action, PreAction.raise);
     expect(h.watchHandNumber, 2);
-    expect(h.watchPendingAction, isNull, reason: 'a fresh hand starts as the default fold');
+    expect(h.watchPendingAction, isNull, reason: 'a fresh hand starts with no tap');
 
     expect(read(h, '7c 2d', 3), WatchAction.newHand);
     expect(m.active!.hands, hasLength(2));
     expect(m.active!.hands[1].cards, cards('Qh Jh'));
-    expect(m.active!.hands[1].action, PreAction.fold);
+    expect(m.active!.hands[1].action, isNull, reason: 'Watch: no tap = not recorded (unknown), not a fold');
 
     // Next hand on the black screen (top button or sideways swipe).
     h.watchSetAction(PreAction.call);
@@ -119,6 +119,24 @@ void main() {
     // Dealers were taken in the typed order (the dealer chip fixes them).
     expect([for (final x in m.active!.hands) x.dealer], ['Me', 'Ann', 'Bob']);
     expect(m.active!.learning, isTrue, reason: 'still learning: the logger can go on tapping dealers');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Watch: tap = call, hold = fold, nothing = not recorded (unknown, not a fold)', (tester) async {
+    final m = (await tester.runAsync(() => fresh(learn: true, button: -1)))!;
+    await pump(tester, m);
+    final h = await openWatch(tester);
+    expect(read(h, 'As Kd', 1), WatchAction.fill);
+    h.watchSetAction(PreAction.call); // tap
+    expect(read(h, 'Qh Jh', 2), WatchAction.newHand);
+    h.watchSetAction(PreAction.fold); // long press
+    expect(read(h, '7c 2d', 3), WatchAction.newHand);
+    // nothing on this one
+    h.watchNextHand();
+    final hands = m.active!.hands;
+    expect(hands, hasLength(3));
+    expect([for (final x in hands) x.action], [PreAction.call, PreAction.fold, null]);
+    expect(hands[2].cards, cards('7c 2d'), reason: 'the cards are kept; only the action is unknown');
     expect(tester.takeException(), isNull);
   });
 
