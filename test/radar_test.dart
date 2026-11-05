@@ -155,7 +155,7 @@ void main() {
       DeviceLog('HOSTHOSTHOST', host),
       DeviceLog('AAAAAAAAAAAA', a),
       DeviceLog('CAMCAMCAMCAM', cam),
-    ]);
+    ], windows: 3);
     expect(inp.cameras, {'CAMCAMCAMCAM'});
     expect(inp.names['AAAAAAAAAAAA'], 'Asher');
     final l = inp.links.firstWhere((x) => x.from == 'AAAAAAAAAAAA');

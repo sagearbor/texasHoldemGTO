@@ -166,8 +166,17 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
   /// Scans are readings (logged), not just a search for games.
   bool get _sensing => _inGame || _recording;
 
+  /// Scan cadence while sensing (a table night or Record the table).
+  static const sensingInterval = Duration(seconds: 10);
+
+  /// One `sense` event per this much reading: about every second scan, so
+  /// the upload (every 20 s at most) always has fresh readings.
+  static const senseWindowMs = 15000;
+
   Duration get _interval {
-    if (_sensing) return const Duration(seconds: 30);
+    // In a game: a 4 s scan every 10 s so the seat radar keeps up (about
+    // 40% radio duty while a night is on; see docs/MULTIPHONE.md, battery).
+    if (_sensing) return sensingInterval;
     // Nobody hosting for a while: look less often.
     return _quietScans > 9 ? const Duration(seconds: 60) : const Duration(seconds: 20);
   }
@@ -343,7 +352,7 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (n != null) {
       _window.addScan(peers, now);
-      if (_window.startMs != null && now - _window.startMs! >= 55000) {
+      if (_window.startMs != null && now - _window.startMs! >= senseWindowMs) {
         // Android UWB: the minute's counts, and every 10 minutes the night
         // so far (only from phones with UWB hardware).
         final ua = uwbTelemetry.takeMinute();

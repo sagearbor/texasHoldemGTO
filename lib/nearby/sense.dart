@@ -1,7 +1,7 @@
 /// Seating experiment (LOG ONLY: nothing here drives the UI). Every phone
-/// in a game scans briefly about every 30 seconds and notes how loud each
+/// in a game scans briefly about every 10 seconds and notes how loud each
 /// other Felt Notes phone was (RSSI), plus UWB distances between iPhones.
-/// The full detail goes to a local JSONL file; once a minute a compact
+/// The full detail goes to a local JSONL file; about every 15 s a compact
 /// summary goes into the table-night log, which uploads with the rest when
 /// a connection appears. tool/positioning/ turns it into a seat map
 /// offline. Pure Dart.
@@ -50,7 +50,7 @@ class UwbSample {
   const UwbSample(this.peer, this.meters, this.ms, {this.direction});
 }
 
-/// Collects a minute of readings and turns them into one compact event.
+/// Collects a window of readings (about 15 s in a game) and turns them into one compact event.
 class SenseWindow {
   final Map<String, List<int>> _rssi = {};
   final Map<String, int> _tx = {};

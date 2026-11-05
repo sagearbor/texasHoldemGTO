@@ -1,6 +1,7 @@
 /// Live seat radar on the organizer's phone (game-night menu). Players do
-/// nothing: their phones already upload a minute of Bluetooth readings at
-/// a time. Every 30 s this fetches the night's logs once, rebuilds the
+/// nothing: their phones upload their Bluetooth readings (about every 15 s
+/// of them, sent at most every 20 s). Every 10 s this fetches the night's
+/// logs once, rebuilds the
 /// estimate (radar_model.dart) and draws it. The player count and the
 /// per-end seats are right on top and can change any time as people come
 /// and go (each change is logged with its time, and Record the table
@@ -15,6 +16,7 @@ import 'package:flutter/material.dart';
 
 import '../nearby/nearby_service.dart';
 import '../sync/table_night_service.dart';
+import '../ui/screens/cloud_status_row.dart';
 import '../ui/app_settings.dart';
 import '../ui/dev_mode.dart';
 import 'radar_model.dart';
@@ -40,6 +42,9 @@ class RadarScreen extends StatefulWidget {
   State<RadarScreen> createState() => _RadarScreenState();
 }
 
+/// How often the open radar fetches the night again.
+const refreshEvery = Duration(seconds: 10);
+
 class _RadarScreenState extends State<RadarScreen> {
   Timer? _timer;
   RadarInput _input = const RadarInput();
@@ -56,7 +61,7 @@ class _RadarScreenState extends State<RadarScreen> {
     super.initState();
     RadarSettings.config.addListener(_onConfig);
     if (widget.live) {
-      _timer = Timer.periodic(const Duration(seconds: 30), (_) => _update(fetch: true));
+      _timer = Timer.periodic(refreshEvery, (_) => _update(fetch: true));
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await _askPlaying();
         await _update(fetch: true);
@@ -114,7 +119,10 @@ class _RadarScreenState extends State<RadarScreen> {
     _busy = true;
     try {
       final n = _tn.night;
-      if (n != null && fetch) await n.refresh();
+      if (n != null && fetch) {
+        if (n.cloud == null) await _tn.retryCloud();
+        await n.refresh();
+      }
       final now = DateTime.now().millisecondsSinceEpoch;
       final logs = n?.allLogs ?? const [];
       final input = radarInputFrom(logs).live(now);
@@ -214,7 +222,8 @@ class _RadarScreenState extends State<RadarScreen> {
           const SizedBox(width: 8),
           Expanded(child: _EndChoice(label: cfg.camera == CameraAt.end ? 'Far end' : 'Right end', left: false)),
         ]),
-        const SizedBox(height: 10),
+        ListenableBuilder(listenable: _tn, builder: (context, _) => CloudStatusRow(status: _tn.cloudStatus())),
+        const SizedBox(height: 6),
         if (est != null && est.notEnough == null) ...[
           RadarView(
             estimate: est,
@@ -301,7 +310,7 @@ class _Waiting extends StatelessWidget {
               offline
                   ? "No other phone's readings have arrived (no connection, or nobody else is in the game yet). "
                       'This is what this phone hears itself.'
-                  : 'Phones upload a minute of readings at a time; give it a couple of minutes.',
+                  : 'Phones send their readings every 20 s or so; give it a minute.',
               style: t.bodySmall),
           if (offline) ...[
             const SizedBox(height: 8),

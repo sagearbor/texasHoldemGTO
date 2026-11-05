@@ -1,7 +1,7 @@
 /// Live seat radar: who sits where, from phone radio only. Players never
 /// tap anything; the data is the one-time setup (table shape, player
 /// count, where the camera is, the organizer's seat) plus what the phones
-/// already upload in a table night: once a minute each phone's `sense`
+/// already upload in a table night: about every 15 s each phone's `sense`
 /// event with the median RSSI of every Felt Notes phone it heard in its
 /// two 4-second scans (lib/nearby/sense.dart; build 0.3.3+27 and later), its
 /// `device` event (advert key, model, role) and iPhone-iPhone UWB distances.
@@ -335,9 +335,9 @@ class RadarInput {
 String pairKey(String a, String b) => a.compareTo(b) < 0 ? '$a|$b' : '$b|$a';
 
 /// The readings in a night's uploaded logs: each phone's last [windows]
-/// `sense` minutes (its own clock, so no offsets needed), peers resolved
+/// `sense` windows (its own clock, so no offsets needed), peers resolved
 /// from their advert keys (`D:<install id>`, `H:<night>` for the host).
-RadarInput radarInputFrom(Iterable<DeviceLog> logs, {int windows = 3}) {
+RadarInput radarInputFrom(Iterable<DeviceLog> logs, {int windows = 6}) {
   final names = <String, String>{};
   final cameras = <String>{};
   final keyToDev = <String, String>{};
