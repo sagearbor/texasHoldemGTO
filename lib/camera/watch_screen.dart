@@ -44,6 +44,7 @@ import 'lens_camera.dart';
 import 'snap_cards_screen.dart' show BetaBadge;
 import 'watch_buzz.dart';
 import 'watch_certainty.dart';
+import 'watch_dark.dart';
 import 'watch_debug_crops.dart';
 import 'watch_diagnostics.dart';
 import 'glyph_reader.dart';
@@ -382,6 +383,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       if (t.tick % 6 == 0) _writeStatus();
     });
     _health.start(_clock.elapsedMilliseconds);
+    _dark.reset();
+    _darkAtMs = -1 << 30;
     _healthTicker = Timer.periodic(const Duration(seconds: 2), (_) {
       if (_watching) _report(_health.check(_clock.elapsedMilliseconds));
     });
@@ -592,6 +595,21 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// "Too dark to read cards" (observes the frames only; see watch_dark.dart).
+  final WatchDark _dark = WatchDark();
+  int _darkAtMs = -1 << 30;
+  bool get _tooDark => _dark.warned;
+
+  void _checkDark(int t, double luma) {
+    final ev = _dark.sample(t, luma);
+    if (ev == null) return;
+    final f = {'warn': 'dark', 'state': ev.name, 'luma': luma.round()};
+    _log.append({'type': 'warn', 't': t, ...f});
+    _rec?.write(('warn', f));
+    if (ev == DarkEvent.warn) HapticFeedback.heavyImpact();
+    if (mounted) setState(() {});
+  }
+
   void _drainPeeks() {
     while (_peeksLogged < _pipe.peeks.length) {
       final j = _pipe.peeks[_peeksLogged++].toJson();
@@ -606,6 +624,10 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     final hadProblem = _health.problem;
     _health.onFrame(t);
     if (hadProblem != null && _health.problem == null && mounted) setState(() {});
+    if (t - _darkAtMs >= 1000) {
+      _darkAtMs = t;
+      _checkDark(t, sampledMeanLuma(img.planes.first.bytes));
+    }
     final c = _cam;
     if (c != null) {
       final front = c.description.lensDirection == CameraLensDirection.front;
@@ -1152,6 +1174,13 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
                         child: const Text('Restart camera', style: TextStyle(color: amber)),
                       ),
                     ]),
+                  ),
+                if (_tooDark)
+                  const Padding(
+                    key: Key('watch-too-dark'),
+                    padding: EdgeInsets.only(bottom: 6),
+                    child: Text('Too dark to read cards: add light or tilt toward it',
+                        textAlign: TextAlign.center, style: TextStyle(color: amber, fontSize: 15)),
                   ),
                 for (final w in _warnings)
                   Padding(
