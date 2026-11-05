@@ -34,6 +34,7 @@ import 'ble_payload.dart';
 import 'distance_test.dart' show HealAction, RadioHealth;
 import 'uwb_android.dart';
 import 'nearby_ble.dart';
+import 'pulse.dart';
 import 'sense.dart';
 
 class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
@@ -229,17 +230,30 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
       await _scanOnce();
       final soon = _soon;
       _soon = false;
-      _schedule(soon ? const Duration(seconds: 2) : _interval);
+      _schedule(_burstWant != null
+          ? const Duration(milliseconds: 300) // a pulse was heard: burst now
+          : soon
+              ? const Duration(seconds: 2)
+              : _interval);
     });
   }
 
   Future<void> _scanOnce() async {
-    if (_scanning) return;
+    if (_scanning) {
+      // A pulse waits for the scan that is running, then goes.
+      if (_burstWant == null) return;
+      for (var i = 0; i < 60 && _scanning; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      if (_scanning) return;
+    }
+    final burst = _sensing ? _burstWant : null;
+    _burstWant = null;
     _scanning = true;
     final t0 = DateTime.now().millisecondsSinceEpoch;
     try {
       poweredOn = await blePoweredOn();
-      final got = poweredOn ? await bleScan(4000) : const <BleSighting>[];
+      final got = poweredOn ? await bleScan(burst != null ? pulseMs : 4000) : const <BleSighting>[];
       final now = DateTime.now().millisecondsSinceEpoch;
       _recent
         ..removeWhere((s) => s.ms < now - 120000)
@@ -252,7 +266,14 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
       final changed = g.length != games.length || [for (var i = 0; i < g.length; i++) g[i].advert.nightId != games[i].advert.nightId].any((x) => x);
       games = g;
       if (changed) notifyListeners();
-      if (_sensing) await _sense(got, scanMs: now - t0);
+      if (_sensing) {
+        if (burst != null) {
+          await _senseBurst(got, burst, startMs: t0, nowMs: now);
+        } else {
+          await _sense(got, scanMs: now - t0);
+        }
+      }
+      _afterScan(got, now);
     } catch (e) {
       debugPrint('nearby scan: $e');
     } finally {
@@ -276,11 +297,21 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _onNightAsync() async {
     if (!allowed || _paused) return;
     final n = _tn.night;
+    if (n?.nightId != _pulseNight) {
+      // Pulse counters are per night.
+      _pulseNight = n?.nightId;
+      _pulseHost = PulseHost();
+      _pulseFollower.reset();
+      _peersHeard.clear();
+      _hostLastHeardMs = null;
+      _pendingPulse?.cancel();
+      _burstWant = null;
+    }
     String? want;
     String? name;
     if (n != null) {
       want = n.isOrganizer
-          ? advertUuid(GameAdvert(n.nightId, n.ticket.secret, flags: _flags))
+          ? advertUuid(GameAdvert(n.nightId, n.ticket.secret, flags: _flags, pulse: _pulseHost.counter))
           : advertUuid(PresenceAdvert(n.deviceId, nightTagOf(n.nightId), flags: _flags));
       if (n.isOrganizer) name = n.ticket.organizerName;
     } else if (_recording && _selfDevice != null) {
@@ -309,6 +340,115 @@ class NearbyService extends ChangeNotifier with WidgetsBindingObserver {
       _senseLog = null;
     }
     if (changed) _schedule(_sensing ? const Duration(seconds: 2) : _interval);
+  }
+
+  // --------------------------------------------------------- radar pulse
+
+  PulseHost _pulseHost = PulseHost();
+  final PulseFollower _pulseFollower = PulseFollower();
+  String? _pulseNight;
+
+  /// A burst to take on the next scan round: (counter, why).
+  (int, String)? _burstWant;
+  Timer? _pendingPulse;
+
+  /// Presence adverts of this night the host has heard (a new one: a
+  /// phone joined, pulse).
+  final Set<String> _peersHeard = {};
+
+  /// When this phone last heard its own night's host in a scan.
+  int? _hostLastHeardMs;
+
+  /// Bumped after each burst this phone took (the host's radar fetches
+  /// 5 s and 15 s later and resets its smoothing).
+  final pulseBursts = ValueNotifier<int>(0);
+
+  /// The host can pulse (in its own night, Bluetooth on).
+  bool get canPulse => allowed && !_paused && (_tn.night?.isOrganizer ?? false);
+
+  /// Milliseconds until the next pulse may start (0: now).
+  int pulseDueInMs() => _pulseHost.dueInMs(DateTime.now().millisecondsSinceEpoch);
+
+  /// The host asks every phone for a 5-second burst ([why]: "button",
+  /// "radar", "join"). True when it started now; false when it waits for
+  /// the 20-second gap (then it starts by itself) or cannot pulse.
+  Future<bool> pulse(String why) async {
+    if (!canPulse) return false;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (!_pulseHost.request(now, why)) {
+      _pendingPulse?.cancel();
+      _pendingPulse = Timer(Duration(milliseconds: _pulseHost.dueInMs(now) + 50), _firePending);
+      _line('pulse_wait', {'why': why, 'in_ms': _pulseHost.dueInMs(now)});
+      return false;
+    }
+    await _startPulse(why);
+    return true;
+  }
+
+  void _firePending() {
+    if (!canPulse) return;
+    final why = _pulseHost.takePending(DateTime.now().millisecondsSinceEpoch);
+    if (why != null) unawaited(_startPulse(why));
+  }
+
+  Future<void> _startPulse(String why) async {
+    final c = _pulseHost.counter;
+    _line('pulse', {'role': 'host', 'c': c, 'why': why});
+    _burstWant = (c, why);
+    await _onNightAsync(); // the advert with the new counter
+    _schedule(Duration.zero);
+  }
+
+  /// One burst: every reading kept, one compact `sense` event, uploaded
+  /// at once.
+  Future<void> _senseBurst(List<BleSighting> got, (int, String) want, {required int startMs, required int nowMs}) async {
+    final n = _tn.night;
+    final peers = scanPeers(got, selfKey: _selfKey);
+    final b = PulseBurst(want.$1, startMs, why: want.$2)..add(peers);
+    final state = await _phoneState();
+    _line('pulse_scan', {...scanLine(peers, scanMs: nowMs - startMs), 'c': want.$1, ...state});
+    if (n != null) {
+      await n.appendEvent(EventKind.sense, b.summary(nowMs, extra: state));
+      n.uploader?.flushNow();
+    }
+    _line('pulse_done', {'c': want.$1, 'readings': b.readings, 'peers': peers.length});
+    pulseBursts.value++;
+  }
+
+  /// After every scan: a joined phone answers a new pulse counter in its
+  /// host's advert and notices the host going quiet; the host pulses when
+  /// a phone of its night is heard for the first time.
+  void _afterScan(List<BleSighting> got, int now) {
+    final n = _tn.night;
+    if (n == null) return;
+    if (!n.isOrganizer) {
+      var heardHost = false;
+      for (final s in got) {
+        final a = s.advert;
+        if (a is! GameAdvert || a.nightId != n.nightId) continue;
+        heardHost = true;
+        if (_pulseFollower.heard(a.pulse, now)) {
+          _burstWant = (a.pulse, 'heard');
+          _line('pulse', {'role': 'joiner', 'c': a.pulse});
+        }
+        break;
+      }
+      if (heardHost) {
+        _hostLastHeardMs = now;
+      } else if (_hostLastHeardMs != null && now - _hostLastHeardMs! > 30000) {
+        // The host stops advertising when it ends the night: ask the
+        // cloud now instead of at the next 45-second check.
+        unawaited(_tn.hostMaybeGone());
+      }
+      return;
+    }
+    final tag = nightTagOf(n.nightId);
+    var joined = false;
+    for (final s in got) {
+      final a = s.advert;
+      if (a is PresenceAdvert && a.nightTag == tag && _peersHeard.add(a.peerKey)) joined = true;
+    }
+    if (joined) unawaited(pulse('join'));
   }
 
   // ----------------------------------------------- seating experiment

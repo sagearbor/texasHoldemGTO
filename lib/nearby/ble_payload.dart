@@ -5,7 +5,9 @@
 ///
 ///   bytes 0..3   magic "FNT1"
 ///   byte  4      kind (high nibble) | flags (low nibble)
-///   game (kind 1, the host):     5..9 night id, 10..14 join secret, 15 zero
+///   game (kind 1, the host):     5..9 night id, 10..14 join secret,
+///                                15 pulse counter (0: none; builds before
+///                                0.3.3+45 send 0 and ignore it)
 ///   presence (kind 2, a player): 5..12 install id, 13..15 night tag
 ///
 /// Codes are 5 bits a character (night_events.dart's 32-letter alphabet):
@@ -51,7 +53,12 @@ sealed class BleAdvert {
 class GameAdvert extends BleAdvert {
   final String nightId;
   final String secret;
-  const GameAdvert(this.nightId, this.secret, {int flags = 0}) : super(flags);
+
+  /// The host's radar pulse counter (1..255, then 1 again; 0: never
+  /// pulsed). A joined phone that hears a new value takes a 5-second
+  /// burst of readings (lib/nearby/pulse.dart).
+  final int pulse;
+  const GameAdvert(this.nightId, this.secret, {int flags = 0, this.pulse = 0}) : super(flags);
   @override
   String get peerKey => 'H:$nightId';
 }
@@ -115,6 +122,7 @@ String advertUuid(BleAdvert a) {
       b[4] = 0x10 | (a.flags & 0xF);
       b.setAll(5, _pack(a.nightId, 5));
       b.setAll(10, _pack(a.secret, 5));
+      b[15] = a.pulse & 0xFF;
     case PresenceAdvert():
       b[4] = 0x20 | (a.flags & 0xF);
       b.setAll(5, _pack(a.deviceId, 8));
@@ -136,7 +144,7 @@ BleAdvert? parseAdvertUuid(String uuid) {
     switch (kind) {
       case 1:
         final night = _unpack(b.sublist(5, 10), nightIdLength), secret = _unpack(b.sublist(10, 15), secretLength);
-        return GameAdvert(night, secret, flags: flags);
+        return GameAdvert(night, secret, flags: flags, pulse: b[15]);
       case 2:
         if (b[5] >> 4 != 0) return null; // 60 bits in 64: the top nibble is 0
         return PresenceAdvert(_unpack(b.sublist(5, 13), deviceIdLength), (b[13] << 16) | (b[14] << 8) | b[15],
