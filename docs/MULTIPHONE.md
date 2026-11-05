@@ -268,13 +268,28 @@ and delete, TV member).
   time during a night (was ~13 % at 30 s), roughly 2 to 4 % battery an
   hour more on a Pixel; reads: about 6 per minute per phone's log while
   the radar is open on the host.
+* **Radar pulse (0.3.3+45):** the host's game advert carries a pulse
+  counter in byte 15 (0 before; builds 38-44 ignore it). Pulse on the
+  radar, the radar opening, or a new phone of the night heard: the host
+  bumps the counter and scans 5 s without a break; each joined phone that
+  hears a new counter does the same on its next round, writes one `sense`
+  event (`pulse`, `why`, `p` as usual, `mad` per peer x10) and uploads at
+  once. At most one pulse per 20 s. The host fetches 5 s and 15 s after its
+  burst. No internet needed for the pulse itself.
+* **Radar shapes:** 72 cells around the chair line; Puzzle partitions them
+  (one contiguous arc per person, cyclic order kept, low cells grey),
+  Overlap shows each person's 60% run. Cells smoothed (half-life 30 s,
+  reset by a pulse); shapes tween 600 ms. See lib/radar/radar_shapes.dart.
 * **Late joiner:** counts from the first hand after the organizer seats
   them (or every hand, if never seated).
 * **Leaving:** a player's `leave` stops their hands even if the organizer
   forgets to unseat them; the TV shows "left" with their stats.
-* **Host ends the night:** the player pad fetches every 90 s; once the
-  organizer's log ends with `end` it says "Sage ended the game", leaves and
-  goes back. No cloud: after 5 minutes without the host's Bluetooth advert
+* **Host ends the night:** a joined phone asks the cloud every 45 s
+  (whatever screen is showing), at once when the app comes back to the
+  foreground, and when the host's Bluetooth advert has been gone 30 s;
+  once the organizer's log ends with `end` it says "Sage ended the game",
+  leaves and goes back to Play. (Night 3QRM3V67: the pad's old 90 s check
+  ran only on the pad, and the son's phone slept through the End.) No cloud: after 5 minutes without the host's Bluetooth advert
   it offers "The host's game seems to have ended · Leave" (never automatic).
 * **Nothing allowed is lost:** a night this phone leaves (or whose host
   ended it) with anything unsent goes into an outbox (`sync.outbox`);
