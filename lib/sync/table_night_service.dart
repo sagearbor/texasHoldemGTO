@@ -76,8 +76,9 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
 
   // ------------------------------------------------------------ organizer
 
-  /// Turns the hand-logger night [s] into a table night (QR + TV).
-  Future<LocalTableSync> organize(HomeSession s, {bool sharing = true}) async {
+  /// Turns the hand-logger night [s] into a table night (QR + TV). The
+  /// host's own cards and taps stay on the phone unless they turn sharing on.
+  Future<LocalTableSync> organize(HomeSession s, {bool sharing = false}) async {
     if (linkedTo(s)) return night!;
     await _detach();
     final store = _store ??= await SharedPrefsStore.open();
