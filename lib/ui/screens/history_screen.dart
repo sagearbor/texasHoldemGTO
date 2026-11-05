@@ -54,7 +54,7 @@ class HistoryScreen extends StatelessWidget {
                 for (final s in past)
                   Card(
                     child: ListTile(
-                      title: Text(s.name),
+                      title: Text(nightTitle(s)),
                       subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text(_summary(model, s)),
                         // Ended by mistake: the latest night, within 12 h.

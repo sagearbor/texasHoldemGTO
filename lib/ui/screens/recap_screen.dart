@@ -47,7 +47,7 @@ class _RecapScreenState extends State<RecapScreen> {
       appBar: AppBar(
         backgroundColor: Felt.feltDark,
         foregroundColor: Colors.white,
-        title: Text(widget.session.name),
+        title: Text(nightTitle(widget.session)),
         actions: [
           IconButton(
             tooltip: 'My result',

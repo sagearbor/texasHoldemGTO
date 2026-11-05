@@ -154,6 +154,17 @@ class LoggedHand {
       );
 }
 
+/// "6:07 AM": the local clock time of epoch [ms].
+String clockTime(int ms) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ms);
+  final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+  return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour < 12 ? 'AM' : 'PM'}';
+}
+
+/// The night's name with its start time ("Game night 11/5 · 6:07 AM"), so
+/// two nights on one day can be told apart (History, the recap).
+String nightTitle(HomeSession s) => '${s.name} · ${clockTime(s.started)}';
+
 class HomeSession {
   final String id;
   final String name;

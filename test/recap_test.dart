@@ -4,6 +4,7 @@ import 'package:felt_notes/homegame/recap.dart';
 import 'package:felt_notes/poker/cards.dart';
 import 'package:felt_notes/ui/screens/crew_screen.dart';
 import 'package:felt_notes/ui/screens/dashboard_screen.dart';
+import 'package:felt_notes/ui/screens/history_screen.dart';
 import 'package:felt_notes/ui/screens/recap_screen.dart';
 import 'package:felt_notes/ui/theme.dart';
 import 'package:flutter/material.dart';
@@ -366,6 +367,29 @@ void main() {
       await tester.pumpWidget(MaterialApp(theme: Felt.dark(), home: w));
       await tester.pump();
     }
+
+    test('night title: name plus local start time (TZ=UTC in tests)', () {
+      // 2026-11-05 06:07 UTC and 18:30 UTC, noon and midnight edges.
+      final am = DateTime.utc(2026, 11, 5, 6, 7).millisecondsSinceEpoch;
+      final pm = DateTime.utc(2026, 11, 5, 18, 30).millisecondsSinceEpoch;
+      expect(nightTitle(session([], started: am, name: 'Game night 11/5')), 'Game night 11/5 · 6:07 AM');
+      expect(clockTime(pm), '6:30 PM');
+      expect(clockTime(DateTime.utc(2026, 11, 5, 0, 5).millisecondsSinceEpoch), '12:05 AM');
+      expect(clockTime(DateTime.utc(2026, 11, 5, 12, 0).millisecondsSinceEpoch), '12:00 PM');
+    });
+
+    testWidgets('History tells two nights on one day apart; the recap title has the time', (tester) async {
+      final am = DateTime.utc(2026, 11, 5, 6, 7).millisecondsSinceEpoch;
+      final pm = DateTime.utc(2026, 11, 5, 19, 45).millisecondsSinceEpoch;
+      final m = HomeGameModel(lib)
+        ..sessions.add(session([], started: am, name: 'Game night 11/5'))
+        ..sessions.add(session([], started: pm, name: 'Game night 11/5'));
+      await pump(tester, HistoryScreen(model: m));
+      expect(find.text('Game night 11/5 · 6:07 AM'), findsOneWidget);
+      expect(find.text('Game night 11/5 · 7:45 PM'), findsOneWidget);
+      await pump(tester, RecapScreen(model: m, session: m.sessions.first));
+      expect(find.text('Game night 11/5 · 6:07 AM'), findsOneWidget);
+    });
 
     testWidgets('recap pages through every card', (tester) async {
       final m = HomeGameModel(lib)..sessions.add(bigNight(1));
