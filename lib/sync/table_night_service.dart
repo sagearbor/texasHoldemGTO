@@ -542,7 +542,7 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
       return 'No connection: saved on this phone, it will upload by itself${ago == null ? '' : ' (last upload $ago)'}.';
     }
     if (up.pending) return 'Saved on this phone, uploading…';
-    if (up.holdingCards) return 'Up to date${ago == null ? '' : ' ($ago)'}. Cards go up once the hand is over.';
+    if (up.holdingCards) return 'Up to date${ago == null ? '' : ' ($ago)'}. Cards go up 20 minutes after you enter them.';
     return ok == null ? 'Connecting…' : 'Up to date ($ago).';
   }
 
@@ -558,13 +558,13 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
 
   /// The joiner's advanced switch, in one line.
   static const joinerSharingLine = 'Off (the default): nothing about your hands leaves this phone. On: your '
-      'taps (call / raise), the cards you enter (only after the hand is over) and your stats go to the '
+      'taps (call / raise), the cards you enter (20 minutes later) and your stats go to the '
       'table and its TV.';
 
   /// What the switch says it shares, in one line.
   static const sharingLine =
-      'On: your taps (call / raise), the cards you enter (only after the hand '
-      'is over) and your stats show on the table TV. Off: they stay on this phone; '
+      'On: your taps (call / raise), the cards you enter (20 minutes '
+      'later) and your stats show on the table TV. Off: they stay on this phone; '
       'the TV shows you as "private".';
 
   MergedNight? merged() => night?.merged();

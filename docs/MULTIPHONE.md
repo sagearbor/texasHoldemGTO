@@ -211,14 +211,15 @@ nights/{nightId}/cards/{deviceId}_{e} {uid, deviceId, e, c: [a, b], at, expireAt
   Switching off rewrites the log (delete + write when it shrinks) and
   deletes the card documents, so what was shared is gone.
 * **Cards** never sit in a log. A phone writes a card document for an
-  entry only once that hand is over (`releasedCards`): a later live entry
-  exists, or the organizer's own closed hand (`done`), or 6 minutes passed
-  since the cards were entered. The rules then keep it unreadable to
-  everyone, owner included, until **2 minutes after it was written** (server
+  entry only **20 minutes after the cards were entered** (`releasedCards`),
+  with no early release: a later entry can be a misread re-peek of the same
+  hand, so "a later hand started" is not proof the hand is over. The rules
+  then keep it unreadable to everyone, owner included, until **20 minutes
+  after it was written** (server
   time, `at == request.time` so it cannot be back-dated), and nobody can
   list card documents: the TV asks for them one by one.
 * **The TV** shows a card only for a hand that is over (a later hand has
-  started, or the night ended) **and** ended at least 3 minutes ago, and
+  started, or the night ended) **and** ended at least 20 minutes ago, and
   only asks Firestore for it then (`CardFetcher`: missing or held cards are
   retried after 1, 2, 4 ... 10 minutes). Stats (hands, VPIP, PFR, recent
   actions) count finished hands at once.

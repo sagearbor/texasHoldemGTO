@@ -22,10 +22,10 @@
 ///     switch. They say who sits near whom, nothing about cards.
 ///   * hand sharing off (the default): no taps, no cards.
 ///   * sharing on: taps as they happen; the log says only "had cards"; the
-///     cards themselves go to a card document once the hand is over (a later
-///     entry exists, the organizer closed it, or [cardHoldMs] passed), and
-///     the rules keep that document unreadable for another
-///     [serverCardHoldMs] after it arrives.
+///     cards themselves go to a card document [cardHoldMs] after they were
+///     read, whatever the phone thinks about the hand being over (a misread
+///     re-peek can look like a new hand), and the rules keep that document
+///     unreadable for [serverCardHoldMs] after it arrives.
 library;
 
 import 'dart:async';
@@ -39,13 +39,13 @@ const partSize = 400;
 
 int partOf(int seq) => (seq - 1) ~/ partSize;
 
-/// A phone keeps its cards for an entry at least this long before they go
-/// up, unless it knows the hand is over sooner.
-const cardHoldMs = 6 * 60000;
+/// A phone keeps its cards for an entry this long before they go up. No
+/// early release: no hand outlasts it, so no live hand can leak.
+const cardHoldMs = 20 * 60000;
 
 /// firestore.rules: nobody may read a card document until this long after
 /// it was written (server time). Keep in step with the rules.
-const serverCardHoldMs = 2 * 60000;
+const serverCardHoldMs = 20 * 60000;
 
 /// Every cloud document carries `expireAt` = write time + this; a Firestore
 /// TTL policy deletes it after that (firestore.rules allows 1 to 90 days).
@@ -149,13 +149,12 @@ List<NightEvent> cloudEvents(Iterable<NightEvent> events, {required bool sharing
     ];
 
 /// The cards this phone may put in the cloud at [nowMs]: entry -> cards,
-/// for entries that are not withdrawn and whose hand is over. Also returns
+/// for entries that are not withdrawn and were read at least [holdMs] ago. Also returns
 /// when the next held entry matures (null when none is held).
 (Map<int, List<int>>, int?) releasedCards(Iterable<NightEvent> events,
     {required int nowMs, int holdMs = cardHoldMs}) {
   final cards = <int, List<int>>{};
   final at = <int, int>{};
-  final done = <int>{};
   final undone = <int>{};
   for (final ev in events) {
     final e = ev.data['e'];
@@ -168,7 +167,6 @@ List<NightEvent> cloudEvents(Iterable<NightEvent> events, {required bool sharing
         if (c is List && c.length == 2) {
           cards[e] = c.cast<int>();
           at[e] = ev.ms;
-          if (ev.data['done'] == true) done.add(e);
         } else {
           cards.remove(e);
         }
@@ -176,21 +174,12 @@ List<NightEvent> cloudEvents(Iterable<NightEvent> events, {required bool sharing
         break;
     }
   }
-  // Only a live (not withdrawn) later entry proves this phone is in a
-  // later hand.
-  var live = 0;
-  for (final ev in events) {
-    final e = ev.data['e'];
-    if (e is int && !undone.contains(e) && (ev.kind == EventKind.play || ev.kind == EventKind.cards)) {
-      live = max(live, e);
-    }
-  }
   final out = <int, List<int>>{};
   int? next;
   for (final e in cards.keys) {
     if (undone.contains(e)) continue;
     final due = at[e]! + holdMs;
-    if (done.contains(e) || e < live || nowMs >= due) {
+    if (nowMs >= due) {
       out[e] = cards[e]!;
     } else {
       next = next == null ? due : min(next, due);

@@ -111,9 +111,9 @@ service cloud.firestore {
       }
 
       match /cards/{cardId} {
-        // One document at a time, and only 2 minutes after it was written:
+        // One document at a time, and only 20 minutes after it was written:
         // a member cannot read anyone's cards for the hand being played.
-        allow get: if isMember() && request.time > resource.data.at + duration.value(120, 's');
+        allow get: if isMember() && request.time > resource.data.at + duration.value(1200, 's');
         allow list: if false;
         allow create, update: if isMember()
           && request.resource.data.keys().hasOnly(['uid', 'deviceId', 'e', 'c', 'at', 'expireAt'])

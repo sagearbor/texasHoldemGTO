@@ -106,7 +106,7 @@ void main() {
     final sw = tester.widget<SwitchListTile>(find.byKey(const Key('joiner-share')));
     expect(sw.value, isFalse, reason: 'a joiner shares nothing unless they turn it on');
     expect(find.text('Share my hands with the table (for stats)'), findsOneWidget);
-    expect(find.textContaining('only after the hand'), findsOneWidget, reason: 'one honest line');
+    expect(find.textContaining('20 minutes later'), findsOneWidget, reason: 'one honest line');
     // Seat-finding signals: their own switch, on by default.
     expect(tester.widget<SwitchListTile>(find.byKey(const Key('share-seat-signals'))).value, isTrue);
     await tester.enterText(find.byType(TextField).first, 'abcd2345-wxyz6789');

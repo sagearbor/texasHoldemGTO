@@ -585,7 +585,7 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
                   ]),
                   Text(
                     s.sharing
-                        ? 'Cards are optional. Add them before your tap; they go to the table only after the hand.'
+                        ? 'Cards are optional. Add them before your tap; they go to the table only 20 minutes later.'
                         : 'Cards are optional, for your own stats; they stay on this phone.',
                     style: t.bodySmall,
                   ),

@@ -127,8 +127,8 @@ const helpTopics = {
         'Starts as a cash game (stakes, no timer). Tournament clock: countdown, levels and breaks you can edit.'),
     HelpTip('What a table night shares.',
         'Your hands stay on your phone (only that you joined, by name, goes up) unless you turn on '
-            '"Share my hands with the table": then your call / raise taps, and your cards only after the hand is '
-            'over. Hosting works the same; the switch is on the QR sheet. For the seat radar, "Share seat-finding '
+            '"Share my hands with the table": then your call / raise taps, and your cards 20 minutes later.'
+            ' Hosting works the same; the switch is on the QR sheet. For the seat radar, "Share seat-finding '
             'signals (Bluetooth)" is on by default: which Felt Notes phones yours hears and how loud, and your '
             'phone model; nothing about cards or actions. Both switches are under Advanced. No account (an anonymous id), readable only with the night\'s code, deleted after '
             'about 60 days. Your money never leaves the phone.'),

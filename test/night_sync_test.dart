@@ -260,7 +260,7 @@ void main() {
       expect(m.devices.firstWhere((d) => d.deviceId == p.deviceId).private, isTrue);
     });
 
-    test('cards wait until the hand is over: a later entry, or the hold time', () async {
+    test('cards wait the full hold time, even when a later entry exists (a misread re-peek)', () async {
       final org = await LocalTableSync.organize(MemoryStore(),
           organizerName: 'Sage', selfPid: 'p1', now: clock.call, cloud: cloud);
       final p = await LocalTableSync.join(MemoryStore(), org.qrTicket(),
@@ -274,14 +274,17 @@ void main() {
       expect(up.holdingCards, isTrue);
       expect(up.nextCardRelease, clock.ms + cardHoldMs);
       clock.advance(90000);
-      await p.setCards(parseCards('7c2d')); // the next hand: the first one is over
+      await p.setCards(parseCards('7c2d')); // looks like a new hand, may be a misread
       await up.drainOnce();
-      expect(docs().keys, [cardDocId(p.deviceId, 1)]);
-      clock.advance(cardHoldMs);
+      expect(docs(), isEmpty, reason: 'no early release on a later entry');
+      clock.advance(cardHoldMs - 90000);
       await up.drainOnce();
-      expect(docs().length, 2); // the hold ran out
+      expect(docs().keys, [cardDocId(p.deviceId, 1)]); // the first entry's hold ran out
+      clock.advance(90000);
+      await up.drainOnce();
+      expect(docs().length, 2); // and the second's
       expect(up.holdingCards, isFalse);
-      // The server holds a fresh card document back for 2 minutes.
+      // The server holds a fresh card document back too.
       expect(await cloud.getCards(org.nightId, p.deviceId, 2), isNull);
       clock.advance(serverCardHoldMs);
       expect(await cloud.getCards(org.nightId, p.deviceId, 2), parseCards('7c2d'));

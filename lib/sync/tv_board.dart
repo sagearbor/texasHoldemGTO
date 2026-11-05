@@ -2,9 +2,9 @@
 /// the card-document fetching that feeds it.
 ///
 /// Anti-cheat, in three layers (docs/MULTIPHONE.md, "What the TV shows"):
-///   1. a phone writes a player's cards only after that hand is over
+///   1. a phone writes a player's cards only 20 minutes after it read them
 ///      (cloud_logs.dart [releasedCards]);
-///   2. the rules keep a card document unreadable for 2 minutes after it
+///   2. the rules keep a card document unreadable for 20 minutes after it
 ///      arrives, and nobody can list them;
 ///   3. the TV only asks for, and only shows, cards of hands that are over
 ///      (a later hand started) AND ended at least [TvOptions.cardDelayMs]
@@ -29,7 +29,7 @@ class TvOptions {
   /// upload while the night is running (the TV says so).
   final int staleMs;
 
-  const TvOptions({this.cardDelayMs = 3 * 60000, this.recent = 6, this.staleMs = 5 * 60000});
+  const TvOptions({this.cardDelayMs = 20 * 60000, this.recent = 6, this.staleMs = 5 * 60000});
 }
 
 enum TvStatus { sharing, private, noPhone, left }
