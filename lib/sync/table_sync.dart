@@ -251,7 +251,12 @@ class LocalTableSync implements TableSync {
     final org = organizerDeviceId;
     for (final l in _remote) {
       if (l.deviceId == deviceId || (org != null && l.deviceId != org)) continue;
-      if (l.events.any((e) => e.kind == EventKind.end)) return true;
+      var ended = false;
+      for (final e in l.events) {
+        if (e.kind == EventKind.end) ended = true;
+        if (e.kind == EventKind.resume) ended = false;
+      }
+      if (ended) return true;
     }
     return false;
   }

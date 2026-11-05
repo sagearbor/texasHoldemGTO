@@ -141,6 +141,8 @@ Timeline buildTimeline(Iterable<NightEvent> organizerEvents, {MergeOptions opts 
         if (n is int && c is List) boards[n] = c.cast<int>();
       case EventKind.end:
         end = e.ms;
+      case EventKind.resume:
+        end = null;
       case EventKind.clock:
         final j = e.data['j'];
         if (j is Map) clock = j.cast<String, Object?>();

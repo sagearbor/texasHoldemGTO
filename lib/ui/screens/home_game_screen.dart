@@ -78,10 +78,25 @@ class HomeGameScreen extends StatelessWidget {
                       if (!context.mounted) return;
                       model.end();
                       // Wrapped: show tonight's recap straight away.
-                      Navigator.of(context).push(MaterialPageRoute(
+                      final nav = Navigator.of(context);
+                      final recap = MaterialPageRoute<void>(
                           fullscreenDialog: true,
                           builder: (_) =>
-                              RecapScreen(model: model, session: s)));
+                              RecapScreen(model: model, session: s));
+                      nav.push(recap);
+                      // Ended by mistake? One tap takes it back.
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        key: const Key('ended-undo'),
+                        duration: const Duration(seconds: 10),
+                        content: const Text('Game night ended'),
+                        action: SnackBarAction(
+                          label: 'Undo',
+                          onPressed: () {
+                            if (recap.isActive) nav.removeRoute(recap);
+                            model.resume(s);
+                          },
+                        ),
+                      ));
                     }
                     if (v == 'seats') showSeatsEditor(context, model);
                     if (v == 'clock') openBlindClock(context);

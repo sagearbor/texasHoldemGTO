@@ -55,7 +55,22 @@ class HistoryScreen extends StatelessWidget {
                   Card(
                     child: ListTile(
                       title: Text(s.name),
-                      subtitle: Text(_summary(model, s)),
+                      subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(_summary(model, s)),
+                        // Ended by mistake: the latest night, within 12 h.
+                        if (identical(model.resumable(), s))
+                          TextButton.icon(
+                            key: const Key('resume-night'),
+                            style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                            onPressed: () {
+                              model.resume(s);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Resumed: it is back on Play, same table code')));
+                            },
+                            icon: const Icon(Icons.replay, size: 18),
+                            label: const Text('Resume this night'),
+                          ),
+                      ]),
                       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                         TextButton(
                           child: const Text('Recap'),

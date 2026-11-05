@@ -173,6 +173,7 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     if (night != s) return;
     night = null;
     _bridge = null;
+    _reattachTried = null; // a Resume / Undo may bring it back
     await _store?.remove(_currentKey);
     s.uploader?.flushNow();
     _finishing = s;
@@ -190,6 +191,10 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     Timer.periodic(const Duration(seconds: 15), (t) async {
       tries++;
       final up = s.uploader;
+      if (night == s) {
+        t.cancel(); // resumed: it is the current night again
+        return;
+      }
       if (up == null || !up.pending || tries > 40) {
         t.cancel();
         if (_finishing == s) _finishing = null;
@@ -275,7 +280,47 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
 
   void _onHome() => unawaited(_onHomeAsync());
 
+  bool _reattaching = false;
+  String? _reattachTried;
+
+  /// A night that ended came back (History → Resume, or Undo): pick up its
+  /// table night again, the same code, so joined phones keep working.
+  Future<void> _reattach(HomeSession session) async {
+    if (_reattaching) return;
+    _reattaching = true;
+    try {
+      final store = _store;
+      if (store == null) return;
+      LocalTableSync? s;
+      final f = _finishing;
+      if (f != null && f.log.meta['session'] == session.id) {
+        s = f; // still uploading its end: keep that one
+        _finishing = null;
+      } else {
+        for (final id in storedNights(store)) {
+          final log = await EventLog.open(store, id, await deviceIdFor(store));
+          if (log.meta['session'] == session.id && log.meta['role'] == 'organizer') {
+            s = await LocalTableSync.resume(store, id, cloud: await openCloud());
+            break;
+          }
+        }
+      }
+      if (s == null || _home?.active != session) return;
+      await _attach(s);
+    } catch (_) {
+      // Not found or storage trouble: the night goes on, local only.
+    } finally {
+      _reattaching = false;
+    }
+  }
+
   Future<void> _onHomeAsync() async {
+    final active = _home?.active;
+    // Once per night that becomes the active one (not on every tap).
+    if (night == null && active != null && active.id != _reattachTried) {
+      _reattachTried = active.id;
+      await _reattach(active);
+    }
     final s = night, b = _bridge, home = _home;
     if (s == null || b == null || home == null) return;
     final id = sessionId;

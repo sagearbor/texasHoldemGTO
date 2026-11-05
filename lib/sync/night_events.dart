@@ -115,6 +115,11 @@ enum EventKind {
   /// org?, orgDev?}` (RadarConfig): one per change, so the TV and the
   /// offline analysis know the seat count over time.
   radar,
+
+  /// The organizer took back End game night `{}` (History → Resume, or
+  /// Undo): cancels the `end` before it. Older builds skip it (unknown
+  /// kind).
+  resume,
 }
 
 EventKind? eventKindFromName(Object? n) {

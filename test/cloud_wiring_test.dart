@@ -174,4 +174,56 @@ void main() {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
     }
   });
+
+  testWidgets('End game night taken back: same table night, joined phones see it resumed', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final cloud = FakeCloudLogs();
+    debugOpenCloud = () async => cloud;
+    final m = HomeGameModel(lib);
+    final svc = TableNightService.instance;
+    late LocalTableSync kid;
+    await tester.runAsync(() async {
+      await m.load();
+      await svc.init(m, store: MemoryStore());
+      m.start(name: 'x', players: const ['Sage', 'Kid', 'Bob'], heroSeat: 0, buttonSeat: 0);
+      await svc.organize(m.active!);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    final id = svc.night!.nightId;
+    final session = m.active!;
+    final hands = session.hands.length;
+    await tester.runAsync(() async {
+      kid = await LocalTableSync.join(MemoryStore(), svc.night!.ticket,
+          name: 'Kid', scannedAtMs: DateTime.now().millisecondsSinceEpoch, sharing: false, cloud: cloud);
+      m.end();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    expect(svc.night, isNull);
+    expect(m.resumable(), same(session));
+    await tester.runAsync(() async {
+      await kid.refresh();
+    });
+    expect(kid.organizerEnded, isTrue);
+    await tester.runAsync(() async {
+      m.resume(session);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      svc.flush();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await kid.refresh();
+    });
+    expect(m.active, same(session));
+    expect(session.hands.length, hands, reason: 'hand count as it was');
+    expect(svc.night?.nightId, id, reason: 'the same table night (same QR)');
+    expect(svc.linkedTo(session), isTrue);
+    expect(kid.organizerEnded, isFalse, reason: 'a resume after the end');
+    expect(m.resumable(), isNull, reason: 'nothing to resume while it is playing');
+    await tester.runAsync(() async {
+      m.end();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(seconds: 16));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    }
+  });
 }

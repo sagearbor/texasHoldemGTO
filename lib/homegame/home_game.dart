@@ -977,6 +977,29 @@ class HomeGameModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The night End game night just closed, if it can be taken back: the
+  /// most recent night, nothing playing now, its last hand (or start)
+  /// within [window].
+  HomeSession? resumable({Duration window = const Duration(hours: 12), int? nowMs}) {
+    if (active != null || sessions.isEmpty) return null;
+    final s = sessions.last;
+    final last = s.hands.isEmpty ? s.started : s.hands.last.ts;
+    final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    return now - last <= window.inMilliseconds ? s : null;
+  }
+
+  /// Reopens [s] as the night being played (hand count, seats and dealer
+  /// are as they were). The table night re-attaches by itself
+  /// (TableNightService watches the model).
+  void resume(HomeSession s) {
+    if (!sessions.contains(s)) return;
+    for (final x in sessions) {
+      x.closed = true;
+    }
+    s.closed = false;
+    _changed();
+  }
+
   void delete(HomeSession s) {
     sessions.remove(s);
     _changed();

@@ -100,6 +100,8 @@ class OrganizerBridge {
           if (n is int) boards[n] = ((e.data['c'] as List?) ?? const []).join(',');
         case EventKind.end:
           ended = true;
+        case EventKind.resume:
+          ended = false;
         default:
           break;
       }
@@ -209,6 +211,10 @@ class OrganizerBridge {
       }
     }
 
+    if (!s.closed && ended) {
+      // The night was resumed (End game night taken back).
+      await sync.appendEvent(EventKind.resume, const {});
+    }
     if (s.closed && !ended) {
       await sync.appendEvent(EventKind.end, const {}, ms: s.hands.isEmpty ? null : s.hands.last.ts);
     }
