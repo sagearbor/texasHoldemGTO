@@ -25,7 +25,7 @@ class FirestoreCloudLogs implements CloudLogs {
     String? emulator,
     String? authEmulator,
   }) async {
-    final app = await Firebase.initializeApp(name: 'feltnotes-sync', options: options);
+    final app = await defaultApp(options);
     final db = FirebaseFirestore.instanceFor(app: app);
     final auth = FirebaseAuth.instanceFor(app: app);
     if (emulator != null) {
@@ -41,6 +41,24 @@ class FirestoreCloudLogs implements CloudLogs {
     // the server-time skew measurement meaningless).
     db.settings = const Settings(persistenceEnabled: false);
     return FirestoreCloudLogs(db, auth);
+  }
+
+  /// The [DEFAULT] Firebase app with [options], started once.
+  ///
+  /// It must be the default app: cloud_firestore's
+  /// `FirebaseFirestorePlatform.instanceFor(app:)` first builds its default
+  /// instance with `Firebase.app()` (cloud_firestore_platform_interface
+  /// 6.5.1, platform_interface_firestore.dart), so with only a named app
+  /// every phone failed with "[core/no-app] No Firebase App '[DEFAULT]'"
+  /// (builds up to 0.3.3+42: no phone ever reached Firestore). The web TV
+  /// does not go through that path, which is why it alone could connect.
+  static Future<FirebaseApp> defaultApp(FirebaseOptions options) async {
+    try {
+      return await Firebase.initializeApp(options: options);
+    } on FirebaseException catch (e) {
+      if (e.code == 'duplicate-app') return Firebase.app();
+      rethrow;
+    }
   }
 
   static const _timeout = Duration(seconds: 20);
