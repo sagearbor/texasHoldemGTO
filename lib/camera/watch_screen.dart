@@ -72,9 +72,10 @@ abstract class WatchHost {
   void watchSetCards(List<int> cards);
 
   /// Close the hand being played the normal way (default fold), then put
-  /// [cards] on the next one, logged in the tracker with [episode]. Returns
-  /// false when the logger cannot move on by itself (first orbit: the
-  /// organizer taps the dealer); the cards are then only put in the slots.
+  /// [cards] on the next one, logged in the tracker with [episode]. Also in
+  /// the first orbit of a learned-seat night (the next dealer is guessed in
+  /// seat order). Returns false when the logger could not move on (no
+  /// night running); the cards are then only put in the slots.
   bool watchNewHand(List<int> cards, {int? episode, int? scene});
 
   /// Next hand, from the black screen.
@@ -799,7 +800,12 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     final t = Theme.of(context).textTheme;
     final c = _cam;
     return Scaffold(
-      appBar: AppBar(title: const Row(children: [Text('Watch my cards'), SizedBox(width: 8), BetaBadge()])),
+      appBar: AppBar(
+          title: const Row(children: [
+        Flexible(child: Text('Watch my cards', overflow: TextOverflow.ellipsis)),
+        SizedBox(width: 8),
+        BetaBadge(),
+      ])),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 32), children: [
         Text(
             'Prop the phone up beside you, camera towards your cards, about an arm\'s length '
@@ -1145,7 +1151,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
                 if (_waitDealer)
                   const Padding(
                     padding: EdgeInsets.only(bottom: 8),
-                    child: Text('First orbit: tap the dealer on the logger',
+                    child: Text('Hand not moved on: check the logger',
                         style: TextStyle(color: dim, fontSize: 12)),
                   ),
                 if (cards != null)

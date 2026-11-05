@@ -203,6 +203,11 @@ class HomeSession {
   /// dealt in the first orbit). They join the rotation when they deal.
   final List<String> bench;
 
+  /// The two cards in the logger's slots for the hand being played (typed,
+  /// picked or read by Watch my cards), or null. In memory only: End game
+  /// night logs the hand being played with them ([HomeGameModel.end]).
+  List<int>? slotCards;
+
   HomeSession({
     required this.id,
     required this.name,
@@ -722,6 +727,27 @@ class HomeGameModel extends ChangeNotifier {
     _changed();
   }
 
+  /// Next hand from a screen that cannot ask who deals (Watch my cards'
+  /// black screen: a new pair read, the Next hand button or the pad's
+  /// sideways swipe). In the first orbit of a learned-seat night the
+  /// logger closes hands with dealer taps instead, so this moves on as
+  /// [nextHand] does there: the next name in the typed order is taken as
+  /// the dealer (the dealer chip, [setDealer], fixes a wrong guess), and
+  /// before anyone was tapped the hand being played is taken as dealt by
+  /// the first name. Without this every hand Watch saw in the first orbit
+  /// was dropped (build 40 field report: "0 hands logged").
+  void nextHandBlind({List<int>? cards}) {
+    final s = active;
+    if (s == null) return;
+    if (!s.handInProgress) {
+      final n = s.learnedSeats;
+      if (n == null) return;
+      s.handStartedAt = s.started;
+      s.learnDealer(n % s.tableSize);
+    }
+    nextHand(cards: cards);
+  }
+
   void _closePending(HomeSession s, List<int>? cards) {
     final a = s.pendingAction ?? (s.pendingSkip ? null : PreAction.fold);
     _close(s,
@@ -924,8 +950,18 @@ class HomeGameModel extends ChangeNotifier {
     _changed();
   }
 
+  /// Ends the night. The hand being played is logged first when anything
+  /// was entered for it (its cards in the slots, or a tap): the owner saw
+  /// Watch my cards log it, and a recap of "0 hands" was wrong. An
+  /// untouched hand (nobody looked) is not a hand.
   void end() {
-    active?.closed = true;
+    final s = active;
+    if (s == null) return;
+    if (s.handInProgress && (s.slotCards != null || s.pendingAction != null)) {
+      _closePending(s, s.slotCards);
+    }
+    s.slotCards = null;
+    s.closed = true;
     _changed();
   }
 

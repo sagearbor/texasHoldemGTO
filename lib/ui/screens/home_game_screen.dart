@@ -273,12 +273,27 @@ class _Logger extends StatefulWidget {
 }
 
 class _LoggerState extends State<_Logger> implements WatchHost {
-  List<int?> cards = [null, null];
+  List<int?> _slots = [null, null];
+
+  /// The card slots of the hand being played. Mirrored on the night
+  /// ([HomeSession.slotCards]) so End game night can log that hand.
+  List<int?> get cards => _slots;
+  set cards(List<int?> c) {
+    _slots = c;
+    widget.session.slotCards = c.contains(null) ? null : c.cast<int>();
+  }
   Facing facing = Facing.unopened;
 
   /// Watch my cards: what the camera logged this hand (kept in step with
   /// manual picks and Next hand).
   final WatchHandTracker _watch = WatchHandTracker();
+
+  @override
+  void initState() {
+    super.initState();
+    // The slots start empty: so does what End game night would log.
+    widget.session.slotCards = null;
+  }
 
   bool get hasCards => !cards.contains(null);
   List<int>? get _cards => hasCards ? cards.cast<int>() : null;
@@ -331,24 +346,38 @@ class _LoggerState extends State<_Logger> implements WatchHost {
   @override
   WatchHandTracker get watchTracker => _watch;
 
+  /// The night Watch acts on: the running one (the same object as
+  /// widget.session while this logger shows it).
+  HomeSession get _night => widget.model.active ?? widget.session;
+
   @override
-  int get watchHandNumber => widget.session.hands.length + 1;
+  int get watchHandNumber => _night.hands.length + 1;
 
   @override
   void watchSetCards(List<int> c) {
     if (mounted) setState(() => cards = [c[0], c[1]]);
   }
 
+  /// Closes the hand being played from the black screen, first orbit
+  /// included (it cannot tap a dealer: [HomeGameModel.nextHandBlind]).
+  /// False when there is no night to move on.
+  bool _watchClose() {
+    final s = widget.model.active;
+    if (s == null || (!s.handInProgress && !s.learning)) return false;
+    final before = s.hands.length;
+    widget.model.nextHandBlind(cards: _cards);
+    _afterClose(before, quiet: true);
+    return s.hands.length > before;
+  }
+
   @override
   bool watchNewHand(List<int> c, {int? episode, int? scene}) {
     if (!mounted) return false;
-    final s = widget.session;
-    // First orbit: the dealer tap closes hands (it teaches the seats), so
-    // only swap the cards in.
-    final canMove = !s.learning && s.handInProgress;
     final now = DateTime.now().millisecondsSinceEpoch;
+    // Before build 41 this only swapped the cards in during the first
+    // orbit (learned seats), so no hand Watch saw there was ever logged.
+    final canMove = _watchClose();
     if (canMove) {
-      _nextHand(quiet: true);
       // _afterClose cleared the tracker; these cards start the new hand
       // (fewer than two: the hand's cards were not read).
       if (c.length == 2) {
@@ -363,10 +392,7 @@ class _LoggerState extends State<_Logger> implements WatchHost {
 
   @override
   void watchNextHand() {
-    if (!mounted) return;
-    final s = widget.session;
-    if (s.learning || !s.handInProgress) return;
-    _nextHand(quiet: true);
+    if (mounted) _watchClose();
   }
 
   @override
@@ -378,7 +404,7 @@ class _LoggerState extends State<_Logger> implements WatchHost {
   }
 
   @override
-  PreAction? get watchPendingAction => widget.session.pendingAction;
+  PreAction? get watchPendingAction => _night.pendingAction;
 
   @override
   void watchSetAction(PreAction? a) {
