@@ -82,6 +82,7 @@ source of truth; the cloud copy can always be rebuilt from it.
 | `boardFix` | any | `n, c` | one tap to confirm / fix hand `n`'s board; beats the cameras, loses to `board` |
 | `end` | organizer | | night over |
 | `clock` | organizer | `j` | the blind clock (BlindClock json) |
+| `resume` | organizer | | End game night taken back: cancels the `end` before it |
 
 Every event carries the phone's own clock (`ms`). An **entry** groups what a
 player recorded for one hand: cards then a tap within 3 minutes are one
@@ -271,6 +272,20 @@ and delete, TV member).
   them (or every hand, if never seated).
 * **Leaving:** a player's `leave` stops their hands even if the organizer
   forgets to unseat them; the TV shows "left" with their stats.
+* **Host ends the night:** the player pad fetches every 90 s; once the
+  organizer's log ends with `end` it says "Sage ended the game", leaves and
+  goes back. No cloud: after 5 minutes without the host's Bluetooth advert
+  it offers "The host's game seems to have ended · Leave" (never automatic).
+* **Nothing allowed is lost:** a night this phone leaves (or whose host
+  ended it) with anything unsent goes into an outbox (`sync.outbox`);
+  it keeps uploading for 10 minutes (long enough for held cards to come
+  due) and again on every launch until the cloud has it all. The log is
+  never deleted by leaving. The rules have no "ended" state, so a
+  member's log and card writes are accepted after the end, until expiry.
+* **End taken back:** Undo on the snackbar, or History → "Resume this
+  night" (the latest night, within 12 h), reopens the session; the table
+  night re-attaches (same code) and the organizer logs `resume`, which
+  cancels the `end` before it (merge, TV, pads). Older builds skip it.
 * **Organizer's phone dies:** the TV keeps the last state; after 5 minutes
   without an organizer upload the status turns amber ("organizer's phone
   quiet · last update 7 min ago"). The organizer's log is on the phone:

@@ -21,9 +21,33 @@ import 'table_sync.dart';
 const _currentKey = 'sync.current';
 const _optInKey = 'sync.tableNightOnStart';
 
+/// Nights this phone left (or whose host ended them) with something still
+/// to upload, comma-separated: drained on every launch until the cloud has
+/// all of it (the log itself never leaves the phone's storage).
+const _outboxKey = 'sync.outbox';
+
 class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
   TableNightService._();
   static final instance = TableNightService._();
+
+  /// Tests: a second service on the same storage, as after an app restart.
+  @visibleForTesting
+  factory TableNightService.restarted() => TableNightService._();
+
+  /// Tests: the app process dies (timers stop, nothing is flushed).
+  @visibleForTesting
+  Future<void> debugKill() async {
+    for (final t in _drains) {
+      t.cancel();
+    }
+    _drains.clear();
+    _cloudRetry?.cancel();
+    final s = night;
+    night = null;
+    _bridge = null;
+    await s?.dispose();
+    _home?.removeListener(_onHome);
+  }
 
   KeyValueStore? _store;
   HomeGameModel? _home;
@@ -71,6 +95,7 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
         final s = await LocalTableSync.resume(_store!, id, cloud: cloud);
         if (s != null) await _attach(s);
       }
+      await _drainOutbox();
     } catch (_) {
       // Storage trouble: table nights simply stay off this run.
     }
@@ -175,6 +200,7 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     _bridge = null;
     _reattachTried = null; // a Resume / Undo may bring it back
     await _store?.remove(_currentKey);
+    await _setOutbox(s.nightId, true);
     s.uploader?.flushNow();
     _finishing = s;
     notifyListeners();
@@ -182,27 +208,64 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   LocalTableSync? _finishing;
+  final List<Timer> _drains = [];
 
-  /// Keep trying for a while so the last taps reach the cloud; the log
-  /// stays on the phone either way (and goes up the next time it is
-  /// opened from the past nights list, if ever).
+  List<String> _outbox() =>
+      (_store?.get(_outboxKey) ?? '').split(',').where((x) => x.isNotEmpty).toList();
+
+  Future<void> _setOutbox(String id, bool add) async {
+    final o = _outbox()..remove(id);
+    if (add) o.add(id);
+    await _store?.set(_outboxKey, o.join(','));
+  }
+
+  /// At launch: every night left with something unsent goes on uploading
+  /// (its own log, its sharing choices as they were).
+  Future<void> _drainOutbox() async {
+    final store = _store;
+    if (store == null) return;
+    for (final id in _outbox()) {
+      if (id == night?.nightId) {
+        await _setOutbox(id, false);
+        continue;
+      }
+      final s = await LocalTableSync.resume(store, id, cloud: await openCloud());
+      if (s == null) {
+        await _setOutbox(id, false);
+        continue;
+      }
+      s.startSync();
+      _drainThenDispose(s);
+    }
+  }
+
+  /// Keep trying for a while (10 minutes, enough for held cards to come
+  /// due) so the last of the night reaches the cloud. Whatever is still
+  /// unsent then stays in the outbox for the next launch; the log stays on
+  /// the phone either way.
   void _drainThenDispose(LocalTableSync s) {
     var tries = 0;
-    Timer.periodic(const Duration(seconds: 15), (t) async {
+    late Timer timer;
+    timer = Timer.periodic(const Duration(seconds: 15), (t) async {
       tries++;
       final up = s.uploader;
       if (night == s) {
         t.cancel(); // resumed: it is the current night again
+        _drains.remove(timer);
         return;
       }
-      if (up == null || !up.pending || tries > 40) {
+      final done = up != null && !up.pending && !up.holdingCards;
+      if (done || up == null || tries > 40) {
         t.cancel();
+        _drains.remove(timer);
+        if (done) await _setOutbox(s.nightId, false);
         if (_finishing == s) _finishing = null;
         await s.dispose();
         return;
       }
       await up.drainOnce();
     });
+    _drains.add(timer);
   }
 
   // --------------------------------------------------------------- shared
@@ -352,6 +415,7 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!identical(this, instance)) return;
     if (state == AppLifecycleState.paused || state == AppLifecycleState.resumed) {
       night?.uploader?.flushNow();
       _finishing?.uploader?.flushNow();

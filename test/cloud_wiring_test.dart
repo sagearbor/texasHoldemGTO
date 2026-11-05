@@ -2,7 +2,10 @@
 // openCloud seam): hosting creates the night in the cloud and the host's
 // table bookkeeping goes up; a private joiner still becomes a member and
 // its Bluetooth seat readings go up while its taps and cards stay home; a
-// cloud that fails to start is picked up later instead of never.
+// cloud that fails to start is picked up later instead of never; what a
+// phone may share still goes up after it went offline, left, and restarted.
+
+import 'dart:async';
 
 import 'package:felt_notes/gto/spots.dart';
 import 'package:felt_notes/homegame/home_game.dart';
@@ -225,5 +228,68 @@ void main() {
       await tester.pump(const Duration(seconds: 16));
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
     }
+  });
+
+  testWidgets('offline joiner, host ends, app killed and restarted, back online: all it may share goes up',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final cloud = FakeCloudLogs();
+    debugOpenCloud = () async => cloud;
+    final store = MemoryStore(); // the phone's storage, kept across the restart
+    final m = HomeGameModel(lib);
+    final first = TableNightService.restarted();
+    late LocalTableSync host;
+    late String dev;
+    await tester.runAsync(() async {
+      await m.load();
+      await first.init(m, store: store);
+      host = await LocalTableSync.organize(MemoryStore(),
+          organizerName: 'Sage', selfPid: 'Sage', roster: const [Seat('Sage', 'Sage'), Seat('Kid', 'Kid')], cloud: cloud);
+      await Uploader(log: host.log, cloud: cloud, ticket: host.ticket, name: 'Sage').drainOnce();
+      cloud.online = false; // the kid's phone has no signal from here on
+      final s = await first.join(host.ticket, name: 'Kid', scannedAtMs: DateTime.now().millisecondsSinceEpoch, sharing: false);
+      dev = s.deviceId;
+      for (var i = 0; i < 3; i++) {
+        await s.appendEvent(EventKind.sense, {'w': 15000, 'p': [['H:${host.nightId}', -60, 2]]});
+      }
+      await s.tap(PreAction.call);
+      await s.setCards(const [0, 13]);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    expect(cloud.parts[host.nightId]?.keys.where((k) => k.startsWith(dev)) ?? const [], isEmpty,
+        reason: 'nothing went up while offline');
+    // The host ends the game (the host's phone is online).
+    cloud.online = true;
+    await tester.runAsync(() async {
+      await host.endNight();
+      await Uploader(log: host.log, cloud: cloud, ticket: host.ticket, name: 'Sage').drainOnce();
+      cloud.online = false;
+      // The kid taps Leave (the Bluetooth hint) while still offline, then
+      // the app is killed.
+      await first.leave();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await first.debugKill();
+    });
+    // Restart, back online: the outbox drains the left night.
+    cloud.online = true;
+    final second = TableNightService.restarted();
+    // In the test's fake clock, so the 15 s drain timer runs with pump().
+    unawaited(second.init(m, store: store));
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(seconds: 16));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    }
+    final up = [
+      for (final p in cloud.parts[host.nightId]!.values)
+        if (p.deviceId == dev) ...p.events
+    ].map((e) => e.kind).toList();
+    expect(cloud.members[host.nightId]!.keys, contains(dev));
+    expect(up.where((k) => k == EventKind.sense), hasLength(3), reason: 'seat signals arrive after the restart');
+    expect(up, containsAll([EventKind.join, EventKind.leave]));
+    expect(up, isNot(contains(EventKind.play)), reason: 'hands stay private');
+    expect(up, isNot(contains(EventKind.cards)));
+    expect(cloud.cards[host.nightId] ?? const {}, isEmpty);
+    expect(store.get('sync.outbox'), anyOf(isNull, isEmpty), reason: 'done: out of the outbox');
+    await tester.runAsync(() => second.debugKill());
   });
 }
