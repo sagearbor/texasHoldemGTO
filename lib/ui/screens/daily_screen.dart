@@ -88,7 +88,7 @@ class DailyCard extends StatelessWidget {
             ? '${scoreLabel(d.score)}/$dailyLength'
             : d.started
                 ? '${d.answered}/$dailyLength answered: tap to continue'
-                : 'Same 10 hands for everyone today. One shot.';
+                : 'Same 10 hands for everyone. One shot.';
         return Card(
           color: Felt.gold.withOpacity(0.16),
           shape: RoundedRectangleBorder(
@@ -122,7 +122,9 @@ class DailyCard extends StatelessWidget {
                           ),
                         ])
                       else
-                        Text(sub, style: t.bodySmall),
+                        // One line: the card must not push Train's action
+                        // buttons below the fold at large text sizes.
+                        Text(sub, style: t.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
                       if (streak > 0)
                         Text('Day streak $streak${streak >= 3 ? ' 🔥' : ''}',
                             style: t.bodySmall?.copyWith(color: Felt.accent(context))),
