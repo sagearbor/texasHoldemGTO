@@ -124,6 +124,19 @@ void main() {
     expect(svc.night?.isOrganizer, isFalse);
     expect(svc.night!.sharing, isFalse);
     expect(find.text(TableNightService.joinerPrivateLine), findsOneWidget, reason: 'the pad says it too');
+    // Hands-off by default: the table button first, the taps tucked away.
+    expect(find.text('Leave it on the table'), findsOneWidget);
+    expect(find.text('Raise'), findsNothing, reason: 'Edit a hand is closed by default');
+    expect(find.textContaining('counts as a fold'), findsNothing);
+    await tester.ensureVisible(find.text('Edit a hand (optional)'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Edit a hand (optional)'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text(padOptionalLine), findsOneWidget);
+    await tester.ensureVisible(find.text('Raise'));
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Raise'), findsOneWidget);
     await tester.runAsync(() async {
       await tester.tap(find.text('Raise'));

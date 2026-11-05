@@ -19,6 +19,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../gto/coach.dart';
 import '../../homegame/home_game.dart';
 import '../../sync/night_events.dart';
+import '../../sync/night_merge.dart' show MergedNight;
 import '../../sync/organizer_bridge.dart';
 import '../../sync/table_night_service.dart';
 import '../../nearby/nearby_service.dart';
@@ -240,7 +241,7 @@ class _JoinTableNightScreenState extends State<JoinTableNightScreen> {
       appBar: AppBar(title: const Text("Scan the host's code")),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Text(
-          'The organizer logs the hands; you tap only when you play one. '
+          'The organizer logs the hands; you do not need to tap anything. '
           'No signal needed at the table: your phone keeps its own notes and '
           'uploads them when it can.',
           style: t.bodyMedium,
@@ -302,45 +303,74 @@ class _JoinTableNightScreenState extends State<JoinTableNightScreen> {
 
 // -------------------------------------------------------------- player pad
 
-/// One tap per hand you play. Not tapping = fold. Cards are optional.
+/// What the pad's "My night so far" says, from the merged night: hands
+/// dealt to [pid], the ones the player marked (a real tap), and VPIP / PFR
+/// over the marked ones only. Untapped hands are unknown on a joiner's
+/// pad, never folds (owner rule: joiners never need to tap).
+class PadStats {
+  final int dealt, marked, vpip, pfr;
+  const PadStats(this.dealt, this.marked, this.vpip, this.pfr);
+
+  static PadStats of(MergedNight m, String? pid) {
+    var dealt = 0, marked = 0, vp = 0, pf = 0;
+    if (pid != null) {
+      for (final h in m.hands) {
+        final p = h.players[pid];
+        if (p == null) continue;
+        dealt++;
+        if (p.inferred) continue;
+        marked++;
+        if (p.voluntary) vp++;
+        if (p.action == PreAction.raise) pf++;
+      }
+    }
+    return PadStats(dealt, marked, vp, pf);
+  }
+
+  /// "—" when nothing is marked.
+  String get vpipText => marked == 0 ? '—' : pct(vpip / marked);
+  String get pfrText => marked == 0 ? '—' : pct(pfr / marked);
+}
+
+/// A joined player's screen. Hands-off by default: put the phone on the
+/// table (screen off, Bluetooth keeps going). Marking a hand is optional,
+/// tucked under "Edit a hand (optional)".
 class PlayerPadScreen extends StatefulWidget {
   const PlayerPadScreen({super.key});
   @override
   State<PlayerPadScreen> createState() => _PlayerPadScreenState();
 }
 
+/// The optional hand editor's copy.
+const padOptionalLine = 'Optional: mark a hand you care about. Untapped hands are not recorded.';
+
 class _PlayerPadScreenState extends State<PlayerPadScreen> {
   List<int>? _cards;
   bool _refreshing = false;
   Timer? _tick;
+  bool _leaving = false;
 
   @override
   void initState() {
     super.initState();
+    // The service asks the cloud every 45 s whether the host ended (also
+    // when this screen is not showing) and says so here.
+    _svc.hostEnded.addListener(_onHostEnded);
     _refresh();
     // The status line says "2 min ago": keep it honest.
     _tick = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() {});
     });
-    // Did the host end the game? One fetch every 90 s (reads are the free
-    // tier's tight spot).
-    _endCheck = Timer.periodic(const Duration(seconds: 90), (_) => _refresh());
   }
 
-  Timer? _endCheck;
-  bool _leaving = false;
-
   /// The host ended the game (their log says so): say it and go back.
-  Future<void> _hostEnded() async {
-    final s = _svc.night;
-    if (_leaving || s == null || !s.organizerEnded) return;
+  void _onHostEnded() {
+    if (_leaving || !mounted) return;
+    final msg = _svc.takeHostEnded();
+    if (msg == null) return;
     _leaving = true;
-    final who = s.ticket.organizerName.isEmpty ? 'The host' : s.ticket.organizerName;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    final nav = Navigator.of(context);
-    await _svc.leave();
-    messenger?.showSnackBar(SnackBar(content: Text('$who ended the game')));
-    nav.popUntil((r) => r.isFirst);
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(msg)));
+    Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
   /// No cloud: the host's Bluetooth advert for this night has been gone a
@@ -355,8 +385,8 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
 
   @override
   void dispose() {
+    _svc.hostEnded.removeListener(_onHostEnded);
     _tick?.cancel();
-    _endCheck?.cancel();
     super.dispose();
   }
 
@@ -366,7 +396,7 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
     setState(() => _refreshing = true);
     await s.refresh();
     if (mounted) setState(() => _refreshing = false);
-    if (mounted) await _hostEnded();
+    if (mounted) await _svc.checkHostEnded(fetch: false);
   }
 
   Future<void> _do(Future<void> Function() f) async {
@@ -408,20 +438,11 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
         final plays = s.localEvents.where((e) => e.kind == EventKind.play).length;
         final m = s.merged();
         final me = m.devices.where((d) => d.deviceId == s.deviceId).firstOrNull;
-        final mine = me == null ? const <LoggedHand>[] : m.loggedHandsFor(me.pid);
-        final done = [for (final h in mine) h];
-        final vp = done.where((h) => h.action != PreAction.fold).length;
-        final pf = done.where((h) => h.action == PreAction.raise).length;
+        final st = PadStats.of(m, me?.pid);
         return Scaffold(
           appBar: AppBar(
             title: Text(_svc.tableName()),
             actions: [
-              if (NearbyService.instance.allowed)
-                IconButton(
-                  tooltip: 'Leave on the table',
-                  icon: const Icon(Icons.dark_mode_outlined),
-                  onPressed: () => openTableMode(context),
-                ),
               IconButton(
                 tooltip: 'Show the table on this screen (TV)',
                 icon: const Icon(Icons.tv),
@@ -437,15 +458,6 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
                 child: Text('This phone is in the game as the camera (Record the table), not as a player.',
                     style: t.bodyMedium),
               ),
-            if (NearbyService.instance.allowed) ...[
-              FilledButton.tonalIcon(
-                key: const Key('table-mode'),
-                onPressed: () => openTableMode(context),
-                icon: const Icon(Icons.dark_mode_outlined),
-                label: const Text('Leave it on the table (screen off, keeps logging)'),
-              ),
-              const SizedBox(height: 12),
-            ],
             if (_hostQuiet)
               Card(
                 key: const Key('host-quiet'),
@@ -463,61 +475,32 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
                   ),
                 ),
               ),
-            Text('Tap only when you put money in. Every other hand counts as a fold.', style: t.bodyLarge),
-            const SizedBox(height: 16),
-            Row(children: [
-              for (final a in const [PreAction.call, PreAction.raise]) ...[
-                if (a == PreAction.raise) const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Felt.actionColor(preActionLabels[a]!, Theme.of(context).brightness),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size.fromHeight(72),
-                      textStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-                    ),
-                    onPressed: () => _tap(a),
-                    child: Text(a == PreAction.call ? 'Call' : 'Raise'),
-                  ),
-                ),
-              ],
-            ]),
-            const SizedBox(height: 8),
-            Row(children: [
-              TextButton.icon(
-                onPressed: () => _do(s.undoLast),
-                icon: const Icon(Icons.undo, size: 18),
-                label: const Text('Undo last tap'),
+            // ---- the one thing to do: nothing (put the phone down)
+            FilledButton.icon(
+              key: const Key('table-mode'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(76),
+                textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
               ),
-              const Spacer(),
-              Semantics(
-                button: true,
-                label: _cards == null ? 'Add my cards' : 'Change my cards',
-                child: GestureDetector(
-                  onTap: _pick,
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    PlayingCard(card: _cards?[0], width: 40),
-                    const SizedBox(width: 6),
-                    PlayingCard(card: _cards?[1], width: 40),
-                  ]),
-                ),
-              ),
-            ]),
-            Text(
-              s.sharing
-                  ? 'Cards are optional. Add them before your tap; they go to the table only after the hand.'
-                  : 'Cards are optional, for your own stats; they stay on this phone.',
-              style: t.bodySmall,
+              onPressed: () => openTableMode(context),
+              icon: const Icon(Icons.dark_mode_outlined, size: 28),
+              label: const Text('Leave it on the table'),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 6),
+            Text(
+                NearbyService.instance.allowed
+                    ? 'Screen off, keeps sending Bluetooth for the seat radar. You never need to tap anything.'
+                    : 'Screen off. You never need to tap anything.',
+                style: t.bodyMedium),
+            const SizedBox(height: 14),
+            CloudStatusRow(status: _svc.cloudStatus()),
+            const SizedBox(height: 12),
             JoinerSharingTile(
                 value: s.sharing,
                 onChanged: (v) => _svc.setSharing(v),
                 seat: s.sharingSeat,
                 onSeatChanged: (v) => _svc.setSharingSeat(v)),
             const SizedBox(height: 12),
-            CloudStatusRow(status: _svc.cloudStatus()),
-            const SizedBox(height: 16),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -532,13 +515,81 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
                           : const Icon(Icons.refresh),
                     ),
                   ]),
-                  if (done.isEmpty)
-                    Text('$plays taps so far. Your hand count, VPIP and PFR appear once the '
-                        "organizer's phone has uploaded the hands.")
+                  if (st.dealt == 0)
+                    Text(plays == 0
+                        ? "Your hand count appears once the organizer's phone has uploaded the hands."
+                        : '$plays marked so far. Your hand count appears once the '
+                            "organizer's phone has uploaded the hands.")
                   else
-                    Text('${done.length} hands · $plays tapped · VPIP ${pct(vp / done.length)} · '
-                        'PFR ${pct(pf / done.length)} · ${playStyle(done.length, vp / done.length, pf / done.length)}'),
+                    Text('${st.dealt} hands · ${st.marked} marked · VPIP ${st.vpipText} · PFR ${st.pfrText}'
+                        '${st.marked == 0 ? '' : ' (of marked hands)'}',
+                        key: const Key('pad-stats')),
                 ]),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // ---- optional: mark a hand
+            Card(
+              child: ExpansionTile(
+                key: const Key('pad-edit'),
+                initiallyExpanded: false,
+                shape: const Border(),
+                collapsedShape: const Border(),
+                leading: const Icon(Icons.edit_note),
+                title: Text('Edit a hand (optional)', style: t.titleSmall),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                children: [
+                  Text(padOptionalLine, style: t.bodyMedium),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    for (final a in const [PreAction.call, PreAction.raise]) ...[
+                      if (a == PreAction.raise) const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Felt.actionColor(preActionLabels[a]!, Theme.of(context).brightness),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size.fromHeight(64),
+                            textStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                          ),
+                          onPressed: () => _tap(a),
+                          child: Text(a == PreAction.call ? 'Call' : 'Raise'),
+                        ),
+                      ),
+                    ],
+                  ]),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => _do(s.undoLast),
+                          icon: const Icon(Icons.undo, size: 18),
+                          label: const Text('Undo last tap', overflow: TextOverflow.ellipsis),
+                        ),
+                      ),
+                    ),
+                    Semantics(
+                      button: true,
+                      label: _cards == null ? 'Add my cards' : 'Change my cards',
+                      child: GestureDetector(
+                        onTap: _pick,
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          PlayingCard(card: _cards?[0], width: 40),
+                          const SizedBox(width: 6),
+                          PlayingCard(card: _cards?[1], width: 40),
+                        ]),
+                      ),
+                    ),
+                  ]),
+                  Text(
+                    s.sharing
+                        ? 'Cards are optional. Add them before your tap; they go to the table only after the hand.'
+                        : 'Cards are optional, for your own stats; they stay on this phone.',
+                    style: t.bodySmall,
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
