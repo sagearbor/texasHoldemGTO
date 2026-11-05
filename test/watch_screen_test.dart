@@ -166,7 +166,7 @@ void main() {
     ));
     final pad = find.byKey(const Key('watch-action-pad'));
     expect(find.text('NOT RECORDED'), findsOneWidget, reason: 'Watch: no tap is not a fold');
-    expect(find.textContaining('hold = fold'), findsOneWidget);
+    expect(find.textContaining('down = fold'), findsOneWidget);
     // Never the cards.
     expect(find.textContaining('A♠'), findsNothing);
     expect(find.textContaining('As'), findsNothing);
@@ -180,15 +180,15 @@ void main() {
     await tester.pump();
     expect(m.active!.pendingAction, PreAction.raise);
 
-    await tester.drag(pad, const Offset(0, 120));
-    await tester.pump();
-    expect(m.active!.pendingAction, isNull);
-    expect(find.text('NOT RECORDED'), findsOneWidget);
-
     await tester.longPress(pad);
     await tester.pump();
-    expect(m.active!.pendingAction, PreAction.fold, reason: 'hold = explicit fold');
+    expect(m.active!.pendingAction, isNull, reason: 'hold = reset');
+    expect(find.text('NOT RECORDED'), findsOneWidget);
+
     await tester.drag(pad, const Offset(0, 120));
+    await tester.pump();
+    expect(m.active!.pendingAction, PreAction.fold, reason: 'down = fold');
+    await tester.longPress(pad);
     await tester.pump();
 
     await tester.drag(pad, const Offset(0, -120));

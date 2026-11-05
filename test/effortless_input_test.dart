@@ -304,7 +304,7 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('pad: tap = call, swipe up = raise, down = undo, sideways = next', (tester) async {
+    testWidgets('pad: tap = call, up = raise, down = fold, hold = reset, sideways = next', (tester) async {
       final m = (await tester.runAsync(() => fresh(players: ['Me', 'Ann', 'Bob'])))!;
       await pump(tester, m);
       final pad = find.byType(ActionPad);
@@ -317,6 +317,9 @@ void main() {
       expect(m.active!.pendingAction, PreAction.raise);
       expect(find.text('RAISE'), findsOneWidget);
       await tester.drag(pad, const Offset(0, 80));
+      await tester.pump();
+      expect(m.active!.pendingAction, PreAction.fold);
+      await tester.longPress(pad);
       await tester.pump();
       expect(m.active!.pendingAction, isNull);
       await tester.drag(pad, const Offset(0, -80));

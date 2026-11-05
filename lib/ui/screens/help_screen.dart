@@ -103,7 +103,7 @@ const helpTopics = {
             'Next hand button.'),
     HelpTip('Folded? Do nothing. Played it? Use the big pad.',
         'An untouched hand counts as a fold at Next hand. On the pad: tap = call / limp, swipe up = raise, '
-            'swipe down = undo, swipe sideways = Next hand. Each buzzes differently. "Didn\'t see this hand" '
+            'swipe down = fold, hold = reset, swipe sideways = Next hand. Each buzzes differently. "Didn\'t see this hand" '
             'saves it as unknown instead of a fold.'),
     HelpTip('Wrong position or a mis-tap? Undo last, or tap the real position.',
         'Tap "Dealer" to pick who is dealing; "Someone new" seats a new dealer where they dealt. Someone joins '

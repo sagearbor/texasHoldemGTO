@@ -9,10 +9,10 @@ const _swipeDistance = 40.0;
 const _swipeSpeed = 300.0;
 
 /// Big no-look input for the hand being played: tap = call / limp, swipe
-/// up = raise, swipe down = undo (back to the default fold), swipe sideways
-/// = next hand (when [onNext] is set). Each gesture buzzes differently so
-/// you never have to look. Doing nothing is a fold (on Watch my cards,
-/// [untappedUnknown]: "not recorded", and a long press is the fold).
+/// up = raise, swipe down = fold, long press = reset (nothing marked),
+/// swipe sideways = next hand (when [onNext] is set). Each gesture buzzes
+/// differently so you never have to look. Doing nothing is a fold (on Watch
+/// my cards, [untappedUnknown]: "not recorded").
 class ActionPad extends StatefulWidget {
   final PreAction? pending;
   final bool skipped;
@@ -25,7 +25,7 @@ class ActionPad extends StatefulWidget {
   final double height;
 
   /// Watch my cards: doing nothing records "not recorded" (unknown), not a
-  /// fold; a long press is the explicit fold.
+  /// fold.
   final bool untappedUnknown;
   const ActionPad({
     super.key,
@@ -87,7 +87,7 @@ class _ActionPadState extends State<ActionPad> {
         ? 'saved as unknown'
         : a == null
             ? (unk ? 'no tap = not recorded' : 'default: do nothing')
-            : 'swipe down to undo';
+            : 'hold to reset';
     final low = widget.lowLight;
     final bg = low
         ? Colors.black
@@ -99,17 +99,17 @@ class _ActionPadState extends State<ActionPad> {
       container: true,
       button: true,
       label: 'Action pad: $label. Tap for call, swipe up for raise, '
-          '${unk ? 'hold for fold, ' : ''}swipe down to undo${widget.onNext == null ? '' : ', swipe sideways for next hand'}',
+          'swipe down for fold, hold to reset${widget.onNext == null ? '' : ', swipe sideways for next hand'}',
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _call,
-        onLongPress: unk ? _fold : null,
+        onLongPress: _undo,
         onVerticalDragStart: (_) => _dy = 0,
         onVerticalDragUpdate: (d) => _dy += d.delta.dy,
         onVerticalDragEnd: (d) {
           final v = d.primaryVelocity;
           if (!_swiped(_dy, v)) return;
-          (_dy + (v ?? 0) * 0.1) < 0 ? _raise() : _undo();
+          (_dy + (v ?? 0) * 0.1) < 0 ? _raise() : _fold();
         },
         onHorizontalDragStart: widget.onNext == null ? null : (_) => _dx = 0,
         onHorizontalDragUpdate:
@@ -151,10 +151,10 @@ class _ActionPadState extends State<ActionPad> {
               fit: BoxFit.scaleDown,
               child: Text(
                   unk
-                      ? 'no tap = not recorded · tap = call · up = raise · hold = fold · down = undo'
+                      ? 'tap = call · up = raise · down = fold · hold = reset'
                       : widget.onNext == null
-                          ? 'tap = call · swipe up = raise · swipe down = undo'
-                          : 'tap = call · up = raise · down = undo · sideways = next hand',
+                          ? 'tap = call · up = raise · down = fold · hold = reset'
+                          : 'tap = call · up = raise · down = fold · hold = reset · sideways = next',
                   maxLines: 1,
                   style: hint),
             ),
