@@ -412,13 +412,13 @@ class _LoggerState extends State<_Logger> implements WatchHost {
     if (canMove) {
       // _afterClose cleared the tracker; these cards start the new hand
       // (fewer than two: the hand's cards were not read).
-      if (c.length == 2) {
+      if (c.length >= 2) {
         _watch.onRead(c, now, episode: episode, scene: scene);
       } else {
         _watch.onLookEnd(c.toSet(), now);
       }
     }
-    cards = c.length == 2 ? [c[0], c[1]] : [null, null];
+    cards = c.length >= 2 ? [c[0], c[1]] : [null, null];
     if (mounted) setState(() {});
     return canMove;
   }

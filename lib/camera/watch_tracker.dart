@@ -91,12 +91,13 @@ bool looksLikeMisread(List<int> a, List<int> b) {
 
 /// High card first, so a pair compares equal whatever order it was read in.
 List<int> canonicalPair(List<int> pair) {
-  assert(pair.length == 2);
+  if (pair.length != 2) return [...pair]..sort((a, b) => b.compareTo(a));
   final a = pair[0], b = pair[1];
   return a >= b ? [a, b] : [b, a];
 }
 
-bool _same(List<int>? a, List<int>? b) => a != null && b != null && a[0] == b[0] && a[1] == b[1];
+bool _same(List<int>? a, List<int>? b) =>
+    a != null && b != null && a.length == b.length && a.every(b.contains);
 
 class WatchHandTracker {
   /// A different pair this soon after the current one was set replaces it.
@@ -144,7 +145,7 @@ class WatchHandTracker {
   /// correct decision only; it never changes the decision.
   WatchDecision onRead(List<int> pair, int tMs, {int? episode, int? scene, PairEvidence? evidence}) {
     final p = canonicalPair(pair);
-    if (p[0] == p[1]) return WatchDecision(WatchAction.ignore, p);
+    if (p.toSet().length != p.length) return WatchDecision(WatchAction.ignore, p);
     if (_vetoed.any((v) => _same(v, p))) return WatchDecision(WatchAction.ignore, p);
     final cur = _cards;
     if (cur == null) {
@@ -157,6 +158,23 @@ class WatchHandTracker {
     if (_same(cur, p)) {
       _scene = scene ?? _scene;
       return WatchDecision(WatchAction.confirm, p);
+    }
+    if (p.length > 2 || cur.length > 2) {
+      // Omaha and other 3-4 card games: cards of the hand already logged
+      // confirm it; sharing two cards with it (a pair read first, then
+      // the 4) grows it; one card of a 4-card hand is a partial look.
+      final overlap = p.where(cur.contains).length;
+      if (p.every(cur.contains)) {
+        _scene = scene ?? _scene;
+        return WatchDecision(WatchAction.confirm, cur);
+      }
+      if (overlap >= 2) {
+        final union = {...cur, ...p};
+        final grown = canonicalPair(union.length <= 4 ? union.toList() : p);
+        _set(grown, tMs, episode, scene);
+        return WatchDecision(WatchAction.correct, grown, previous: cur, evidence: evidence);
+      }
+      if (cur.length > 2 && overlap == 1) return WatchDecision(WatchAction.ignore, cur);
     }
     final manual = _manualAtMs;
     if (manual != null) {
@@ -255,7 +273,7 @@ String spokenCard(int c) => '${_rankWords[cardRank(c)]} of ${_suitWords[cardSuit
 /// audible (a shorthand like "ace king suited" would hide it).
 String spokenPair(List<int> cards) {
   final p = canonicalPair(cards);
-  final s = '${spokenCard(p[0])}, ${spokenCard(p[1])}';
+  final s = p.map(spokenCard).join(', ');
   return s[0].toUpperCase() + s.substring(1);
 }
 

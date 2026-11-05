@@ -313,6 +313,32 @@ void main() {
     });
   });
 
+  group('Omaha (3-4 cards)', () {
+    test('a pair read first grows into the 4-card hand, then the next hand', () {
+      final t = WatchHandTracker();
+      expect(t.onRead(p('As Kd'), 1000, episode: 1).action, WatchAction.fill);
+      final grow = t.onRead(p('As Kd Qh Jc'), 1500, episode: 1);
+      expect(grow.action, WatchAction.correct);
+      expect(grow.cards, p('As Kd Qh Jc'));
+      // Re-peeks showing any of the four confirm, a lone card is ignored.
+      expect(t.onRead(p('Qh Jc'), 9000, episode: 2).action, WatchAction.confirm);
+      expect(t.onRead(p('Kd Qh Jc As'), 9500, episode: 2).action, WatchAction.confirm);
+      expect(t.onRead(p('Qh 2c'), 9800, episode: 2).action, WatchAction.ignore);
+      // The next hand: four new cards.
+      final next = t.onRead(p('9s 8s 7d 2h'), 30000, episode: 3);
+      expect(next.action, WatchAction.newHand);
+      expect(next.cards, p('9s 8s 7d 2h'));
+      expect(spokenPair(next.cards), 'Nine of spades, eight of spades, seven of diamonds, two of hearts');
+    });
+
+    test('hold\'em is unchanged', () {
+      final t = WatchHandTracker();
+      t.onRead(p('As Kd'), 1000, episode: 1);
+      expect(t.onRead(p('As Kd'), 5000, episode: 2).action, WatchAction.confirm);
+      expect(t.onRead(p('9s 8s'), 30000, episode: 3).action, WatchAction.newHand);
+    });
+  });
+
   test('spoken card names', () {
     expect(spokenPair(p('Tc 2h')), 'Ten of clubs, two of hearts');
     expect(spokenPair(p('Jd Qs')), 'Queen of spades, jack of diamonds');

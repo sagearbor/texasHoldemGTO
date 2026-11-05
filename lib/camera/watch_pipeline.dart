@@ -635,6 +635,25 @@ class WatchPipeline {
   final List<(int, Set<int>)> lookEnds = [];
   final Map<int, int> _lookCounts = {};
 
+  /// Omaha and other 3-4 card games: hero cards per card episode, and the
+  /// hand last reported from them ([_omahaHand]).
+  final Map<int, int> _epCounts = {};
+  int _epCountsEpisode = -1;
+  List<int>? _omahaSent;
+
+  /// Three or four cards each read in at least two frames of this card
+  /// episode, the weakest at least 40% as often as the strongest: a hand
+  /// of more than two cards (high card first). Null otherwise.
+  List<int>? _omahaHand() {
+    final ranked = _epCounts.entries.where((e) => e.value >= 2).toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    if (ranked.length < 3) return null;
+    final top = ranked.first.value;
+    final keep = [for (final e in ranked.take(4)) if (e.value >= top * 0.4) e.key];
+    if (keep.length < 3) return null;
+    return keep..sort((a, b) => b.compareTo(a));
+  }
+
   int _lastGateMs = -1 << 40;
   int _burstUntil = -1 << 40;
   int _lastChangeMs = -1 << 40;
@@ -832,10 +851,31 @@ class WatchPipeline {
         p.framesReadable++;
       }
     }
+    if (_epCountsEpisode != cardEpisode) {
+      _epCounts.clear();
+      _epCountsEpisode = cardEpisode;
+      _omahaSent = null;
+    }
+    for (final c in cards) {
+      _epCounts[c] = (_epCounts[c] ?? 0) + 1;
+    }
     var pair = voter.add(cards, job.tMs, scores);
     var evidence = voter.lastEvidence;
+    final omaha = _omahaHand();
+    if (omaha != null) {
+      // More than two cards in this look: report the hand when it is new
+      // or grew, never a pair of it (two of four would look like a hand).
+      final sent = _omahaSent;
+      final fresh = sent == null || sent.length != omaha.length || !omaha.every(sent.contains);
+      if (!fresh) return null;
+      _omahaSent = omaha;
+      pair = omaha;
+      evidence = null;
+      counts.omaha++;
+    }
     if (p != null) p.agree = math.max(p.agree, voter.bestAgree);
     if (pair == null &&
+        omaha == null &&
         hero.length == 2 &&
         hero[0].card != hero[1].card &&
         hero.every((c) => c.score >= cfg.singleFrameScore) &&

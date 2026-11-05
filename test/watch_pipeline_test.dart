@@ -54,6 +54,19 @@ GlyphReadResult geo(String cards, {List<double>? aspects, List<double>? sizes, i
 }
 
 void main() {
+  test('Omaha: frames showing 2 of 4 cards each report the 4-card hand once', () {
+    final pipe = WatchPipeline(const WatchConfig(flatAspect: 0, maxSizeRatio: 0, maxCardsInView: 0));
+    final job = ReadJob(Uint8List(0), 0, 0, 0, 0);
+    final frames = ['As Kd', 'Qh Jc', 'As Qh', 'Kd Jc', 'As Jc', 'Kd Qh', 'As Kd', 'Qh Jc'];
+    final hands = <List<int>>[];
+    for (final f in frames) {
+      final r = pipe.onRead(job, read(f));
+      if (r != null && r.length > 2) hands.add(r);
+    }
+    expect(hands, hasLength(1));
+    expect(hands.single, canonicalPair(parseCards('As Kd Qh Jc')));
+  });
+
   group('board guards and votes', () {
     const guarded = WatchConfig(flatAspect: 0.85, maxSizeRatio: 1.6, maxCardsInView: 2);
     String cards(List<GlyphCard> h) => h.map((c) => cardToString(c.card)).join(' ');

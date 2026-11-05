@@ -167,6 +167,9 @@ class StageCounts {
   /// Pairs logged from a single very confident frame.
   int singleFrame = 0;
 
+  /// Hands of more than two cards (Omaha) reported.
+  int omaha = 0;
+
   /// Hero cards the board guards dropped (lying on the table, too small
   /// next to the other card, too many cards in view).
   int boardGuarded = 0;
@@ -242,6 +245,7 @@ class WatchSessionSummary {
         'readerMsPerMin': perMinute(frames.readMs).round(),
         'skippedStaticPerMin': perMinute(frames.skippedStatic).round(),
         'singleFramePairs': frames.singleFrame,
+        'omahaHands': frames.omaha,
         'boardGuarded': frames.boardGuarded,
         'motionEvents': frames.motionEvents,
         'battery': [for (final (t, b) in battery) [t ~/ 60000, b]],
