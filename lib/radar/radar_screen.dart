@@ -21,6 +21,7 @@ import '../ui/app_settings.dart';
 import '../ui/dev_mode.dart';
 import 'radar_model.dart';
 import 'radar_settings.dart';
+import 'radar_shapes.dart';
 import 'radar_view.dart';
 
 Future<void> openRadar(BuildContext context) async {
@@ -36,7 +37,10 @@ RadarEstimate _estimate((RadarConfig, RadarInput) a) => estimateSeats(a.$1, a.$2
 class RadarScreen extends StatefulWidget {
   /// Tests: no timer, no fetch.
   final bool live;
-  const RadarScreen({super.key, this.live = true});
+
+  /// Tests: readings to show instead of the night's (estimated inline).
+  final RadarInput? debugInput;
+  const RadarScreen({super.key, this.live = true, this.debugInput});
 
   @override
   State<RadarScreen> createState() => _RadarScreenState();
@@ -54,15 +58,29 @@ class _RadarScreenState extends State<RadarScreen> {
   bool _offline = false;
   Map<String, double> _mine = const {};
 
+  /// Puzzle (false, the default) or Overlap.
+  bool _overlap = false;
+  final CellSmoother _smooth = CellSmoother();
+  List<SeatRegion> _regions = const [];
+
   TableNightService get _tn => TableNightService.instance;
+
+  /// Fetches after this phone's pulse burst (5 s and 15 s: the joiners
+  /// answer on their next scan round and upload at once).
+  final List<Timer> _afterPulse = [];
+
+  NearbyService get _near => NearbyService.instance;
 
   @override
   void initState() {
     super.initState();
     RadarSettings.config.addListener(_onConfig);
     if (widget.live) {
+      _near.pulseBursts.addListener(_onPulseDone);
       _timer = Timer.periodic(refreshEvery, (_) => _update(fetch: true));
       WidgetsBinding.instance.addPostFrameCallback((_) async {
+        // Opening the radar asks every phone for a fresh burst.
+        unawaited(_near.pulse('radar'));
         await _askPlaying();
         await _update(fetch: true);
       });
@@ -71,8 +89,41 @@ class _RadarScreenState extends State<RadarScreen> {
     }
   }
 
+  void _onPulseDone() {
+    _pulsed = true;
+    for (final t in _afterPulse) {
+      t.cancel();
+    }
+    _afterPulse
+      ..clear()
+      ..add(Timer(const Duration(seconds: 5), () => _update(fetch: true)))
+      ..add(Timer(const Duration(seconds: 15), () => _update(fetch: true)));
+  }
+
+  /// A pulse ended since the last estimate: the shapes start over from it
+  /// rather than easing in from the old readings.
+  bool _pulsed = false;
+
+  Future<void> _pulse() async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!_near.canPulse) {
+      messenger.showSnackBar(const SnackBar(content: Text('Pulse needs Bluetooth on and this phone hosting the night.')));
+      return;
+    }
+    final now = await _near.pulse('button');
+    final wait = (_near.pulseDueInMs() / 1000).ceil();
+    messenger.showSnackBar(SnackBar(
+        content: Text(now
+            ? 'Pulse: every phone takes 5 s of readings. The radar updates in about 15 s.'
+            : 'Pulse queued: it goes in ${wait}s (at most one every 20 s).')));
+  }
+
   @override
   void dispose() {
+    _near.pulseBursts.removeListener(_onPulseDone);
+    for (final t in _afterPulse) {
+      t.cancel();
+    }
     _timer?.cancel();
     RadarSettings.config.removeListener(_onConfig);
     super.dispose();
@@ -125,23 +176,44 @@ class _RadarScreenState extends State<RadarScreen> {
       }
       final now = DateTime.now().millisecondsSinceEpoch;
       final logs = n?.allLogs ?? const [];
-      final input = radarInputFrom(logs).live(now);
+      final input = widget.debugInput ?? radarInputFrom(logs).live(now);
       // Online: someone else's readings reached us.
       final others = input.links.any((l) => l.from != n?.deviceId);
       _offline = !others;
       _mine = NearbyService.instance.recentPeers;
-      final est = others ? await compute(_estimate, (_cfg, input)) : null;
+      final est = !others
+          ? null
+          : widget.debugInput != null
+              ? estimateSeats(_cfg, input)
+              : await compute(_estimate, (_cfg, input));
       if (!mounted) return;
+      // The shapes move with a 30 s half-life; a pulse starts them over.
+      if (est != null && est.notEnough == null) {
+        _smooth.update(estimateCells(est, organizer: _organizerName != null), now, reset: _pulsed);
+        _pulsed = false;
+      }
       setState(() {
         _input = input;
         _est = est;
         _updatedMs = now;
+        _regions = _shapes();
       });
     } catch (e) {
       debugPrint('radar: $e');
     } finally {
       _busy = false;
     }
+  }
+
+  /// Name for the organizer's own seat when no phone of theirs is on it.
+  String? get _organizerName => RadarSettings.config.value.organizerSeat == null || _cfg.organizerDevice != null
+      ? null
+      : (AppSettings.playerName.value.isEmpty ? 'organizer' : AppSettings.playerName.value);
+
+  List<SeatRegion> _shapes() {
+    final est = _est;
+    if (est == null || est.notEnough != null) return const [];
+    return radarRegions(est, overlap: _overlap, cells: _smooth.cells, organizer: _organizerName != null);
   }
 
   Future<void> _setup() async {
@@ -196,6 +268,11 @@ class _RadarScreenState extends State<RadarScreen> {
         title: const Text('Seat radar'),
         actions: [
           IconButton(tooltip: 'Table setup', onPressed: _setup, icon: const Icon(Icons.tune)),
+          IconButton(
+              key: const Key('radar-pulse'),
+              tooltip: 'Pulse: every phone takes 5 s of readings now',
+              onPressed: _pulse,
+              icon: const Icon(Icons.wifi_tethering)),
           IconButton(tooltip: 'Update now', onPressed: () => _update(fetch: true), icon: const Icon(Icons.refresh)),
         ],
       ),
@@ -225,17 +302,39 @@ class _RadarScreenState extends State<RadarScreen> {
         ListenableBuilder(listenable: _tn, builder: (context, _) => CloudStatusRow(status: _tn.cloudStatus())),
         const SizedBox(height: 6),
         if (est != null && est.notEnough == null) ...[
+          Center(
+            child: SegmentedButton<bool>(
+              key: const Key('radar-mode'),
+              segments: const [
+                ButtonSegment(value: false, label: Text('Puzzle')),
+                ButtonSegment(value: true, label: Text('Overlap')),
+              ],
+              selected: {_overlap},
+              showSelectedIcon: false,
+              onSelectionChanged: (v) => setState(() {
+                _overlap = v.first;
+                _regions = _shapes();
+              }),
+            ),
+          ),
+          const SizedBox(height: 6),
           RadarView(
             estimate: est,
             names: _input.names,
             colours: colours,
             stale: _input.stale,
-            organizerName: cfg.organizerSeat == null || _cfg.organizerDevice != null
-                ? null
-                : (AppSettings.playerName.value.isEmpty ? 'organizer' : AppSettings.playerName.value),
+            regions: _regions,
+            overlap: _overlap,
+            organizerName: _organizerName,
           ),
           const SizedBox(height: 6),
-          RadarLegend(estimate: est, names: _input.names, colours: colours, stale: _input.stale, onTap: DevMode.on.value ? _readings : null),
+          RadarLegend(
+              estimate: est,
+              names: _input.names,
+              colours: colours,
+              regions: _regions,
+              stale: _input.stale,
+              onTap: DevMode.on.value ? _readings : null),
         ] else
           _Waiting(
             reason: est?.notEnough ?? (_offline ? null : 'Not enough data yet.'),
@@ -252,8 +351,13 @@ class _RadarScreenState extends State<RadarScreen> {
                     '${age == null ? '' : ' · data ${age < 90 ? '${age}s' : '${age ~/ 60} min'} old'}',
             key: const Key('radar-legend'),
             style: t.bodySmall),
-        Text('Seats are a best guess from Bluetooth signal strength. Solid colour = confident; spread or tinted = unsure. '
-            'Grey = no app phone there. Nobody needs to tap anything.',
+        Text(
+            _overlap
+                ? "Overlap: each person's own likely area (60%), shapes may overlap. "
+                    'Small = confident; long and faint = unsure. Nobody needs to tap anything.'
+                : 'Seats are a best guess from Bluetooth signal strength: one shape per person, '
+                    'narrow and solid = confident, wide and faint = unsure. Grey = no app phone there. '
+                    'Pulse asks every phone for 5 s of fresh readings. Nobody needs to tap anything.',
             style: t.bodySmall),
       ]),
     );

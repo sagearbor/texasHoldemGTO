@@ -136,7 +136,38 @@ class TableLayout {
   /// The seat slots, clockwise from the camera.
   final List<Pt> slots;
   final Pt camera;
-  const TableLayout(this.config, this.outline, this.slots, this.camera);
+
+  /// The chair line (closed polyline, clockwise from the camera's side)
+  /// and each point's arc length along it; [perimeter] is its length.
+  /// The radar's shapes are drawn along it (radar_shapes.dart).
+  final List<Pt> chairs;
+  final List<double> chairArc;
+  final double perimeter;
+
+  /// Each slot's arc length along [chairs].
+  final List<double> slotArcs;
+  const TableLayout(this.config, this.outline, this.slots, this.camera,
+      {this.chairs = const [], this.chairArc = const [], this.perimeter = 0, this.slotArcs = const []});
+
+  /// The point on the chair line at arc length [s] (wraps).
+  Pt chairAt(double s) {
+    if (chairs.isEmpty || perimeter <= 0) return (0, 0);
+    s %= perimeter;
+    var lo = 0, hi = chairArc.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi + 1) >> 1;
+      if (chairArc[mid] <= s) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    final i = lo.clamp(0, chairs.length - 1);
+    final seg = (i + 1 < chairArc.length ? chairArc[i + 1] : perimeter) - chairArc[i];
+    final f = seg <= 0 ? 0.0 : (s - chairArc[i]) / seg;
+    final p = chairs[i], q = chairs[(i + 1) % chairs.length];
+    return (p.$1 + (q.$1 - p.$1) * f, p.$2 + (q.$2 - p.$2) * f);
+  }
 }
 
 /// N slots evenly (by arc length) around the chair line, the first half a
@@ -250,7 +281,8 @@ TableLayout layoutTable(RadarConfig c) {
     final len = math.sqrt(cam.$1 * cam.$1 + cam.$2 * cam.$2);
     cam = (cam.$1 * (len + 0.3) / len, cam.$2 * (len + 0.3) / len);
   }
-  return TableLayout(c, edge, slots, cam);
+  return TableLayout(c, edge, slots, cam,
+      chairs: chairs, chairArc: cum.sublist(0, chairs.length), perimeter: total, slotArcs: arcs);
 }
 
 /// The organizer's latest `radar` event in a night's logs (how the TV
@@ -441,8 +473,15 @@ class RadarEstimate {
 
   /// The single most likely seating (one phone per slot).
   final Map<String, int> joint;
+
+  /// App phone -> probability per band cell around the chair line
+  /// ([bandCells] of them, clockwise from the camera; sums to 1): the slot
+  /// probabilities spread over the band, sharpened by where this phone's
+  /// own readings fit best with everyone else in their likeliest seats.
+  /// Empty for estimates built by hand (radar_shapes.dart derives them).
+  final Map<String, List<double>> cells;
   const RadarEstimate(this.layout, this.probs,
-      {this.organizerSlot, this.notEnough, this.linksUsed = 0, this.joint = const {}});
+      {this.organizerSlot, this.notEnough, this.linksUsed = 0, this.joint = const {}, this.cells = const {}});
 
   int? bestSlot(String phone) {
     final p = probs[phone];
@@ -602,10 +641,94 @@ RadarEstimate estimateSeats(
       }
     }
   }
+  // Per band cell: this phone anywhere along the chair line, everyone
+  // else in the likeliest seating (the camera fixed).
+  final cond = <String, List<double>>{};
+  if (result.isNotEmpty) {
+    final best = result.first.$1;
+    for (final d in phones) {
+      if (pinned.containsKey(d)) continue;
+      final costs = List<double>.filled(bandCells, 0);
+      for (var c = 0; c < bandCells; c++) {
+        final me = lay.chairAt((c + 0.5) / bandCells * lay.perimeter);
+        var cost = 0.0;
+        for (final (o, l) in adj[d]!) {
+          cost += linkCost(l, me, o < 0 ? lay.camera : lay.slots[best[o]]);
+        }
+        for (final (o, m) in uadj[d]!) {
+          cost += model.uwbCost(m - dist(me, o < 0 ? lay.camera : lay.slots[best[o]]));
+        }
+        costs[c] = cost;
+      }
+      cond[d] = costs;
+    }
+  }
   return RadarEstimate(lay, probs,
       organizerSlot: pinned.isEmpty ? org : null,
       linksUsed: links.length,
-      joint: result.isEmpty ? const {} : {for (var k = 0; k < phones.length; k++) phones[k]: result.first.$1[k]});
+      joint: result.isEmpty ? const {} : {for (var k = 0; k < phones.length; k++) phones[k]: result.first.$1[k]},
+      cells: bandProbs(lay, probs, condCost: cond, temperature: temperature));
+}
+
+// ------------------------------------------------------------ band cells
+
+/// Cells around the chair line for the radar's shapes (5 degrees each on
+/// a round table).
+const bandCells = 72;
+
+/// Where slot [s] sits on the band, in cells (0 .. [bandCells)).
+double slotCell(TableLayout lay, int s) =>
+    lay.perimeter <= 0 || s >= lay.slotArcs.length ? (s + 0.5) * bandCells / lay.slots.length : lay.slotArcs[s] / lay.perimeter * bandCells;
+
+/// Circular distance between two cell positions.
+double cellDist(double a, double b) {
+  final d = (a - b).abs() % bandCells;
+  return d > bandCells / 2 ? bandCells - d : d;
+}
+
+/// Per phone, probability per band cell: each slot's probability spread
+/// by a bump about a third of a seat wide, times this phone's own fit
+/// along the band ([condCost]: cost per cell, softened by [temperature]
+/// and [condWeight]). Sums to 1 per phone.
+Map<String, List<double>> bandProbs(TableLayout lay, Map<String, List<double>> slotProbs,
+    {Map<String, List<double>> condCost = const {}, double temperature = 4, double condWeight = 0.35, double width = 0.36}) {
+  final n = lay.slots.length;
+  if (n == 0) return const {};
+  final sigma = math.max(1.0, width * bandCells / n);
+  // Each slot's bump, normalised.
+  final bumps = [
+    for (var s = 0; s < n; s++)
+      () {
+        final sc = slotCell(lay, s);
+        final b = [for (var c = 0; c < bandCells; c++) math.exp(-0.5 * math.pow(cellDist(c + 0.5, sc) / sigma, 2))];
+        final z = b.fold(0.0, (a, x) => a + x);
+        return [for (final x in b) x / z];
+      }()
+  ];
+  final out = <String, List<double>>{};
+  for (final e in slotProbs.entries) {
+    final m = List<double>.filled(bandCells, 0);
+    for (var s = 0; s < n && s < e.value.length; s++) {
+      final p = e.value[s];
+      if (p <= 0) continue;
+      for (var c = 0; c < bandCells; c++) {
+        m[c] += p * bumps[s][c];
+      }
+    }
+    final cc = condCost[e.key];
+    if (cc != null && cc.length == bandCells) {
+      final lo = cc.reduce(math.min);
+      for (var c = 0; c < bandCells; c++) {
+        m[c] *= math.exp(-condWeight * (cc[c] - lo) / temperature);
+      }
+    }
+    for (var c = 0; c < bandCells; c++) {
+      m[c] += 1e-9;
+    }
+    final z = m.fold(0.0, (a, x) => a + x);
+    out[e.key] = [for (final x in m) x / z];
+  }
+  return out;
 }
 
 // ----------------------------------------------------- offline fallback

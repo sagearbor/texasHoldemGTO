@@ -68,4 +68,53 @@ void main() {
     expect(radarColours(['B', 'A'])['A'], radarPalette.first);
     expect(est.occupancy(2), 0);
   });
+
+  testWidgets('radar shapes: Puzzle and Overlap render at 412 dp and 1.3x text, legend says the seat', (t) async {
+    t.view.physicalSize = const Size(412, 1400);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    RadarSettings.config.value = const RadarConfig(seats: 8, organizerSeat: 0);
+    // Readings as the model expects them: phones at slots 2, 4, 6 and 7,
+    // the camera at its end.
+    const cfg = RadarConfig(seats: 8);
+    final lay = layoutTable(cfg);
+    const m = RadioModel();
+    final at = {'AAAA': 2, 'BBBB': 4, 'CCCC': 6, 'DDDD': 7};
+    final links = <RadarLink>[];
+    for (final x in at.keys) {
+      for (final y in [...at.keys, 'CAM']) {
+        if (x == y) continue;
+        final py = y == 'CAM' ? lay.camera : lay.slots[at[y]!];
+        final r = -60 + m.shape(dist(lay.slots[at[x]!], py));
+        links.add(RadarLink(x, y, r.roundToDouble(), 8));
+        if (y == 'CAM') links.add(RadarLink(y, x, r.roundToDouble(), 8));
+      }
+    }
+    final input = RadarInput(
+        links: links,
+        cameras: const {'CAM'},
+        names: const {'AAAA': 'Asher', 'BBBB': 'Bartholomew-Long-Name', 'CCCC': 'Cy', 'DDDD': 'Dee'});
+    await t.pumpWidget(MaterialApp(
+      home: MediaQuery(
+        data: const MediaQueryData(size: Size(412, 1400), textScaler: TextScaler.linear(1.3)),
+        child: RadarScreen(live: false, debugInput: input),
+      ),
+    ));
+    await t.pumpAndSettle();
+    expect(t.takeException(), isNull);
+    expect(find.byType(RadarView), findsOneWidget);
+    expect(find.text('Puzzle'), findsOneWidget);
+    expect(find.textContaining('seat 3 ·'), findsOneWidget, reason: 'Asher at slot 2 is seat 3');
+    expect(find.text('Asher'), findsOneWidget);
+    await t.tap(find.text('Overlap'));
+    await t.pumpAndSettle();
+    expect(t.takeException(), isNull);
+    expect(find.byType(RadarView), findsOneWidget);
+    // A new picture tweens (no exception mid-way).
+    await t.tap(find.text('Puzzle'));
+    await t.pump(const Duration(milliseconds: 300));
+    expect(t.takeException(), isNull);
+    await t.pumpAndSettle();
+    RadarSettings.config.value = const RadarConfig(seats: 6);
+  });
 }
