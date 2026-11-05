@@ -42,6 +42,7 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     }
     _drains.clear();
     _cloudRetry?.cancel();
+    _endWatch?.cancel();
     final s = night;
     night = null;
     _bridge = null;
@@ -197,6 +198,8 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _release(LocalTableSync s) async {
     if (night != s) return;
     night = null;
+    _endWatch?.cancel();
+    _endWatch = null;
     _bridge = null;
     _reattachTried = null; // a Resume / Undo may bring it back
     await _store?.remove(_currentKey);
@@ -268,6 +271,71 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     _drains.add(timer);
   }
 
+  // ------------------------------------------------------ the host's end
+
+  /// A joined player: how often the cloud is asked whether the host ended
+  /// the game (one read per uploaded log; the host's End uploads at once).
+  /// Night 3QRM3V67: the pad checked every 90 s and only while it was on
+  /// screen, so a phone that slept or sat on another screen kept showing
+  /// the game for 11 minutes.
+  static Duration endCheckEvery = const Duration(seconds: 45);
+
+  Timer? _endWatch;
+  bool _checkingEnd = false;
+  int _lastEndCheckMs = 0;
+
+  /// "Sage ended the game", set once when this phone left because the
+  /// host ended; whoever shows it calls [takeHostEnded].
+  final hostEnded = ValueNotifier<String?>(null);
+
+  /// The message, once (the pad or the shell, whichever is first).
+  String? takeHostEnded() {
+    final m = hostEnded.value;
+    if (m != null) hostEnded.value = null;
+    return m;
+  }
+
+  /// (Re)starts the periodic check for a joined player's night, whatever
+  /// screen is showing (root zone: it belongs to the app, not a screen).
+  void watchHostEnd() {
+    _endWatch?.cancel();
+    _endWatch = null;
+    final s = night;
+    if (s == null || s.isOrganizer) return;
+    _endWatch = Zone.root.run(() => Timer.periodic(endCheckEvery, (_) => unawaited(checkHostEnded())));
+  }
+
+  /// The host's Bluetooth advert went quiet: ask the cloud (at most every
+  /// 30 s; a quiet advert alone never ends anything).
+  Future<bool> hostMaybeGone() async {
+    if (DateTime.now().millisecondsSinceEpoch - _lastEndCheckMs < 30000) return false;
+    return checkHostEnded();
+  }
+
+  /// A joined player: fetches the night ([fetch]) and, if the host's log
+  /// says it ended, leaves (the leave uploads in the background) and sets
+  /// [hostEnded]. Never throws.
+  Future<bool> checkHostEnded({bool fetch = true}) async {
+    final s = night;
+    if (s == null || s.isOrganizer || _checkingEnd) return false;
+    _checkingEnd = true;
+    try {
+      if (fetch) {
+        _lastEndCheckMs = DateTime.now().millisecondsSinceEpoch;
+        await s.refresh();
+      }
+      if (night != s || !s.organizerEnded) return false;
+      final who = s.ticket.organizerName.isEmpty ? 'The host' : s.ticket.organizerName;
+      await leave();
+      hostEnded.value = '$who ended the game';
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _checkingEnd = false;
+    }
+  }
+
   // --------------------------------------------------------------- shared
 
   Future<void> setSharing(bool on) async {
@@ -328,6 +396,7 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
     // change per phone. The pad fetches once on demand.
     s.startSync(onStatus: notifyListeners);
     _watchCloud();
+    watchHostEnd();
     if (s.isOrganizer && s.log.meta['standalone'] != true) {
       _bridge = OrganizerBridge(s);
       await _onHomeAsync();
@@ -420,6 +489,9 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
       night?.uploader?.flushNow();
       _finishing?.uploader?.flushNow();
     }
+    // Back on screen (the phone slept through the host's End): ask now,
+    // not at the next tick.
+    if (state == AppLifecycleState.resumed) unawaited(checkHostEnded());
   }
 
   // ---------------------------------------------------------------- views

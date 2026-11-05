@@ -134,6 +134,7 @@ class _ShellState extends State<Shell> {
   void initState() {
     super.initState();
     shellTabs.addListener(_onTabRequest);
+    TableNightService.instance.hostEnded.addListener(_onHostEnded);
     _syncLooking();
     WidgetsBinding.instance
         .addPostFrameCallback((_) async {
@@ -157,8 +158,21 @@ class _ShellState extends State<Shell> {
     _syncLooking();
   }
 
+  /// A joined player's host ended the game (TableNightService noticed,
+  /// on whatever screen): say so and go back to Play.
+  void _onHostEnded() {
+    if (!mounted) return;
+    final msg = TableNightService.instance.takeHostEnded();
+    if (msg == null) return;
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    setState(() => tab = _play);
+    _syncLooking();
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   @override
   void dispose() {
+    TableNightService.instance.hostEnded.removeListener(_onHostEnded);
     shellTabs.removeListener(_onTabRequest);
     NearbyService.instance.setLooking(false);
     super.dispose();

@@ -13,6 +13,7 @@ import 'package:felt_notes/sync/cloud_config.dart';
 import 'package:felt_notes/sync/cloud_logs.dart';
 import 'package:felt_notes/sync/event_log.dart';
 import 'package:felt_notes/sync/night_events.dart';
+import 'package:felt_notes/sync/night_merge.dart';
 import 'package:felt_notes/sync/table_night_service.dart';
 import 'package:felt_notes/sync/table_sync.dart';
 import 'package:felt_notes/ui/screens/table_night_screen.dart';
@@ -176,6 +177,89 @@ void main() {
       await tester.pump(const Duration(seconds: 16));
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
     }
+  });
+
+  testWidgets('the host ends while the pad is open (no tap): back to the start within 90 s', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final cloud = FakeCloudLogs();
+    debugOpenCloud = () async => cloud;
+    final svc = TableNightService.instance;
+    expect(TableNightService.endCheckEvery.inSeconds, lessThanOrEqualTo(60), reason: 'end seen within 60-90 s');
+    // The same check, sped up (real time: the service's timer is the app's).
+    final every = TableNightService.endCheckEvery;
+    TableNightService.endCheckEvery = const Duration(milliseconds: 300);
+    addTearDown(() => TableNightService.endCheckEvery = every);
+    late LocalTableSync host;
+    await tester.runAsync(() async {
+      host = await LocalTableSync.organize(MemoryStore(),
+          organizerName: 'Sage', selfPid: 'Sage', roster: const [Seat('Sage', 'Sage'), Seat('Kid', 'Kid')], cloud: cloud);
+      await Uploader(log: host.log, cloud: cloud, ticket: host.ticket, name: 'Sage').drainOnce();
+      await svc.join(host.ticket, name: 'Kid', scannedAtMs: DateTime.now().millisecondsSinceEpoch, sharing: false);
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () =>
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PlayerPadScreen())),
+            child: const Text('pad'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('pad'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    }
+    expect(find.byType(PlayerPadScreen), findsOneWidget, reason: 'the game is on');
+    // Nobody touches the joiner's phone; the host ends and its End uploads.
+    await tester.runAsync(() async {
+      await host.endNight();
+      await Uploader(log: host.log, cloud: cloud, ticket: host.ticket, name: 'Sage').drainOnce();
+    });
+    // One check interval stands for 45 s: back within two of them (90 s).
+    var waited = 0;
+    while (waited < 3000 && find.byType(PlayerPadScreen).evaluate().isNotEmpty) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump(const Duration(milliseconds: 50));
+      waited += 50;
+    }
+    await tester.pump();
+    expect(find.byType(PlayerPadScreen), findsNothing, reason: 'back after ${waited}ms');
+    expect(waited, lessThan(3000), reason: "seen by the periodic check, nobody tapped");
+    expect(find.text('Sage ended the game'), findsOneWidget);
+    expect(svc.night, isNull);
+    await tester.pumpWidget(const SizedBox());
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(seconds: 16));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    }
+  });
+
+  test('pad stats: untapped hands are unknown, VPIP / PFR over marked hands only', () {
+    TimelineHand h(int n) => TimelineHand(
+        n: n, startMs: n * 1000, endMs: n * 1000 + 999, dealer: 'Sage', seats: const [Seat('Sage', 'Sage'), Seat('Kid', 'Kid')]);
+    PlayerHand p(PreAction a, {bool inferred = false}) =>
+        PlayerHand(pid: 'Kid', name: 'Kid', deviceId: 'K', position: 'BB', action: a, inferred: inferred);
+    MergedNight night(List<PlayerHand> ps) => MergedNight(
+        timeline: Timeline([for (var i = 0; i < ps.length; i++) h(i + 1)], null, const {}),
+        hands: [for (var i = 0; i < ps.length; i++) MergedHand(h(i + 1), {'Kid': ps[i]})],
+        devices: const [],
+        unassigned: const [],
+        warnings: const []);
+    final none = PadStats.of(night([p(PreAction.fold, inferred: true), p(PreAction.fold, inferred: true)]), 'Kid');
+    expect(none.dealt, 2);
+    expect(none.marked, 0);
+    expect(none.vpipText, '—');
+    expect(none.pfrText, '—');
+    final some = PadStats.of(
+        night([p(PreAction.fold, inferred: true), p(PreAction.call), p(PreAction.raise), p(PreAction.fold, inferred: true)]),
+        'Kid');
+    expect(some.dealt, 4);
+    expect(some.marked, 2);
+    expect(some.vpipText, '100%', reason: 'untapped hands are not folds');
+    expect(some.pfrText, '50%');
   });
 
   testWidgets('End game night taken back: same table night, joined phones see it resumed', (tester) async {
