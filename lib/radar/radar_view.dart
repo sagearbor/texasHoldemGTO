@@ -94,6 +94,13 @@ class _RadarViewState extends State<RadarView> with SingleTickerProviderStateMix
   @override
   void didUpdateWidget(RadarView old) {
     super.didUpdateWidget(old);
+    // The TV rebuilds every second: partition again only for new data.
+    if (identical(old.estimate, widget.estimate) &&
+        identical(old.regions, widget.regions) &&
+        old.overlap == widget.overlap &&
+        old.organizerName == widget.organizerName) {
+      return;
+    }
     final next = _target();
     if (!_same(next, _to)) {
       _from = lerpRegions(_from, _to, Curves.easeInOut.transform(_anim.value));
