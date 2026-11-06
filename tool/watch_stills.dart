@@ -87,6 +87,22 @@ Future<void> main(List<String> argv) async {
   // --legacy: build 49's reader and guards (2 hero cards a read, the
   // image-axis flat guard, no coarse pass, strict ink colours).
   final legacy = args.remove('--legacy');
+  for (final kv in (opt('--tune') ?? '').split(',').where((t) => t.contains('='))) {
+    glyphTune[kv.split('=')[0]] = double.parse(kv.split('=')[1]);
+  }
+  // --audit: per-still labels (<rec>/stills_labels.json, written by hand:
+  // which hole cards each still shows and how clearly, A / B / C). For each
+  // labelled still the reader also reads the whole upright frame (the
+  // "ceiling": what the reader can do when the gate's crop and timing are
+  // right) and every labelled card is put in the stage where it was lost.
+  final audit = args.remove('--audit');
+  final auditJson = opt('--audit-json');
+  // --crops F (with --audit): every rank -> suit pair the CNN looks at in the
+  // labelled stills (whole frame, at the reader's size and at full size), one
+  // JSON line each with both 32x32 crops: training data for the glyph CNN.
+  final cropsPath = opt('--crops');
+  // --cnn F: a glyph CNN other than assets/data/glyph_cnn.bin.
+  final cnnPath = opt('--cnn');
   const def = WatchConfig();
   final cfg = WatchConfig(
     flatAspect: double.parse(opt('--flat', legacy ? '0.85' : '${def.flatAspect}')!),
@@ -118,6 +134,16 @@ Future<void> main(List<String> argv) async {
       ? (jsonDecode(File(labelsPath).readAsStringSync()) as List).cast<Map<String, dynamic>>()
       : const <Map<String, dynamic>>[];
 
+  final stillLabels = <int, Map<String, dynamic>>{
+    if (audit && File('$rec/stills_labels.json').existsSync())
+      for (final e in (jsonDecode(File('$rec/stills_labels.json').readAsStringSync()) as List).cast<Map<String, dynamic>>())
+        e['n'] as int: e
+  };
+  final auditRows = <Map<String, Object?>>[];
+  final cropsOut = cropsPath == null ? null : File(cropsPath).openWrite();
+  final guardPipe = WatchPipeline(cfg);
+  var ceilMs = 0, ceilReads = 0;
+
   // One ffmpeg over all stills, BGRA in sensor orientation.
   final list = File('${Directory.systemTemp.path}/watch_stills_$pid.txt')
     ..writeAsStringSync(photos.map((p) => "file '${File('$rec/${p.$3}').absolute.path}'\nduration 1\n").join());
@@ -128,7 +154,7 @@ Future<void> main(List<String> argv) async {
   proc.stderr.transform(utf8.decoder).listen(stderr.write);
   const w = 1280, h = 720, frameBytes = w * h * 4;
 
-  final cnn = GlyphCnn.parse(File('assets/data/glyph_cnn.bin').readAsBytesSync());
+  final cnn = GlyphCnn.parse(File(cnnPath ?? 'assets/data/glyph_cnn.bin').readAsBytesSync());
   final pipe = WatchPipeline(cfg);
   final boardWatch = BoardWatcher(boardVMin == null
       ? const BoardWatchConfig()
@@ -158,7 +184,7 @@ Future<void> main(List<String> argv) async {
             final v = g[i] ~/ 3;
             out.add([red[i] != 0 ? 255 : (dark[i] != 0 ? 0 : v + (paper[i] != 0 ? 120 : 0)), dark[i] != 0 ? 255 : v + (paper[i] != 0 ? 120 : 0), dark[i] != 0 ? 0 : v]);
           }
-          File('${Directory.systemTemp.path}/mask_$n.ppm').writeAsBytesSync(out.takeBytes());
+          File('${Directory.systemTemp.path}/mask_${n}_$mw.ppm').writeAsBytesSync(out.takeBytes());
         };
       }
       final r = readGlyphs(rgba, rw, rh,
@@ -192,6 +218,63 @@ Future<void> main(List<String> argv) async {
       }
     }
     if (boardOnly) return;
+    final lab = stillLabels[n];
+    Map<String, Object?>? row;
+    if (lab != null) {
+      final (crop, cw, ch) = frame.cropRgba(const PixRect(0, 0, w, h), maxShort: cfg.readMaxShort);
+      final (rgba, rw, rh) = rotateRgba(crop, cw, ch, rot);
+      if (cfg.whiteBalance) whiteBalance(rgba);
+      final r = readGlyphs(rgba, rw, rh,
+          cnn: cnn,
+          tta: cfg.tta,
+          scaleShortSide: h,
+          warmLight: cfg.warmLight,
+          ringPaperMin: cfg.ringPaperMin,
+          maxBlobs: cfg.maxBlobs,
+          findBoard: cfg.findBoard,
+          looseInk: cfg.looseInk,
+          coarsePass: cfg.coarsePass);
+      if (cropsOut != null) {
+        for (final short in [180, cfg.readMaxShort, h]) {
+          final (c2, cw2, ch2) = frame.cropRgba(const PixRect(0, 0, w, h), maxShort: short);
+          final (rgba2, rw2, rh2) = rotateRgba(c2, cw2, ch2, rot);
+          if (cfg.whiteBalance) whiteBalance(rgba2);
+          glyphDebugPairs = (rc, sc, red, x, y, size) => cropsOut.writeln(jsonEncode({
+                'n': n,
+                'short': short,
+                'red': red,
+                'x': x,
+                'y': y,
+                'size': size,
+                'rank': base64Encode(rc),
+                'suit': base64Encode(sc),
+              }));
+          readGlyphs(rgba2, rw2, rh2,
+              cnn: cnn,
+              tta: false,
+              scaleShortSide: h,
+              warmLight: cfg.warmLight,
+              ringPaperMin: cfg.ringPaperMin,
+              findBoard: false,
+              looseInk: cfg.looseInk,
+              coarsePass: false,
+              maxGlyphFrac: short <= 200 ? 0.28 : 0.14);
+          glyphDebugPairs = null;
+        }
+      }
+      ceilMs += r.timingMs['total'] ?? 0;
+      ceilReads++;
+      final kept = [for (final c in guardPipe.heroHits(r)) cardToString(c.card)];
+      row = {
+        'n': n,
+        'hand': lab['hand'],
+        'context': lab['context'],
+        'cards': lab['cards'],
+        'ceilHits': [for (final x in r.hits) '${cardToString(x.card)}${x.confident ? '' : '~'}'],
+        'ceilKept': kept,
+      };
+      auditRows.add(row);
+    }
     final c0 = pipe.counts.candidate;
     final job = pipe.onFrame(frame, t);
     if (quietStats) {
@@ -226,6 +309,10 @@ Future<void> main(List<String> argv) async {
     final kept = cfg.heroCardsMax > 2 ? pipe.heroHits(r) : pipe.heroCards(r);
     pipe.counts.boardGuarded = g0;
     final pair = pipe.onRead(job, r);
+    if (row != null) {
+      row['pipeHits'] = [for (final x in r.hits) '${cardToString(x.card)}${x.confident ? '' : '~'}'];
+      row['pipeKept'] = [for (final c in kept) if (c.confident) cardToString(c.card)];
+    }
     final ev = pipe.lastEvidence;
     WatchDecision? d;
     if (pair != null) {
@@ -282,6 +369,12 @@ Future<void> main(List<String> argv) async {
   stdout.writeln('stills $idx, reads $reads (mean ${reads == 0 ? 0 : readMsSum ~/ reads} ms on this Mac, ${reads == 0 ? 0 : cnnCalls ~/ reads} CNN calls), ${sw.elapsed.inSeconds} s; '
       'guarded ${pipe.counts.boardGuarded}, omaha ${pipe.counts.omaha}, single ${pipe.counts.singleFrame}');
   if (labels.isNotEmpty) stdout.writeln(scoreHands(decisions, labels));
+  if (audit) {
+    stdout.writeln(auditReport(auditRows, labels, decisions));
+    stdout.writeln('ceiling reads $ceilReads (mean ${ceilReads == 0 ? 0 : ceilMs ~/ ceilReads} ms on this Mac)');
+    if (auditJson != null) File(auditJson).writeAsStringSync(jsonEncode(auditRows));
+    await cropsOut?.close();
+  }
   if (board) {
     stdout.writeln('\n--- board streets read');
     for (final r in boardWatch.reads) {
@@ -415,5 +508,102 @@ String scoreHands(List<(int, WatchDecision)> decisions, List<Map<String, dynamic
   ];
   out.writeln('HANDS ${labels.where((l) => l['skip'] != true).length}: right $right, partial $partial, WRONG $wrong, missed $missed; '
       'logs outside labelled hands ${stray.length}${stray.isEmpty ? '' : ' (${stray.join(', ')})'}');
+  return out.toString();
+}
+
+/// Per-still audit (--audit): for every labelled card of every labelled
+/// still, where it was lost.
+///   read     the reader (whole frame) read it and the guards kept it
+///   guard    read confidently, dropped by a board guard
+///   weak     read below the confident score
+///   rank / suit / colour   the reader read a card not in the hand with
+///            this card's suit / rank but the wrong rank / suit (the CNN),
+///            or the other colour
+///   finder   no read of it at all (no glyph pair formed)
+/// The pipeline columns are the same card in the gate's crop on the stills
+/// the pipeline read ("not read": the gate or the read throttle skipped it).
+String auditReport(List<Map<String, Object?>> rows, List<Map<String, dynamic>> labels,
+    List<(int, WatchDecision)> decisions) {
+  final out = StringBuffer('\n--- per-still audit\n');
+  final byGrade = <String, List<int>>{}; // grade -> [cards, ceilRead, pipeRead, pipeSeen]
+  final stages = <String, Map<String, int>>{}; // grade -> stage -> count
+  final wrong = <String, int>{}; // context -> wrong kept cards
+  final examples = <String, List<String>>{};
+  var stillsAllA = 0, stillsAllRead = 0;
+  for (final row in rows) {
+    final ctx = row['context'] as String;
+    final cards = (row['cards'] as Map).cast<String, String>();
+    final ceilHits = (row['ceilHits'] as List).cast<String>();
+    final ceilKept = (row['ceilKept'] as List).cast<String>();
+    final pipeKept = (row['pipeKept'] as List?)?.cast<String>();
+    final hand = labels.where((l) => l['hand'] == row['hand']).toList();
+    final truth = {
+      ...cards.keys,
+      if (hand.isNotEmpty) ...(hand.first['cards'] as String).split(RegExp(r'\s+')),
+    };
+    for (final k in ceilKept) {
+      if (!truth.contains(k)) {
+        wrong['$ctx ceiling'] = (wrong['$ctx ceiling'] ?? 0) + 1;
+        (examples['wrong'] ??= []).add('n${row['n']} $k');
+      }
+    }
+    for (final k in pipeKept ?? const <String>[]) {
+      if (!truth.contains(k)) wrong['$ctx pipeline'] = (wrong['$ctx pipeline'] ?? 0) + 1;
+    }
+    var allA = true, allRead = true;
+    for (final MapEntry(key: card, value: grade) in cards.entries) {
+      final g = '$ctx $grade';
+      final t = byGrade[g] ??= [0, 0, 0, 0];
+      t[0]++;
+      String stage;
+      if (ceilKept.contains(card)) {
+        stage = 'read';
+      } else if (ceilHits.contains(card)) {
+        stage = 'guard';
+      } else if (ceilHits.contains('$card~')) {
+        stage = 'weak';
+      } else {
+        final rk = card[0], su = card[1];
+        // Only misreads (cards not in the hand) say how this one went wrong.
+        final hitCards = ceilHits.map((x) => x.substring(0, 2)).where((x) => !truth.contains(x));
+        final red = 'dh'.contains(su);
+        if (hitCards.any((x) => x[0] == rk && 'dh'.contains(x[1]) != red)) {
+          stage = 'colour';
+        } else if (hitCards.any((x) => x[0] == rk)) {
+          stage = 'suit';
+        } else if (hitCards.any((x) => x[1] == su)) {
+          stage = 'rank';
+        } else {
+          stage = 'finder';
+        }
+      }
+      if (stage == 'read') t[1]++;
+      if (grade != 'A') allA = false;
+      if (stage != 'read') allRead = false;
+      (stages[g] ??= {})[stage] = (stages[g]![stage] ?? 0) + 1;
+      if (stage != 'read' && grade == 'A' && ctx == 'peek') {
+        (examples[stage] ??= []).add('n${row['n']} $card');
+      }
+      if (pipeKept != null) {
+        t[3]++;
+        if (pipeKept.contains(card)) t[2]++;
+      }
+    }
+    if (allA && ctx == 'peek') {
+      stillsAllA++;
+      if (allRead) stillsAllRead++;
+    }
+  }
+  String pct(int a, int b) => b == 0 ? '-' : '${(100 * a / b).round()}%';
+  for (final g in byGrade.keys.toList()..sort()) {
+    final t = byGrade[g]!;
+    out.writeln('$g cards ${t[0]}: reader (whole frame) ${t[1]} = ${pct(t[1], t[0])}; '
+        'pipeline on the stills it read ${t[2]}/${t[3]} = ${pct(t[2], t[3])}; lost at ${stages[g]}');
+  }
+  out.writeln('peek stills with every card grade A: $stillsAllA, all read by the reader: $stillsAllRead = ${pct(stillsAllRead, stillsAllA)}');
+  out.writeln('wrong cards kept (not in the hand): $wrong');
+  for (final e in examples.entries) {
+    out.writeln('  ${e.key}: ${e.value.take(40).join(', ')}${e.value.length > 40 ? ' ... (${e.value.length})' : ''}');
+  }
   return out.toString();
 }

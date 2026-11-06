@@ -58,6 +58,17 @@ double _ringPaperMin = 0.5; // share of a glyph's surroundings that must be card
 /// paper / red / dark masks. Null in the app.
 List<String>? glyphDebugSink;
 void Function(Uint8List paper, Uint8List red, Uint8List dark, Uint8List g, int w, int h)? glyphDebugMasks;
+
+/// Diagnostics / training data (tool/watch_stills.dart --crops): every
+/// rank -> suit blob pair the CNN looks at, with both 32x32 crops (rank
+/// upright), the ink colour, where the rank glyph is (fractions of the
+/// image) and its size (over the short side). Null in the app.
+void Function(Uint8List rankCrop, Uint8List suitCrop, bool red, double x, double y, double size)? glyphDebugPairs;
+/// Lab-only overrides of reader constants (tool/watch_stills.dart --tune
+/// key=value,...). Empty in the app.
+final Map<String, double> glyphTune = {};
+double _tune(String k, double def) => glyphTune[k] ?? def;
+
 double _maxGlyphFrac = 0.14; // largest glyph over the short side (readGlyphs maxGlyphFrac)
 bool _looseInk = false; // pale red / reddish black glyphs (readGlyphs looseInk)
 int? _maxBlobs; // keep only this many glyph blobs (the most paper-ringed)
@@ -69,6 +80,18 @@ const int _boardVStdMin = 12;
 const List<int> _suitRotSearch = [-30, -20, -10, 0, 10, 20, 30];
 const double _rotPenalty = 0.002; // per degree
 const double _scoreMin = 0.45;
+
+/// Smallest hero glyph over the view's short side (CNN reader). 0.010
+/// read 2 more clear cards of 414 on the Nov 5 stills but cost 40% more
+/// reader time (more blobs, more CNN calls): kept at 0.016.
+const double _heroMinGlyphFrac = 0.016;
+
+/// A rank glyph may be this many times its suit's size (2.2 before the Nov
+/// 5 game night: decks with a small suit under a big rank never paired).
+const double _rankSuitMaxRatio = 3.5;
+
+/// ... and its suit's centre up to this many rank heights away.
+const double _rankSuitMaxDist = 1.6;
 
 /// Template-matching hero reads at or above this score count as "confident".
 const double glyphConfidentScore = 0.65;
@@ -1371,7 +1394,7 @@ List<GlyphCard> _heroFromReads(List<_Read> reads) {
 
 List<_Blob> _heroBlobs(_Planes img, _Hsv hsv, List<_Rect> board) {
   final out = [
-    for (final b in _findGlyphBlobs(img, hsv, maxFrac: _maxGlyphFrac))
+    for (final b in _findGlyphBlobs(img, hsv, minFrac: _tune('minFrac', _heroMinGlyphFrac), maxFrac: _maxGlyphFrac))
       if (!board.any((r) => r.contains(b.cx, b.cy, 2.2))) b
   ];
   // Cost cap (Watch my cards): only the blobs most surrounded by card stock.
@@ -1467,6 +1490,7 @@ List<_Read> _readIndicesCnn(
   stats['nBlobs'] = blobs.length;
   var calls = 0;
   final reads = <_Read>[];
+  final rankCache = <int, Float32List>{}, suitCache = <int, Float32List>{};
   for (var i = 0; i < blobs.length; i++) {
     final a = blobs[i];
     for (var j = 0; j < blobs.length; j++) {
@@ -1474,14 +1498,30 @@ List<_Read> _readIndicesCnn(
       final b = blobs[j];
       if (a.red != b.red) continue;
       final ratio = a.md / b.md;
-      if (!(ratio > 0.55 && ratio < 2.2)) continue;
+      if (!(ratio > 0.55 && ratio < _tune('ratioMax', _rankSuitMaxRatio))) continue;
       final dx = b.cx - a.cx, dy = b.cy - a.cy;
       final dist = math.sqrt(dx * dx + dy * dy);
       final meanMd = (a.md + b.md) / 2;
-      if (!(dist > 0.55 * meanMd && dist < 1.9 * meanMd)) continue;
+      // The suit sits about one glyph from the rank, judged on the two
+      // glyphs' mean size; a suit printed much smaller than its rank (some
+      // decks, close to the lens) on the rank's own size instead (game
+      // night, Nov 5: a third of the clear indices never paired before).
+      final small = ratio > 2.2;
+      final rd = _tune('rankDist', _rankSuitMaxDist);
+      if (small ? !(dist > 0.5 * a.md && dist < rd * a.md) : !(dist > 0.55 * meanMd && dist < 1.9 * meanMd)) continue;
       final ux = dx / dist, uy = dy / dist;
-      final pr = _ttaProbs(cnn, img, a, ux, uy, tta);
-      calls += tta.length;
+      // A glyph turned to (nearly) the same angle for another partner
+      // looks the same to the CNN: reuse its answer (half the calls).
+      final bucket = ((math.atan2(uy, ux) * 180 / math.pi + 360) / 15).round() % 24;
+      final rankKey = i * 24 + bucket;
+      final cached = rankCache[rankKey];
+      final pr = cached ?? _ttaProbs(cnn, img, a, ux, uy, tta);
+      if (cached == null) {
+        rankCache[rankKey] = pr;
+        calls += tta.length;
+      }
+      glyphDebugPairs?.call(_cnnCrop(img, a, ux, uy, 0), _cnnCrop(img, b, ux, uy, 0), a.red, a.cx / img.w,
+          a.cy / img.h, a.md / img.s);
       var r = 0;
       for (var k = 1; k < 13; k++) {
         if (pr[k] > pr[r]) r = k;
@@ -1490,8 +1530,13 @@ List<_Read> _readIndicesCnn(
       // CNN work; Watch my cards runs this several times a second).
       glyphDebugSink?.add('pair ${a.cx.round()},${a.cy.round()}->${b.cx.round()},${b.cy.round()} rank ${'23456789TJQKA'[r]} ${pr[r].toStringAsFixed(2)}');
       if (pr[r] < _cnnScoreMin) continue;
-      final ps = _ttaProbs(cnn, img, b, ux, uy, tta);
-      calls += tta.length;
+      final suitKey = j * 24 + bucket;
+      final cachedSuit = suitCache[suitKey];
+      final ps = cachedSuit ?? _ttaProbs(cnn, img, b, ux, uy, tta);
+      if (cachedSuit == null) {
+        suitCache[suitKey] = ps;
+        calls += tta.length;
+      }
       final allowed = a.red ? _redSuits : _blackSuits;
       final su = ps[glyphCnnSuit0 + allowed[0]] >= ps[glyphCnnSuit0 + allowed[1]] ? allowed[0] : allowed[1];
       final score = pr[r] * ps[glyphCnnSuit0 + su];

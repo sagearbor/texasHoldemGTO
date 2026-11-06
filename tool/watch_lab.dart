@@ -66,6 +66,10 @@ Future<void> main(List<String> argv) async {
   final sat = double.tryParse(opt('--sat', '') ?? '');
   // HLG HDR clip -> SDR like the live camera stream: a 3D LUT made by
   // tool/camera_lab/make_hlg_sdr_lut.py (this ffmpeg has no zscale).
+  // --tune key=value,...: lab-only reader overrides (glyph_reader.dart glyphTune).
+  for (final kv in (opt('--tune') ?? '').split(',').where((t) => t.contains('='))) {
+    glyphTune[kv.split('=')[0]] = double.parse(kv.split('=')[1]);
+  }
   final hlgLut = opt('--hlg');
   // Scene rotation in the frame, as CameraX delivers a phone held the other
   // way (sensor orientation): 90 = portrait-held phone, landscape video.
