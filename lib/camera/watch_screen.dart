@@ -16,7 +16,7 @@
 /// keeps about one still a second from the same stream as a Record-the-
 /// table session, and "Wide shots between peeks" (watch_wide.dart) adds an
 /// ultra-wide still every few seconds while the gate is idle. The black
-/// screen has a dim action pad (the logger's: tap call, swipe up raise,
+/// screen has a dim action pad (the logger's: tap call, swipe up raise (+½ pot a swipe),
 /// swipe down fold, hold reset, sideways next hand; here no tap = not
 /// recorded, unknown) for the hand being played.
 library;
@@ -91,6 +91,12 @@ abstract class WatchHost {
 
   /// Sets it, exactly as the logger's own pad does (null = undo).
   void watchSetAction(PreAction? action);
+
+  /// The pending raise's size in half pots (the pad's swipes up), or null.
+  int? get watchRaiseHalves;
+
+  /// Sets it, as the logger's pad does.
+  void watchSetRaiseSize(int halves);
 }
 
 /// Device-only Watch settings (not in backups: they describe this phone).
@@ -802,6 +808,17 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     setState(() {});
   }
 
+  /// The pad's raise size, once the swipes up stopped: kept with the hand
+  /// and said in the earbuds ("raise pot").
+  void _padRaiseSize(int halves) {
+    widget.host.watchSetRaiseSize(halves);
+    final f = {'halves': halves, 'hand': widget.host.watchHandNumber};
+    _rec?.write(('watch_raise_size', f));
+    _log.append({'type': 'raise_size', 't': _clock.elapsedMilliseconds, ...f});
+    if (WatchSettings.voice.value) _voice.say(spokenRaiseSize(halves)).ignore();
+    setState(() {});
+  }
+
   Future<void> _fix() async {
     await widget.host.watchFixCards(context);
     if (!mounted) return;
@@ -987,7 +1004,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
               '${rec ? 'Photos are kept on this phone only, never uploaded. ' : 'Nothing is recorded: each frame is dropped once checked, only the cards it reads are kept. '}'
               'If it is unsure it logs nothing; the card slots always work by hand. '
               'The dim pad at the bottom logs your action: no tap = not recorded, tap = call, '
-              'swipe up = raise, swipe down = fold, hold = reset, sideways = next hand.',
+              'swipe up = raise (each extra swipe up = half a pot more), swipe down = fold, hold = reset, '
+              'sideways = next hand.',
               style: t.bodySmall),
         ),
         // Tester tools: developer mode only (About → tap the version 7 times).
@@ -1199,7 +1217,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: WatchActionArea(host: widget.host, onAction: _padAction, onNext: _nextHand),
+              child: WatchActionArea(
+                  host: widget.host, onAction: _padAction, onRaiseSize: _padRaiseSize, onNext: _nextHand),
             ),
           ]),
         ),
@@ -1213,14 +1232,18 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
 class WatchActionArea extends StatelessWidget {
   final WatchHost host;
   final ValueChanged<PreAction?> onAction;
+  final ValueChanged<int>? onRaiseSize;
   final VoidCallback onNext;
-  const WatchActionArea({super.key, required this.host, required this.onAction, required this.onNext});
+  const WatchActionArea(
+      {super.key, required this.host, required this.onAction, this.onRaiseSize, required this.onNext});
 
   @override
   Widget build(BuildContext context) => ActionPad(
         key: const Key('watch-action-pad'),
         pending: host.watchPendingAction,
+        raiseHalves: host.watchRaiseHalves,
         onAction: onAction,
+        onRaiseSize: onRaiseSize,
         onNext: onNext,
         lowLight: true,
         height: 190,

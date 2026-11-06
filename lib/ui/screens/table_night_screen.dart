@@ -21,6 +21,7 @@ import '../../homegame/home_game.dart';
 import '../../sync/night_events.dart';
 import '../../sync/night_merge.dart' show MergedNight;
 import '../../sync/organizer_bridge.dart';
+import '../../settings/dev_settings.dart';
 import '../../sync/table_night_service.dart';
 import '../../nearby/nearby_service.dart';
 import '../../nearby/table_mode_screen.dart';
@@ -584,7 +585,7 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
                     ),
                   ]),
                   Text(
-                    s.sharing
+                    s.sharing && DevSettings.cardsToCloud
                         ? 'Cards are optional. Add them before your tap; they go to the table only 20 minutes later.'
                         : 'Cards are optional, for your own stats; they stay on this phone.',
                     style: t.bodySmall,

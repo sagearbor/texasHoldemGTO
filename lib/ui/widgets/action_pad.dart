@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -8,8 +10,32 @@ import '../theme.dart';
 const _swipeDistance = 40.0;
 const _swipeSpeed = 300.0;
 
+/// Swipes up within this of each other add up to one raise size.
+const raiseSizeWindow = Duration(milliseconds: 1200);
+
+/// A raise size in half pots, short: "½ pot", "pot", "1½ pot", "2 pots".
+String raiseSizeLabel(int halves) => switch (halves) {
+      1 => '½ pot',
+      2 => 'pot',
+      _ => halves.isEven ? '${halves ~/ 2} pots' : '${halves ~/ 2}½ pot',
+    };
+
+/// The same, spoken: "raise half", "raise pot", "raise one and a half".
+String spokenRaiseSize(int halves) {
+  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+  final whole = halves ~/ 2;
+  final w = whole < words.length ? words[whole] : '$whole';
+  return switch (halves) {
+    1 => 'raise half',
+    2 => 'raise pot',
+    _ => halves.isEven ? 'raise $w pots' : 'raise $w and a half',
+  };
+}
+
 /// Big no-look input for the hand being played: tap = call / limp, swipe
-/// up = raise, swipe down = fold, long press = reset (nothing marked),
+/// up = raise (each swipe up within [raiseSizeWindow] adds half a pot:
+/// twice = pot, three times = 1.5 pot), swipe down = fold, long press =
+/// reset (nothing marked),
 /// swipe sideways = next hand (when [onNext] is set). Each gesture buzzes
 /// differently so you never have to look. Doing nothing is a fold (on Watch
 /// my cards, [untappedUnknown]: "not recorded").
@@ -18,6 +44,13 @@ class ActionPad extends StatefulWidget {
   final bool skipped;
   final ValueChanged<PreAction?> onAction;
   final VoidCallback? onNext;
+
+  /// The raise size in half pots, once the swipes up stop for
+  /// [raiseSizeWindow] (after [onAction] gave the raise).
+  final ValueChanged<int>? onRaiseSize;
+
+  /// The pending raise's size in half pots, to show (null: none given).
+  final int? raiseHalves;
 
   /// Dark and dim (Watch my cards' black screen, propped facing the
   /// table): black fill, grey text, no action colours.
@@ -33,6 +66,8 @@ class ActionPad extends StatefulWidget {
     required this.onAction,
     this.skipped = false,
     this.onNext,
+    this.onRaiseSize,
+    this.raiseHalves,
     this.lowLight = false,
     this.height = 150,
     this.untappedUnknown = false,
@@ -45,27 +80,63 @@ class ActionPad extends StatefulWidget {
 class _ActionPadState extends State<ActionPad> {
   double _dx = 0, _dy = 0;
 
+  /// Swipes up so far in the raise being sized; [_sizing] runs until the
+  /// size is committed.
+  int _halves = 0;
+  Timer? _sizing;
+
+  @override
+  void dispose() {
+    _sizing?.cancel();
+    super.dispose();
+  }
+
+  void _stopSizing() {
+    _sizing?.cancel();
+    _sizing = null;
+  }
+
   void _call() {
+    _stopSizing();
     HapticFeedback.lightImpact();
     widget.onAction(PreAction.call);
   }
 
   void _raise() {
     HapticFeedback.heavyImpact();
-    widget.onAction(PreAction.raise);
+    if (_sizing == null) {
+      _halves = 1;
+      widget.onAction(PreAction.raise);
+    } else {
+      _halves++;
+    }
+    _sizing?.cancel();
+    _sizing = Timer(raiseSizeWindow, () {
+      _sizing = null;
+      widget.onRaiseSize?.call(_halves);
+      if (mounted) setState(() {});
+    });
+    setState(() {});
   }
 
   void _fold() {
+    _stopSizing();
     HapticFeedback.mediumImpact();
     widget.onAction(PreAction.fold);
   }
 
   void _undo() {
+    _stopSizing();
     HapticFeedback.selectionClick();
     widget.onAction(null);
   }
 
   void _next() {
+    // A raise still being sized goes with the hand it was swiped on.
+    if (_sizing != null) {
+      _stopSizing();
+      widget.onRaiseSize?.call(_halves);
+    }
     HapticFeedback.mediumImpact();
     widget.onNext!();
   }
@@ -78,16 +149,20 @@ class _ActionPadState extends State<ActionPad> {
     final b = Theme.of(context).brightness;
     final a = widget.pending;
     final unk = widget.untappedUnknown;
+    final halves = _sizing != null ? _halves : widget.raiseHalves;
+    final size = a == PreAction.raise && halves != null ? ' ${raiseSizeLabel(halves)}' : '';
     final label = widget.skipped
         ? 'Not seen'
         : a == null
             ? (unk ? 'Not recorded' : 'Fold')
-            : preActionLabels[a]!;
+            : '${preActionLabels[a]!}$size';
     final sub = widget.skipped
         ? 'saved as unknown'
         : a == null
             ? (unk ? 'no tap = not recorded' : 'default: do nothing')
-            : 'hold to reset';
+            : _sizing != null
+                ? 'up again = +½ pot'
+                : 'hold to reset';
     final low = widget.lowLight;
     final bg = low
         ? Colors.black
@@ -98,7 +173,7 @@ class _ActionPadState extends State<ActionPad> {
     return Semantics(
       container: true,
       button: true,
-      label: 'Action pad: $label. Tap for call, swipe up for raise, '
+      label: 'Action pad: $label. Tap for call, swipe up for raise (again for half a pot more), '
           'swipe down for fold, hold to reset${widget.onNext == null ? '' : ', swipe sideways for next hand'}',
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -150,11 +225,9 @@ class _ActionPadState extends State<ActionPad> {
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
-                  unk
-                      ? 'tap = call · up = raise · down = fold · hold = reset'
-                      : widget.onNext == null
-                          ? 'tap = call · up = raise · down = fold · hold = reset'
-                          : 'tap = call · up = raise · down = fold · hold = reset · sideways = next',
+                  unk || widget.onNext == null
+                      ? 'tap = call · up = raise +½ pot · down = fold · hold = reset'
+                      : 'tap = call · up = raise +½ pot · down = fold · hold = reset · sideways = next',
                   maxLines: 1,
                   style: hint),
             ),

@@ -602,7 +602,8 @@ List<Entry> _entries(DeviceInfo d, Iterable<NightEvent> events) {
         }
       case EventKind.cards:
         first.putIfAbsent(e, () => ev.ms);
-        had.add(e);
+        // `local`: the cards stay on that phone (cloud_logs.dart), none to fetch.
+        if (ev.data['local'] != true) had.add(e);
         final c = ev.data['c'];
         if (c is List && c.length == 2) {
           cards[e] = c.cast<int>();

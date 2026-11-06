@@ -102,8 +102,9 @@ const helpTopics = {
         'That tap order becomes the seating. After one orbit the button moves by itself and you get one big '
             'Next hand button.'),
     HelpTip('Folded? Do nothing. Played it? Use the big pad.',
-        'An untouched hand counts as a fold at Next hand. On the pad: tap = call / limp, swipe up = raise, '
-            'swipe down = fold, hold = reset, swipe sideways = Next hand. Each buzzes differently. "Didn\'t see this hand" '
+        'An untouched hand counts as a fold at Next hand. On the pad: tap = call / limp, swipe up = raise '
+            '(swipe up again for half a pot more: twice = pot, three times = 1.5 pot; your estimate, it counts '
+            'as a raise in stats), swipe down = fold, hold = reset, swipe sideways = Next hand. Each buzzes differently. "Didn\'t see this hand" '
             'saves it as unknown instead of a fold.'),
     HelpTip('Wrong position or a mis-tap? Undo last, or tap the real position.',
         'Tap "Dealer" to pick who is dealing; "Someone new" seats a new dealer where they dealt. Someone joins '
@@ -112,8 +113,8 @@ const helpTopics = {
         'Camera opens Watch my cards (Beta): prop the phone beside you, aim, Start. The screen goes black and '
             'your cards are read when you peek, on the phone; nothing is uploaded, and nothing is recorded '
             'unless you turn on "Also record the table" (photos stay on the phone, export from Recordings). '
-            'The dim pad at the bottom of the black screen logs your action: tap call, swipe up raise, hold '
-            'fold, down undo, sideways next hand; no tap = not recorded (not counted as a fold). With earbuds it says the cards quietly. '
+            'The dim pad at the bottom of the black screen logs your action: tap call, swipe up raise (again = '
+            '+½ pot, said in your earbuds), swipe down fold, hold reset, sideways next hand; no tap = not recorded (not counted as a fold). With earbuds it says the cards quietly. '
             'Wrong? Tap the chip on the black screen. "Just one photo" reads a single photo instead. '
             'Remembered your cards late? Enter them and tap "That was hand...".'),
     HelpTip('Board caller: hold the mic button and say the flop.',
@@ -127,7 +128,7 @@ const helpTopics = {
         'Starts as a cash game (stakes, no timer). Tournament clock: countdown, levels and breaks you can edit.'),
     HelpTip('What a table night shares.',
         'Your hands stay on your phone (only that you joined, by name, goes up) unless you turn on '
-            '"Share my hands with the table": then your call / raise taps, and your cards 20 minutes later.'
+            '"Share my hands with the table": then your call / raise taps. Your cards never leave your phone.'
             ' Hosting works the same; the switch is on the QR sheet. For the seat radar, "Share seat-finding '
             'signals (Bluetooth)" is on by default: which Felt Notes phones yours hears and how loud, and your '
             'phone model; nothing about cards or actions. Both switches are under Advanced. No account (an anonymous id), readable only with the night\'s code, deleted after '

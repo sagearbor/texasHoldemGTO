@@ -10,6 +10,7 @@ import 'gto/spots.dart';
 import 'homegame/home_game.dart';
 import 'nearby/nearby_service.dart';
 import 'record/record_screen.dart';
+import 'settings/dev_settings.dart';
 import 'trainer/trainer_model.dart';
 import 'ui/app_settings.dart';
 import 'ui/chart_prefs.dart';
@@ -22,6 +23,7 @@ import 'ui/screens/learn_screen.dart';
 import 'ui/screens/play_screen.dart';
 import 'ui/screens/stats_screen.dart';
 import 'ui/screens/train_screen.dart';
+import 'sync/cloud_logs.dart' show cardsLeavePhone;
 import 'sync/table_night_service.dart';
 import 'ui/theme.dart';
 import 'ui/tv/tv_screen.dart';
@@ -63,8 +65,10 @@ class _FeltNotesAppState extends State<FeltNotesApp> {
       final m = TrainerModel(lib);
       final h = HomeGameModel(lib);
       await Future.wait(
-          [m.load(), h.load(), ChartPrefs.load(), AppSettings.load(), DevMode.load(), CameraLens.load()]);
+          [m.load(), h.load(), ChartPrefs.load(), AppSettings.load(), DevMode.load(), DevSettings.load(), CameraLens.load()]);
       await WatchSettings.load(); // after DevMode (its record default)
+      // Hole cards stay on the phone unless Settings → Advanced / Developer says.
+      cardsLeavePhone = () => DevSettings.cardsToCloud;
       // Resumes a table night this phone was in (no network until one is).
       unawaited(TableNightService.instance.init(h).then((_) => NearbyService.instance.init()));
       if (mounted) {

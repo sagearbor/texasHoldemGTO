@@ -558,14 +558,12 @@ class TableNightService extends ChangeNotifier with WidgetsBindingObserver {
 
   /// The joiner's advanced switch, in one line.
   static const joinerSharingLine = 'Off (the default): nothing about your hands leaves this phone. On: your '
-      'taps (call / raise), the cards you enter (20 minutes later) and your stats go to the '
-      'table and its TV.';
+      'taps (call / raise) and your stats go to the table and its TV. Your cards always stay on this phone.';
 
   /// What the switch says it shares, in one line.
   static const sharingLine =
-      'On: your taps (call / raise), the cards you enter (20 minutes '
-      'later) and your stats show on the table TV. Off: they stay on this phone; '
-      'the TV shows you as "private".';
+      'On: your taps (call / raise) and your stats show on the table TV; your cards stay on this '
+      'phone. Off: all of it stays on this phone; the TV shows you as "private".';
 
   MergedNight? merged() => night?.merged();
 

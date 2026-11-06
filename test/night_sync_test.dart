@@ -205,7 +205,7 @@ void main() {
       final org = await LocalTableSync.organize(MemoryStore(),
           organizerName: 'Sage', selfPid: 'p1', roster: const [sage, john], now: clock.call, cloud: cloud);
       await org.startHand(1, 'p1');
-      final up = Uploader(log: org.log, cloud: cloud, ticket: org.ticket, name: 'Sage', now: clock.call);
+      final up = Uploader(log: org.log, cloud: cloud, ticket: org.ticket, name: 'Sage', now: clock.call, cardsToCloud: () => true);
       cloud.online = false;
       expect(await up.drainOnce(), UploadResult.failed);
       // The retry loop waits ~5 s, ~10 s, ~20 s ... (with +-20 % jitter).
@@ -234,7 +234,7 @@ void main() {
           name: 'John', scannedAtMs: clock.ms, sharing: false, now: clock.call, cloud: cloud);
       await p.setCards(parseCards('AsKd'));
       await p.tap(PreAction.raise);
-      final up = Uploader(log: p.log, cloud: cloud, ticket: p.ticket, name: 'John', now: clock.call);
+      final up = Uploader(log: p.log, cloud: cloud, ticket: p.ticket, name: 'John', now: clock.call, cardsToCloud: () => true);
       await up.drainOnce();
       List<EventKind> kinds() => [for (final e in cloud.parts[org.nightId]!.values.single.events) e.kind];
       expect(kinds(), [EventKind.join, EventKind.share]); // name + "private", nothing else
@@ -260,12 +260,43 @@ void main() {
       expect(m.devices.firstWhere((d) => d.deviceId == p.deviceId).private, isTrue);
     });
 
+    test('by default hole cards never leave the phone, even with sharing on; the developer switch sends them', () async {
+      final org = await LocalTableSync.organize(MemoryStore(),
+          organizerName: 'Sage', selfPid: 'p1', now: clock.call, cloud: cloud);
+      final p = await LocalTableSync.join(MemoryStore(), org.qrTicket(),
+          name: 'John', scannedAtMs: clock.ms, sharing: true, now: clock.call, cloud: cloud);
+      await p.setCards(parseCards('AsKd'));
+      await p.tap(PreAction.raise);
+      var dev = false;
+      final up = Uploader(log: p.log, cloud: cloud, ticket: p.ticket, name: 'John', now: clock.call);
+      final upDev = Uploader(
+          log: p.log, cloud: cloud, ticket: p.ticket, name: 'John', now: clock.call, cardsToCloud: () => dev);
+      clock.advance(cardHoldMs);
+      await up.drainOnce();
+      final evs = cloud.parts[org.nightId]!.values.single.events;
+      expect([for (final e in evs) e.kind], contains(EventKind.play), reason: 'taps still go: stats work');
+      expect(evs.firstWhere((e) => e.kind == EventKind.cards).data, {'e': 1, 'local': true},
+          reason: 'only "had cards, kept on the phone"');
+      expect(cloud.cards[org.nightId], isNull, reason: 'the default: cards stay on the phone');
+      expect(up.holdingCards, isFalse);
+      expect(up.pending, isFalse);
+      // Developer switch on: they go (after the hold, already passed).
+      dev = true;
+      expect(upDev.pending, isTrue);
+      await upDev.drainOnce();
+      expect(cloud.cards[org.nightId]![cardDocId(p.deviceId, 1)]!.$1, parseCards('AsKd'));
+      // Off again: the card document is taken back down.
+      dev = false;
+      await upDev.drainOnce();
+      expect(cloud.cards[org.nightId], isEmpty);
+    });
+
     test('cards wait the full hold time, even when a later entry exists (a misread re-peek)', () async {
       final org = await LocalTableSync.organize(MemoryStore(),
           organizerName: 'Sage', selfPid: 'p1', now: clock.call, cloud: cloud);
       final p = await LocalTableSync.join(MemoryStore(), org.qrTicket(),
           name: 'John', scannedAtMs: clock.ms, now: clock.call, cloud: cloud);
-      final up = Uploader(log: p.log, cloud: cloud, ticket: p.ticket, name: 'John', now: clock.call);
+      final up = Uploader(log: p.log, cloud: cloud, ticket: p.ticket, name: 'John', now: clock.call, cardsToCloud: () => true);
       await p.setCards(parseCards('QsQd'));
       await p.tap(PreAction.raise);
       await up.drainOnce();
@@ -297,7 +328,7 @@ void main() {
     test('a lost reply or a crash between writes converges, never duplicates', () async {
       final org = await LocalTableSync.organize(MemoryStore(),
           organizerName: 'Sage', selfPid: 'p1', roster: const [sage, john], now: clock.call, cloud: cloud);
-      final up = Uploader(log: org.log, cloud: cloud, ticket: org.ticket, name: 'Sage', now: clock.call);
+      final up = Uploader(log: org.log, cloud: cloud, ticket: org.ticket, name: 'Sage', now: clock.call, cardsToCloud: () => true);
       await org.startHand(1, 'p1');
       await up.drainOnce();
       // The server took the write but the phone never heard back.
@@ -313,7 +344,7 @@ void main() {
     test('a long night splits into parts; re-uploads are idempotent', () async {
       final org = await LocalTableSync.organize(MemoryStore(),
           organizerName: 'Sage', selfPid: 'p1', roster: const [sage, john], now: clock.call, cloud: cloud);
-      final up = Uploader(log: org.log, cloud: cloud, ticket: org.ticket, name: 'Sage', now: clock.call);
+      final up = Uploader(log: org.log, cloud: cloud, ticket: org.ticket, name: 'Sage', now: clock.call, cardsToCloud: () => true);
       for (var n = 1; n <= 450; n++) {
         clock.advance(60000);
         await org.startHand(n, n.isOdd ? 'p1' : 'p2');
@@ -365,7 +396,7 @@ void main() {
       await joe_.leave();
       await org.endNight();
       final ups = [
-        for (final s in [org, john_, joe_]) Uploader(log: s.log, cloud: cloud, ticket: s.ticket, name: s.myName, now: clock.call)
+        for (final s in [org, john_, joe_]) Uploader(log: s.log, cloud: cloud, ticket: s.ticket, name: s.myName, now: clock.call, cardsToCloud: () => true)
       ];
       for (final u in ups) {
         expect(await u.drainOnce(), UploadResult.failed);
