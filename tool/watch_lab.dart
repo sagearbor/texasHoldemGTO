@@ -134,8 +134,16 @@ Future<void> main(List<String> argv) async {
     maxBlobs: int.tryParse(opt('--max-blobs', '') ?? ''),
     findBoard: args.remove('--board'),
     cornerReader: !args.remove('--no-corners'),
-    cornerScore: double.parse(opt('--corner-thr', '0.85')!),
+    cornerScore: double.parse(opt('--corner-thr', '${const WatchConfig().cornerScore}')!),
   ));
+  // Corner reader stages (CornerDetector; see tool/watch_stills.dart):
+  // --corner-peaks N, --corner-rank heat|size, --corner-row N,
+  // --corner-probes 1,1.8,2.6 (or none), --no-turn-retry.
+  final cornerPeaks = int.tryParse(opt('--corner-peaks', '') ?? '');
+  final cornerRank = opt('--corner-rank');
+  final cornerRow = int.tryParse(opt('--corner-row', '') ?? '');
+  final cornerProbesOpt = opt('--corner-probes');
+  final noTurnRetry = args.remove('--no-turn-retry');
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_lab.dart VIDEO [--short 720] [--fps 15] '
         '[--phone 2.0] [--labels L.json] [--start S] [--max S] [--tta] [--agree 2] '
@@ -147,7 +155,14 @@ Future<void> main(List<String> argv) async {
   // --corners F: other networks, --no-corners: the glyph finder alone).
   cornerConfidentScore = pipe.cfg.cornerScore;
   final corners = pipe.cfg.cornerReader || cornersPath != null
-      ? CornerDetector.parse(File(cornersPath ?? 'assets/data/corner_net.bin').readAsBytesSync())
+      ? CornerDetector.parse(File(cornersPath ?? 'assets/data/corner_net.bin').readAsBytesSync(),
+          maxPeaks: cornerPeaks,
+          rowExtra: cornerRow,
+          rowProbes: cornerProbesOpt == null
+              ? null
+              : [for (final t in cornerProbesOpt.split(',')) if (t != 'none') double.parse(t)],
+          bySize: cornerRank == null ? null : cornerRank == 'size',
+          turnRetry: noTurnRetry ? false : null)
       : null;
   final proc = await Process.start(_ffmpeg, [
     '-hide_banner', '-nostats', '-loglevel', 'info',
