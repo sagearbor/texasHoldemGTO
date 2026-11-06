@@ -30,6 +30,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:felt_notes/camera/board_watch.dart';
+import 'package:felt_notes/camera/corner_detector.dart';
 import 'package:felt_notes/camera/glyph_cnn.dart';
 import 'package:felt_notes/camera/glyph_reader.dart';
 import 'package:felt_notes/camera/watch_diagnostics.dart';
@@ -109,6 +110,7 @@ Future<void> main(List<String> argv) async {
       };
   var boardHeroReads = 0, boardHeroCards = 0, confidentReads = 0;
   final board = args.remove('--board') || boardLabelsPath != null;
+  final cornersPath = opt('--corners');
   final pipe = WatchPipeline(WatchConfig(
     tta: args.remove('--tta'),
     whiteBalance: !args.remove('--no-wb'),
@@ -131,6 +133,8 @@ Future<void> main(List<String> argv) async {
     ringPaperMin: double.parse(opt('--ring', '0.5')!),
     maxBlobs: int.tryParse(opt('--max-blobs', '') ?? ''),
     findBoard: args.remove('--board'),
+    cornerReader: !args.remove('--no-corners'),
+    cornerScore: double.parse(opt('--corner-thr', '0.85')!),
   ));
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_lab.dart VIDEO [--short 720] [--fps 15] '
@@ -139,6 +143,12 @@ Future<void> main(List<String> argv) async {
     exit(2);
   }
   final cnn = GlyphCnn.parse(File('assets/data/glyph_cnn.bin').readAsBytesSync());
+  // The learned corner reader as the app runs it (WatchConfig.cornerReader;
+  // --corners F: other networks, --no-corners: the glyph finder alone).
+  cornerConfidentScore = pipe.cfg.cornerScore;
+  final corners = pipe.cfg.cornerReader || cornersPath != null
+      ? CornerDetector.parse(File(cornersPath ?? 'assets/data/corner_net.bin').readAsBytesSync())
+      : null;
   final proc = await Process.start(_ffmpeg, [
     '-hide_banner', '-nostats', '-loglevel', 'info',
     if (startSec > 0) ...['-ss', '$startSec'],
@@ -263,7 +273,8 @@ Future<void> main(List<String> argv) async {
     final sw = Stopwatch()..start();
     final r = readGlyphs(job.rgba, job.width, job.height,
         cnn: cnn, tta: pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: pipe.cfg.warmLight, ringPaperMin: pipe.cfg.ringPaperMin,
-        maxBlobs: pipe.cfg.maxBlobs, findBoard: pipe.cfg.findBoard, looseInk: pipe.cfg.looseInk, coarsePass: pipe.cfg.coarsePass);
+        maxBlobs: pipe.cfg.maxBlobs, findBoard: pipe.cfg.findBoard, looseInk: pipe.cfg.looseInk, coarsePass: pipe.cfg.coarsePass,
+        corners: corners);
     final ms = sw.elapsedMilliseconds;
     for (final e in r.timingMs.entries) {
       if (e.key != 'total') stageMs[e.key] = (stageMs[e.key] ?? 0) + e.value;

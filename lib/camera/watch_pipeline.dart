@@ -142,6 +142,16 @@ class WatchConfig {
   final bool looseInk;
   final bool coarsePass;
 
+  /// The learned corner reader (corner_detector.dart) next to the glyph
+  /// finder: its reads join the finder's, the best per card wins. On the
+  /// Nov 5 game-night stills it reads close, tilted, thin, maroon and
+  /// "10" indices the finder never pairs (tmp/watch-gamenight-20261105.html,
+  /// "Learned detector").
+  final bool cornerReader;
+
+  /// Its reads at or above this (P(rank) x P(suit)) are confident.
+  final double cornerScore;
+
   /// Board guard: two hero cards whose glyph sizes differ more than this
   /// are not both in the hand; the smaller (farther) one is dropped. Held
   /// pairs read 1.34 at most. 0 = off.
@@ -237,6 +247,8 @@ class WatchConfig {
     this.omahaMinCards = 4,
     this.looseInk = true,
     this.coarsePass = true,
+    this.cornerReader = true,
+    this.cornerScore = 0.85,
     this.maxSizeRatio = 1.6,
     this.maxCardsInView = 0,
     this.resetVotesOnGlobal = false,

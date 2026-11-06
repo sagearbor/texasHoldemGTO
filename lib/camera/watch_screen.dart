@@ -331,7 +331,9 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
           _report(_health.onFailure('Camera error'), detail: c.value.errorDescription);
         }
       });
-      _worker ??= await GlyphWorker.spawn((await rootBundle.load('assets/data/glyph_cnn.bin')).buffer.asUint8List());
+      _worker ??= await GlyphWorker.spawn((await rootBundle.load('assets/data/glyph_cnn.bin')).buffer.asUint8List(),
+          cornerBytes: _pipe.cfg.cornerReader ? (await rootBundle.load('assets/data/corner_net.bin')).buffer.asUint8List() : null,
+          cornerScore: _pipe.cfg.cornerScore);
       if (!mounted) return;
       setState(() {
         _cam = c;

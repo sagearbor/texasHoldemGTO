@@ -38,6 +38,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../poker/cards.dart';
+import 'corner_detector.dart';
 import 'glyph_cnn.dart';
 
 // ---------------------------------------------------------------- constants
@@ -104,6 +105,14 @@ const int glyphMaxHits = 6;
 
 /// CNN reads below this are dropped.
 const double _cnnScoreMin = 0.25;
+
+/// Corner-detector reads (corner_detector.dart, heat x P(rank) x P(suit))
+/// at or above this are confident; the score is mapped so this lands on
+/// [glyphCnnConfidentScore] (the pipeline's single bar for both readers).
+double cornerConfidentScore = 0.5;
+
+/// Corner-detector reads below this are dropped.
+const double _cornerScoreMin = 0.15;
 
 /// Test-time rotations (degrees) for the CNN crops.
 const List<double> _cnnTta = [0, -25, 25];
@@ -393,8 +402,10 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
     bool findBoard = true,
     bool looseInk = false,
     bool coarsePass = false,
-    double maxGlyphFrac = 0.14}) {
-  if (templates == null && cnn == null) throw ArgumentError('templates or cnn required');
+    double maxGlyphFrac = 0.14,
+    CornerDetector? corners,
+    bool cornersOnly = false}) {
+  if (templates == null && cnn == null && corners == null) throw ArgumentError('templates, cnn or corners required');
   _paperSMax = warmLight ? 100 : _paperSMaxDefault;
   _redHueMax = warmLight ? 14 : 8;
   _redInkSMin = warmLight ? 90 : _redSMin;
@@ -417,7 +428,10 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
   t0 = sw.elapsedMilliseconds;
   final List<_Read> reads;
   final List<GlyphCard> hero;
-  if (cnn != null) {
+  if (corners != null && (cornersOnly || cnn == null)) {
+    reads = _cornerReads(corners, rgba, width, height, img, scaleShortSide, timing);
+    hero = _heroFromCnnReads(reads);
+  } else if (cnn != null) {
     final fine = _readIndicesCnn(img, hsv, cnn, board, tta ? _cnnTta : const [0], timing);
     final fineCards = {for (final r in fine) if (r.score >= glyphCnnConfidentScore) r.card};
     // Only when the fine pass found fewer than two cards: glyphs of one
@@ -443,6 +457,11 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
     } else {
       reads = fine;
     }
+    if (corners != null) {
+      reads
+        ..addAll(_cornerReads(corners, rgba, width, height, img, scaleShortSide, timing))
+        ..sort((x, y) => y.score.compareTo(x.score));
+    }
     hero = _heroFromCnnReads(reads);
   } else {
     reads = _readIndices(img, hsv, templates!, board);
@@ -450,7 +469,7 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
   }
   timing['hero'] = sw.elapsedMilliseconds - t0;
   timing['total'] = sw.elapsedMilliseconds;
-  final conf = cnn != null ? glyphCnnConfidentScore : glyphConfidentScore;
+  final conf = cnn != null || corners != null ? glyphCnnConfidentScore : glyphConfidentScore;
   double? spread;
   if (hero.length == 2) {
     final a = [for (final r in reads) if (r.card == hero[0].card) r];
@@ -494,7 +513,7 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
     reads: [
       for (final r in reads)
         GlyphCard(r.card, r.score, 1,
-            confident: r.score >= (cnn != null ? glyphCnnConfidentScore : glyphConfidentScore))
+            confident: r.score >= conf)
     ],
     boardCount: board.length,
     workWidth: img.w,
@@ -1561,6 +1580,36 @@ List<GlyphCard> _heroFromCnnReads(List<_Read> reads) {
     if (out.any((c) => c.card == r.card)) continue;
     out.add(GlyphCard(r.card, r.score, votes[r.card]!, confident: r.score >= glyphCnnConfidentScore));
     if (out.length == 2) break;
+  }
+  return out;
+}
+
+/// The corner detector's reads as glyph reads in [img]'s pixels: score
+/// mapped so [cornerConfidentScore] becomes [glyphCnnConfidentScore], the
+/// rank glyph taken as the top half of the rank+suit box (centre a fifth
+/// of the box above the box centre, size half its height), its aspect
+/// along the card's axes from the box over 1.3 (held cards' boxes read
+/// 1.7 and up, 5th percentile, on the Nov 5 stills, so 1.3 and up; a card
+/// flat on the table, seen low, is squashed top to bottom and reads under
+/// 1, as the board guard wants. 1.6 dropped 18 of 125 right reads).
+List<_Read> _cornerReads(CornerDetector det, Uint8List rgba, int width, int height, _Planes img,
+    int? scaleShortSide, Map<String, int> timing) {
+  final frameScale = (scaleShortSide ?? math.min(width, height)) / 720.0;
+  final k = img.w / width;
+  final t = <String, int>{};
+  final found = det.read(rgba, width, height, frameScale: frameScale, timing: t);
+  timing['corner'] = t['cornerTotal'] ?? 0;
+  timing['cornerPeaks'] = t['cornerPeaks'] ?? 0;
+  final thr = cornerConfidentScore, base = glyphCnnConfidentScore;
+  final out = <_Read>[];
+  for (final c in found) {
+    if (c.score < _cornerScoreMin) continue;
+    final s = c.score >= thr ? base + (1 - base) * (c.score - thr) / (1 - thr) : base * c.score / thr;
+    final ux = math.sin(c.angle), uy = -math.cos(c.angle);
+    final rh = 0.5 * c.h, rw = c.w;
+    final ih = (rh * uy).abs() + (rw * ux).abs(), iw = (rh * ux).abs() + (rw * uy).abs();
+    out.add(_Read(c.card, s, -1, -1, rh * k, (c.x + ux * 0.2 * c.h) * k, (c.y + uy * 0.2 * c.h) * k,
+        ih / math.max(iw, 1e-6), (c.h / math.max(c.w, 1e-6)) / _tune('cornerAspect', 1.3), c.angle * 180 / math.pi));
   }
   return out;
 }

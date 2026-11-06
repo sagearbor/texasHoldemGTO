@@ -35,6 +35,7 @@ import 'dart:typed_data';
 
 import 'package:felt_notes/camera/board_reader.dart';
 import 'package:felt_notes/camera/board_watch.dart';
+import 'package:felt_notes/camera/corner_detector.dart';
 import 'package:felt_notes/camera/glyph_cnn.dart';
 import 'package:felt_notes/camera/glyph_reader.dart';
 import 'package:felt_notes/camera/watch_frame.dart';
@@ -103,6 +104,15 @@ Future<void> main(List<String> argv) async {
   final cropsPath = opt('--crops');
   // --cnn F: a glyph CNN other than assets/data/glyph_cnn.bin.
   final cnnPath = opt('--cnn');
+  // The learned corner reader (corner_detector.dart) as the app runs it
+  // (WatchConfig.cornerReader: assets/data/corner_net.bin next to the
+  // glyph finder). --corners F: other networks; --no-corners: the glyph
+  // finder alone (--legacy too); --corners-only: the corner reader alone;
+  // --corner-thr: its confident score (WatchConfig.cornerScore).
+  final cornersPath = opt('--corners');
+  final noCorners = args.remove('--no-corners');
+  final cornersOnly = args.remove('--corners-only');
+  final cornerThr = double.tryParse(opt('--corner-thr', '') ?? '');
   const def = WatchConfig();
   final cfg = WatchConfig(
     flatAspect: double.parse(opt('--flat', legacy ? '0.85' : '${def.flatAspect}')!),
@@ -114,7 +124,12 @@ Future<void> main(List<String> argv) async {
     coarsePass: !legacy && !args.remove('--no-coarse') && (args.remove('--coarse') || def.coarsePass),
     minCropFrac: double.parse(opt('--crop', '${def.minCropFrac}')!),
     readMaxShort: int.parse(opt('--read-short', '${def.readMaxShort}')!),
+    cornerReader: !legacy && !noCorners && def.cornerReader,
   );
+  cornerConfidentScore = cornerThr ?? cfg.cornerScore;
+  final corners = !cfg.cornerReader && cornersPath == null
+      ? null
+      : CornerDetector.parse(File(cornersPath ?? 'assets/data/corner_net.bin').readAsBytesSync());
 
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_stills.dart REC_DIR [--labels L] [--scale 0.35] [--dump F] [-v]');
@@ -189,7 +204,7 @@ Future<void> main(List<String> argv) async {
       }
       final r = readGlyphs(rgba, rw, rh,
           cnn: cnn, tta: cfg.tta, warmLight: cfg.warmLight, ringPaperMin: cfg.ringPaperMin, findBoard: false,
-          looseInk: fullLoose, maxGlyphFrac: fullMaxFrac, coarsePass: fullCoarse);
+          looseInk: fullLoose, maxGlyphFrac: fullMaxFrac, coarsePass: fullCoarse, corners: corners, cornersOnly: cornersOnly);
       reads++;
       readMsSum += r.timingMs['total'] ?? 0;
       cnnCalls += r.timingMs['cnnCalls'] ?? 0;
@@ -233,7 +248,9 @@ Future<void> main(List<String> argv) async {
           maxBlobs: cfg.maxBlobs,
           findBoard: cfg.findBoard,
           looseInk: cfg.looseInk,
-          coarsePass: cfg.coarsePass);
+          coarsePass: cfg.coarsePass,
+          corners: corners,
+          cornersOnly: cornersOnly);
       if (cropsOut != null) {
         for (final short in [180, cfg.readMaxShort, h]) {
           final (c2, cw2, ch2) = frame.cropRgba(const PixRect(0, 0, w, h), maxShort: short);
@@ -302,7 +319,9 @@ Future<void> main(List<String> argv) async {
         maxBlobs: cfg.maxBlobs,
         findBoard: cfg.findBoard,
         looseInk: cfg.looseInk,
-        coarsePass: cfg.coarsePass);
+        coarsePass: cfg.coarsePass,
+        corners: corners,
+        cornersOnly: cornersOnly);
     readMsSum += r.timingMs['total'] ?? 0;
     cnnCalls += r.timingMs['cnnCalls'] ?? 0;
     final g0 = pipe.counts.boardGuarded;

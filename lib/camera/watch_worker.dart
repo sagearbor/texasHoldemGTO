@@ -1,12 +1,14 @@
 /// A long-lived background isolate that runs the glyph reader for Watch my
-/// cards. The CNN is parsed once (compute() would re-send and re-parse it
-/// for every frame), and crops travel as TransferableTypedData (no copy).
+/// cards. The CNN (and the corner reader's networks, when given) is parsed
+/// once (compute() would re-send and re-parse it for every frame), and
+/// crops travel as TransferableTypedData (no copy).
 library;
 
 import 'dart:async';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'corner_detector.dart';
 import 'glyph_cnn.dart';
 import 'glyph_reader.dart';
 import 'watch_frame.dart' show whiteBalance;
@@ -21,10 +23,17 @@ class GlyphWorker {
 
   GlyphWorker._();
 
-  static Future<GlyphWorker> spawn(Uint8List cnnBytes) async {
+  /// [cornerBytes]: assets/data/corner_net.bin to add the corner reader
+  /// (its reads count as confident from [cornerScore]).
+  static Future<GlyphWorker> spawn(Uint8List cnnBytes, {Uint8List? cornerBytes, double cornerScore = 0.85}) async {
     final w = GlyphWorker._();
     w._recv.listen(w._onMessage);
-    w._isolate = await Isolate.spawn(_main, (w._recv.sendPort, TransferableTypedData.fromList([cnnBytes])));
+    w._isolate = await Isolate.spawn(_main, (
+      w._recv.sendPort,
+      TransferableTypedData.fromList([cnnBytes]),
+      cornerBytes == null ? null : TransferableTypedData.fromList([cornerBytes]),
+      cornerScore,
+    ));
     await w._ready.future;
     return w;
   }
@@ -57,9 +66,11 @@ class GlyphWorker {
     _pending.clear();
   }
 
-  static void _main((SendPort, TransferableTypedData) args) {
-    final (out, cnnData) = args;
+  static void _main((SendPort, TransferableTypedData, TransferableTypedData?, double) args) {
+    final (out, cnnData, cornerData, cornerScore) = args;
     final cnn = GlyphCnn.parse(cnnData.materialize().asUint8List());
+    final corners = cornerData == null ? null : CornerDetector.parse(cornerData.materialize().asUint8List());
+    cornerConfidentScore = cornerScore;
     final inbox = ReceivePort();
     out.send(inbox.sendPort);
     inbox.listen((m) {
@@ -69,7 +80,7 @@ class GlyphWorker {
         final px = data.materialize().asUint8List();
         // White balance here, off the UI isolate (WatchConfig.whiteBalance).
         if (balance) whiteBalance(px);
-        out.send((id, readGlyphs(px, w, h, cnn: cnn, tta: tta, scaleShortSide: ref, warmLight: warm, ringPaperMin: ring, maxBlobs: maxBlobs, findBoard: findBoard, looseInk: loose, coarsePass: coarse)));
+        out.send((id, readGlyphs(px, w, h, cnn: cnn, tta: tta, scaleShortSide: ref, warmLight: warm, ringPaperMin: ring, maxBlobs: maxBlobs, findBoard: findBoard, looseInk: loose, coarsePass: coarse, corners: corners)));
       } catch (e) {
         out.send((id, '$e'));
       }
