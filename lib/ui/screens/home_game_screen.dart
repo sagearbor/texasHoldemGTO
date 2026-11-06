@@ -440,6 +440,12 @@ class _LoggerState extends State<_Logger> implements WatchHost {
   @override
   void watchSetAction(PreAction? a) => _tap(a);
 
+  @override
+  int? get watchRaiseHalves => _night.pendingRaiseHalves;
+
+  @override
+  void watchSetRaiseSize(int halves) => widget.model.setPendingRaiseSize(halves);
+
   /// The one Camera entry: Watch my cards, with "Just one photo" inside
   /// for Snap my cards.
   Future<void> _openWatch({bool autoStart = false}) async {
@@ -559,7 +565,9 @@ class _LoggerState extends State<_Logger> implements WatchHost {
           child: ActionPad(
             pending: s.pendingAction,
             skipped: s.pendingSkip,
+            raiseHalves: s.pendingRaiseHalves,
             onAction: _tap,
+            onRaiseSize: widget.model.setPendingRaiseSize,
             onNext: s.learning ? null : _nextHand,
           ),
         ),

@@ -68,6 +68,8 @@ dependencies:
   # (_googlecast._tcp). Pure Dart, from flutter.dev. 0.3.2+8 is the last
   # release for Dart 3.4 (0.3.3+1 needs Dart 3.10).
   multicast_dns: 0.3.2+8
+  # Developer mode password check: SHA-256 (already a transitive dependency).
+  crypto: 3.0.8
 
 dev_dependencies:
   flutter_test:

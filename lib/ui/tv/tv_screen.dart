@@ -515,7 +515,7 @@ class _Hands extends StatelessWidget {
             if (h.board != null && h.board!.length >= 3)
               Text('Board ${prettyCards(h.board!)}', style: st(15, c: _dim)),
             if (!h.cardsOpen && h.plays.isNotEmpty)
-              Text('Cards (if shared) show 20 minutes after they were entered.', style: st(13, c: _dim)),
+              Text("Players' cards stay on their phones.", style: st(13, c: _dim)),
           ]),
         ),
     ]);

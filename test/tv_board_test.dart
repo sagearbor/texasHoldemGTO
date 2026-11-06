@@ -38,7 +38,9 @@ class Table {
   late List<Uploader> ups;
   int hand = 0;
 
-  Future<void> setUp({bool joeShares = false}) async {
+  /// [cardsToCloud]: the developer switch (lib/settings/dev_settings.dart)
+  /// on every phone; off is what players get.
+  Future<void> setUp({bool joeShares = false, bool cardsToCloud = true}) async {
     org = await LocalTableSync.organize(MemoryStore(),
         organizerName: 'Sage', selfPid: 'Sage', roster: const [sage, john, joe, amy], now: clock.call, cloud: cloud);
     johnP = await LocalTableSync.join(MemoryStore(), org.qrTicket(),
@@ -46,7 +48,7 @@ class Table {
     joeP = await LocalTableSync.join(MemoryStore(), org.qrTicket(),
         name: 'Joe', claimPid: 'Joe', scannedAtMs: clock.ms, sharing: joeShares, now: clock.call, cloud: cloud);
     ups = [
-      for (final s in [org, johnP, joeP]) Uploader(log: s.log, cloud: cloud, ticket: s.ticket, name: s.myName, now: clock.call)
+      for (final s in [org, johnP, joeP]) Uploader(log: s.log, cloud: cloud, ticket: s.ticket, name: s.myName, now: clock.call, cardsToCloud: () => cardsToCloud)
     ];
   }
 
@@ -106,6 +108,27 @@ void main() {
     expect(b.recent.single.cardsOpen, isTrue);
     expect(b.recent.single.plays.single.cards, parseCards('AsAh'));
     expect(b.rows.firstWhere((r) => r.name == 'John').recent, ['Raise #1']);
+  });
+
+  test('cards kept on the phones (the default): stats on the TV, no cards, no reads spent asking', () async {
+    final t = Table();
+    await t.setUp(cardsToCloud: false);
+    await t.nextHand();
+    t.clock.advance(20000);
+    await t.johnP.setCards(parseCards('AsAh'));
+    await t.johnP.tap(PreAction.raise);
+    t.clock.advance(100000);
+    await t.nextHand();
+    t.clock.advance(cardHoldMs + serverCardHoldMs + const TvOptions().cardDelayMs);
+    await t.upload();
+    expect(t.cloud.cards[t.org.nightId], isNull, reason: 'no card document, ever');
+    final m = await t.tvView();
+    final b = buildTvBoard(m, nowMs: t.clock.ms);
+    expect(b.rows.firstWhere((r) => r.name == 'John').vpip, 1, reason: 'stats come from the taps');
+    expect(b.recent.single.plays.single.cards, isNull);
+    final reads = t.cloud.reads;
+    expect(await CardFetcher(t.cloud, t.org.nightId, now: t.clock.call).fill(m), isFalse);
+    expect(t.cloud.reads, reads, reason: 'the TV does not ask for cards that never go up');
   });
 
   test('a TV that already holds cards still hides them for an unfinished hand', () {
@@ -215,7 +238,7 @@ void main() {
     final kim = await LocalTableSync.join(MemoryStore(), t.org.qrTicket(),
         name: 'Kim', scannedAtMs: t.clock.ms, now: t.clock.call, cloud: t.cloud);
     await t.org.setSeats(const [sage, john, joe, amy, Seat('Kim', 'Kim')]);
-    t.ups.add(Uploader(log: kim.log, cloud: t.cloud, ticket: kim.ticket, name: 'Kim', now: t.clock.call));
+    t.ups.add(Uploader(log: kim.log, cloud: t.cloud, ticket: kim.ticket, name: 'Kim', now: t.clock.call, cardsToCloud: () => true));
     await t.nextHand();
     t.clock.advance(30000);
     await kim.tap(PreAction.call);

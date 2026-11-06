@@ -25,6 +25,10 @@ class _Host implements WatchHost {
   PreAction? watchPendingAction;
   @override
   void watchSetAction(PreAction? a) => watchPendingAction = a;
+  @override
+  int? watchRaiseHalves;
+  @override
+  void watchSetRaiseSize(int halves) => watchRaiseHalves = halves;
 }
 
 /// The logger's side of WatchHost, on a real game night (what the

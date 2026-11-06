@@ -21,11 +21,14 @@
 ///     model, the "where are you sitting" tap): ON by default, their own
 ///     switch. They say who sits near whom, nothing about cards.
 ///   * hand sharing off (the default): no taps, no cards.
-///   * sharing on: taps as they happen; the log says only "had cards"; the
-///     cards themselves go to a card document [cardHoldMs] after they were
-///     read, whatever the phone thinks about the hand being over (a misread
-///     re-peek can look like a new hand), and the rules keep that document
-///     unreadable for [serverCardHoldMs] after it arrives.
+///   * sharing on: taps as they happen; the log says only "had cards".
+///   * hole cards never leave the phone unless [cardsLeavePhone] says so
+///     (Settings → Advanced / Developer, "Send my cards to the cloud", off
+///     by default) AND sharing is on. Then they go to a card document
+///     [cardHoldMs] after they were read, whatever the phone thinks about
+///     the hand being over (a misread re-peek can look like a new hand), and
+///     the rules keep that document unreadable for [serverCardHoldMs] after
+///     it arrives.
 library;
 
 import 'dart:async';
@@ -46,6 +49,12 @@ const cardHoldMs = 20 * 60000;
 /// firestore.rules: nobody may read a card document until this long after
 /// it was written (server time). Keep in step with the rules.
 const serverCardHoldMs = 20 * 60000;
+
+/// Whether this phone's hole cards may go to the cloud at all (besides hand
+/// sharing). False: they stay on the phone. The app points it at
+/// DevSettings.cardsToCloud (lib/settings/dev_settings.dart); pure Dart
+/// code and tests get the safe default.
+bool Function() cardsLeavePhone = () => false;
 
 /// Every cloud document carries `expireAt` = write time + this; a Firestore
 /// TTL policy deletes it after that (firestore.rules allows 1 to 90 days).
@@ -141,11 +150,16 @@ const seatSignals = {
   EventKind.seat,
 };
 
-/// The cloud copy of a phone's log: see the library comment.
-List<NightEvent> cloudEvents(Iterable<NightEvent> events, {required bool sharing, bool seat = true}) => [
+/// The cloud copy of a phone's log: see the library comment. A cards
+/// event becomes the stub `{e}` ("had cards") when [cards] may follow in a
+/// card document, else `{e, local: true}` (cards stay on the phone, so the
+/// TV does not spend reads asking for them).
+List<NightEvent> cloudEvents(Iterable<NightEvent> events,
+        {required bool sharing, bool seat = true, bool cards = false}) =>
+    [
       for (final e in events)
         if (seatSignals.contains(e.kind) ? seat : (!_playerOwn.contains(e.kind) || sharing))
-          e.kind == EventKind.cards ? e.withData({'e': e.data['e']}) : e
+          e.kind == EventKind.cards ? e.withData({'e': e.data['e'], if (!cards) 'local': true}) : e
     ];
 
 /// The cards this phone may put in the cloud at [nowMs]: entry -> cards,
@@ -247,6 +261,9 @@ class Uploader {
   /// Called after every attempt (UI status).
   void Function()? onChange;
 
+  /// Hole cards may leave the phone ([cardsLeavePhone] unless given).
+  final bool Function() cardsToCloud;
+
   Timer? _timer;
   bool _busy = false;
   bool _stopped = true;
@@ -272,7 +289,9 @@ class Uploader {
     Backoff? backoff,
     this.minInterval = const Duration(seconds: 20),
     this.onChange,
-  })  : now = now ?? (() => DateTime.now().millisecondsSinceEpoch),
+    bool Function()? cardsToCloud,
+  })  : cardsToCloud = cardsToCloud ?? (() => cardsLeavePhone()),
+        now = now ?? (() => DateTime.now().millisecondsSinceEpoch),
         backoff = backoff ?? Backoff(cap: const Duration(minutes: 1));
 
   /// This phone's clock at the last fully successful upload.
@@ -283,7 +302,7 @@ class Uploader {
 
   /// part -> (events, fingerprint), what the cloud should hold now.
   Map<int, (List<NightEvent>, String)> _planParts() {
-    final evs = cloudEvents(log.events, sharing: log.sharing, seat: log.sharingSeat);
+    final evs = cloudEvents(log.events, sharing: log.sharing, seat: log.sharingSeat, cards: _cardsGoUp);
     final byPart = <int, List<NightEvent>>{};
     for (final e in evs) {
       byPart.putIfAbsent(partOf(e.seq), () => []).add(e);
@@ -299,10 +318,12 @@ class Uploader {
     };
   }
 
-  Map<int, List<int>> _wantCards() => log.sharing ? releasedCards(log.events, nowMs: now()).$1 : const {};
+  bool get _cardsGoUp => log.sharing && cardsToCloud();
+
+  Map<int, List<int>> _wantCards() => _cardsGoUp ? releasedCards(log.events, nowMs: now()).$1 : const {};
 
   /// When the next held card entry may go up (this phone's clock).
-  int? get nextCardRelease => log.sharing ? releasedCards(log.events, nowMs: now()).$2 : null;
+  int? get nextCardRelease => _cardsGoUp ? releasedCards(log.events, nowMs: now()).$2 : null;
 
   /// Cards entered but still held back on the phone.
   bool get holdingCards => nextCardRelease != null;

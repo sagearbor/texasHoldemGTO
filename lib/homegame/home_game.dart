@@ -82,6 +82,11 @@ class LoggedHand {
   /// the next hand began. Counts as a fold in every stat.
   final bool assumed;
 
+  /// A raise's size as the player swiped it, in half pots (1 = half pot,
+  /// 2 = pot, 3 = 1.5 pot): their estimate, not counted chips. Stats treat
+  /// every raise the same for now.
+  final int? raiseHalves;
+
   LoggedHand({
     required this.number,
     required this.cards,
@@ -94,7 +99,8 @@ class LoggedHand {
     this.board,
     this.start,
     this.assumed = false,
-  });
+    int? raiseHalves,
+  }) : raiseHalves = action == PreAction.raise ? raiseHalves : null;
 
   /// A new [action] is a real tap, so it clears [assumed].
   LoggedHand copyWith({
@@ -117,6 +123,7 @@ class LoggedHand {
         tag: tag,
         start: start,
         assumed: !clearAction && action == null && assumed,
+        raiseHalves: clearAction || (action != null && action != this.action) ? null : raiseHalves,
       );
 
   HandClass? get hand =>
@@ -137,6 +144,7 @@ class LoggedHand {
         if (board != null && board!.isNotEmpty) 'b': board,
         if (start != null) 's': start,
         if (assumed) 'af': true,
+        if (raiseHalves != null) 'rh': raiseHalves,
       };
 
   static LoggedHand fromJson(Map<String, dynamic> j) => LoggedHand(
@@ -151,6 +159,7 @@ class LoggedHand {
         board: (j['b'] as List?)?.cast<int>(),
         start: j['s'] as int?,
         assumed: j['af'] as bool? ?? false,
+        raiseHalves: j['rh'] as int?,
       );
 }
 
@@ -202,6 +211,9 @@ class HomeSession {
   PreAction? pendingAction;
   Facing? pendingFacing;
 
+  /// The size of a pending raise in half pots ([LoggedHand.raiseHalves]).
+  int? pendingRaiseHalves;
+
   /// "I didn't see this hand": close it with no action (unknown), not a fold.
   bool pendingSkip;
 
@@ -234,6 +246,7 @@ class HomeSession {
     this.handStartedAt,
     this.pendingAction,
     this.pendingFacing,
+    this.pendingRaiseHalves,
     this.pendingSkip = false,
     this.learnedSeats,
     List<String>? bench,
@@ -391,6 +404,7 @@ class HomeSession {
         if (currentBoard.isNotEmpty) 'cb': currentBoard,
         if (pendingAction != null) 'pa': pendingAction!.index,
         if (pendingFacing != null) 'pf': pendingFacing!.index,
+        if (pendingRaiseHalves != null) 'pr': pendingRaiseHalves,
         if (pendingSkip) 'pk': true,
       };
 
@@ -422,6 +436,7 @@ class HomeSession {
           (learned != null ? null : (hands.isEmpty ? started : hands.last.ts)),
       pendingAction: j['pa'] == null ? null : PreAction.values[j['pa'] as int],
       pendingFacing: j['pf'] == null ? null : Facing.values[j['pf'] as int],
+      pendingRaiseHalves: j['pr'] as int?,
       pendingSkip: j['pk'] as bool? ?? false,
       learnedSeats: learned,
       bench: (j['bench'] as List?)?.cast<String>().toList(),
@@ -703,7 +718,7 @@ class HomeGameModel extends ChangeNotifier {
   }
 
   void _close(HomeSession s,
-      {List<int>? cards, PreAction? action, Facing? facing, bool assumed = false}) {
+      {List<int>? cards, PreAction? action, Facing? facing, bool assumed = false, int? raiseHalves}) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final board = s.currentBoard.isEmpty ? null : List<int>.of(s.currentBoard);
     s.currentBoard = [];
@@ -718,11 +733,13 @@ class HomeGameModel extends ChangeNotifier {
       board: board,
       start: s.handStartedAt,
       assumed: assumed && action != null,
+      raiseHalves: raiseHalves,
     ));
     s.buttonSeat = (s.buttonSeat + 1) % s.tableSize;
     s.handStartedAt = now;
     s.pendingAction = null;
     s.pendingFacing = null;
+    s.pendingRaiseHalves = null;
     s.pendingSkip = false;
   }
 
@@ -769,7 +786,8 @@ class HomeGameModel extends ChangeNotifier {
         cards: cards,
         action: a,
         facing: s.pendingAction == null ? null : s.pendingFacing,
-        assumed: s.pendingAction == null);
+        assumed: s.pendingAction == null,
+        raiseHalves: s.pendingRaiseHalves);
   }
 
   /// Your tap for the hand being played now; null clears it (back to the
@@ -778,9 +796,19 @@ class HomeGameModel extends ChangeNotifier {
   void setPending(PreAction? action, {Facing? facing}) {
     final s = active;
     if (s == null) return;
+    if (action != s.pendingAction) s.pendingRaiseHalves = null;
     s.pendingAction = action;
     s.pendingFacing = action == null ? null : facing;
     s.pendingSkip = false;
+    _changed();
+  }
+
+  /// The pending raise's size in half pots (the pad's swipe count). Only
+  /// while the pending action is a raise.
+  void setPendingRaiseSize(int halves) {
+    final s = active;
+    if (s == null || s.pendingAction != PreAction.raise) return;
+    s.pendingRaiseHalves = halves;
     _changed();
   }
 
@@ -792,6 +820,7 @@ class HomeGameModel extends ChangeNotifier {
     if (skip) {
       s.pendingAction = null;
       s.pendingFacing = null;
+      s.pendingRaiseHalves = null;
     }
     _changed();
   }
@@ -849,6 +878,7 @@ class HomeGameModel extends ChangeNotifier {
         (s.hands.isEmpty ? s.started : s.hands.last.ts);
     s.pendingAction = last.assumed ? null : last.action;
     s.pendingFacing = last.assumed ? null : last.facing;
+    s.pendingRaiseHalves = last.assumed ? null : last.raiseHalves;
     s.pendingSkip = last.action == null;
     _changed();
   }

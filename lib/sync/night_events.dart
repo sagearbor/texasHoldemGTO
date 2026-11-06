@@ -50,8 +50,10 @@ enum EventKind {
   play,
 
   /// Your own hole cards `{e, c, done?}`. The cloud log only ever gets
-  /// `{e}` ("had cards"): the cards themselves go to a separate card
-  /// document after the hand is over (cloud_logs.dart). [done] = the hand
+  /// `{e}` ("had cards") or `{e, local}` (the default: the cards never
+  /// leave the phone). With Settings → Advanced / Developer "Send my cards
+  /// to the cloud" on, the cards go to a separate card document 20 minutes
+  /// later (cloud_logs.dart). [done] = the hand
   /// is known to be over (the organizer's own hands), so they may go now.
   cards,
 

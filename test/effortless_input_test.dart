@@ -315,7 +315,7 @@ void main() {
       await tester.drag(pad, const Offset(0, -80));
       await tester.pump();
       expect(m.active!.pendingAction, PreAction.raise);
-      expect(find.text('RAISE'), findsOneWidget);
+      expect(find.text('RAISE ½ POT'), findsOneWidget);
       await tester.drag(pad, const Offset(0, 80));
       await tester.pump();
       expect(m.active!.pendingAction, PreAction.fold);
@@ -333,6 +333,36 @@ void main() {
       await tester.scrollUntilVisible(find.text('Fold (auto)'), 200,
           scrollable: find.byType(Scrollable).first);
       expect(find.text('Fold (auto)'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('pad: each swipe up adds half a pot; the size goes with the hand', (tester) async {
+      final m = (await tester.runAsync(() => fresh(players: ['Me', 'Ann', 'Bob'])))!;
+      await pump(tester, m);
+      final pad = find.byType(ActionPad);
+      for (var i = 0; i < 3; i++) {
+        await tester.drag(pad, const Offset(0, -80));
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+      expect(find.text('RAISE 1½ POT'), findsOneWidget);
+      expect(m.active!.pendingRaiseHalves, isNull, reason: 'not committed while still swiping');
+      await tester.pump(raiseSizeWindow);
+      expect(m.active!.pendingAction, PreAction.raise);
+      expect(m.active!.pendingRaiseHalves, 3);
+      expect(find.text('RAISE 1½ POT'), findsOneWidget);
+      // A fresh swipe up later starts again at half a pot.
+      await tester.drag(pad, const Offset(0, -80));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.drag(pad, const Offset(0, -80));
+      // Next hand while still sizing: the size goes with this hand.
+      await tester.drag(pad, const Offset(-120, 0));
+      await tester.pump();
+      expect(m.active!.hands.single.action, PreAction.raise);
+      expect(m.active!.hands.single.raiseHalves, 2);
+      expect(m.active!.pendingRaiseHalves, isNull);
+      // Saved and read back; stats still count it as a plain raise.
+      final back = LoggedHand.fromJson(m.active!.hands.single.toJson());
+      expect(back.raiseHalves, 2);
       expect(tester.takeException(), isNull);
     });
 

@@ -10,6 +10,7 @@ import '../../camera/watch_screen.dart' show WatchSettings, watchModeSupported;
 import '../../homegame/home_game.dart';
 import '../../homegame/my_result.dart';
 import '../../poker/cards.dart';
+import '../../settings/dev_settings.dart';
 import '../../trainer/trainer_model.dart';
 import '../app_settings.dart';
 import '../chart_prefs.dart';
@@ -172,6 +173,7 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AboutScreen())),
               ),
             ),
+            const _AdvancedSection(),
             // Testing tools: developer mode only (About: tap the version 7
             // times), last.
             if (DevMode.on.value)
@@ -282,6 +284,109 @@ class _NameFieldState extends State<_NameField> {
       );
 }
 
+/// Advanced / Developer: locked behind a password (dev_settings.dart);
+/// once entered it stays unlocked and shows the testing switches.
+class _AdvancedSection extends StatelessWidget {
+  const _AdvancedSection();
+
+  Future<void> _unlock(BuildContext context) async {
+    final ok = await showDialog<bool>(context: context, builder: (_) => const _PasswordDialog());
+    if (ok != true) return;
+    await DevMode.set(true);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Developer mode unlocked')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: Listenable.merge([DevSettings.unlocked, DevSettings.cloudCards, DevSettings.devBoard]),
+      builder: (context, _) => _build(context));
+
+  Widget _build(BuildContext context) {
+    if (!DevSettings.unlocked.value) {
+      return Card(
+        child: ListTile(
+          key: const Key('settings-advanced'),
+          leading: Icon(Icons.lock_outline, color: Felt.accent(context)),
+          title: const Text('Advanced / Developer'),
+          subtitle: const Text('Password needed'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _unlock(context),
+        ),
+      );
+    }
+    return _Section(icon: Icons.lock_open_outlined, title: 'Advanced / Developer', children: [
+      SwitchListTile(
+        key: const Key('settings-cloud-cards'),
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Send my cards to the cloud'),
+        subtitle: const Text('With "Share my hands" on, your hole cards go to the table and its TV 20 '
+            'minutes after you enter them. Off: they never leave this phone.'),
+        value: DevSettings.cloudCards.value,
+        onChanged: DevSettings.setCloudCards,
+      ),
+      SwitchListTile(
+        key: const Key('settings-dev-board'),
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Board reading (experimental)'),
+        subtitle: const Text('Watch also tries to read the community cards.'),
+        value: DevSettings.devBoard.value,
+        onChanged: DevSettings.setBoard,
+      ),
+    ]);
+  }
+}
+
+class _PasswordDialog extends StatefulWidget {
+  const _PasswordDialog();
+
+  @override
+  State<_PasswordDialog> createState() => _PasswordDialogState();
+}
+
+class _PasswordDialogState extends State<_PasswordDialog> {
+  final _c = TextEditingController();
+  bool _wrong = false;
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final ok = await DevSettings.unlock(_c.text);
+    if (!mounted) return;
+    if (ok) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() => _wrong = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Developer password'),
+        content: TextField(
+          key: const Key('dev-password'),
+          controller: _c,
+          autofocus: true,
+          obscureText: true,
+          autocorrect: false,
+          enableSuggestions: false,
+          onSubmitted: (_) => _submit(),
+          decoration: InputDecoration(errorText: _wrong ? 'Wrong password' : null),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+          FilledButton(key: const Key('dev-unlock'), onPressed: _submit, child: const Text('Unlock')),
+        ],
+      );
+}
+
 class _Section extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -298,7 +403,7 @@ class _Section extends StatelessWidget {
               Row(children: [
                 Icon(icon, color: Felt.accent(context), size: 20),
                 const SizedBox(width: 8),
-                Text(title, style: Theme.of(context).textTheme.titleMedium),
+                Flexible(child: Text(title, style: Theme.of(context).textTheme.titleMedium)),
               ]),
               const SizedBox(height: 8),
               ...children,
