@@ -66,7 +66,7 @@ void main() {
 
   test('idle -> ultra-wide still -> back to the normal lens; reader never sees a wide frame', () async {
     final w = make();
-    // The gate was busy until t=1000: no excursion before 4000.
+    // Hole cards read until t=1000: no excursion before 4000.
     expect(run(w, 3900, quietFrom: 1000).every((u) => u == WideUse.read), isTrue);
     expect(cam.calls, isEmpty);
     run(w, 4100, quietFrom: 1000);
@@ -100,7 +100,7 @@ void main() {
     expect(cam.calls, hasLength(3));
   });
 
-  test('no excursion while the gate is not idle', () {
+  test('no excursion while hole cards are being read', () {
     final w = make();
     for (var i = 0; i < 300; i++) {
       now += 67;
@@ -190,5 +190,73 @@ void main() {
     w.stop('stopped');
     expect(run(w, 10000), everyElement(WideUse.read));
     expect(cam.calls, isEmpty);
+  });
+
+  /// One excursion from [WideState.normal]: switch, settle on the
+  /// ultra-wide with [moving] frames, switch back. Returns the wide frames' uses.
+  Future<List<WideUse>> excursion(WideExcursion w, {required bool moving}) async {
+    final start = cam.calls.length;
+    while (cam.calls.length == start) {
+      now += 67;
+      w.onFrame(now, quietMs: 99999);
+      if (now > 600000) fail('no excursion');
+    }
+    cam.completeAll();
+    await flush();
+    final uses = <WideUse>[];
+    var k = 0;
+    while (w.state == WideState.wideSettling) {
+      now += 67;
+      final o = (k++ % 2) * 40;
+      final g = moving ? (Uint8List.fromList(flat)..fillRange(o, o + 20, 220)) : flat;
+      uses.add(w.onFrame(now, quietMs: 99999, luma: 100, grid: g));
+    }
+    cam.completeAll();
+    await flush();
+    while (w.state != WideState.normal) {
+      now += 67;
+      w.onFrame(now, quietMs: 99999, luma: 100);
+    }
+    return uses;
+  }
+
+  test('a motion abort is retried after the interval, not given up', () async {
+    final w = make();
+    expect(await excursion(w, moving: true), isNot(contains(WideUse.wideStill)));
+    expect(w.aborts, 1);
+    final end = now;
+    expect(await excursion(w, moving: false), contains(WideUse.wideStill));
+    // The retry came one interval after the abort ended.
+    expect(now - end, inInclusiveRange(6000, 7000));
+    expect(w.excursions, 2);
+    expect(w.stills, 1);
+  });
+
+  test('a table that never stops moving still gets a wide still every third try', () async {
+    final w = make();
+    for (var i = 0; i < 9; i++) {
+      await excursion(w, moving: true);
+    }
+    expect(w.excursions, 9);
+    expect(w.stills, 3);
+    expect(w.aborts, 6);
+    expect(events.where((e) => e.$1 == 'wide_still').every((e) => e.$2['forced'] == true), isTrue);
+  });
+
+  test('hole cards being read keep the lens on the reader', () {
+    final w = make();
+    // A peek: hole cards read until t=5000, then put down.
+    for (now = 0; now < 5000; now += 67) {
+      expect(w.onFrame(now, quietMs: 0), WideUse.read);
+    }
+    expect(cam.calls, isEmpty);
+    for (; now < 7900; now += 67) {
+      w.onFrame(now, quietMs: now - 5000);
+    }
+    expect(cam.calls, isEmpty);
+    for (; now < 8200; now += 67) {
+      w.onFrame(now, quietMs: now - 5000);
+    }
+    expect(cam.calls, [0.5]);
   });
 }

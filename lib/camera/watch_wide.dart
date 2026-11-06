@@ -8,7 +8,11 @@
 /// Cycle: normal --(idle for [WideExcursion.idleMs] and [WideExcursion.intervalMs]
 /// since the last one)--> toWide --(zoom applied)--> wideSettling --(settled:
 /// still)--> toNormal --(applied)--> normalSettling --(settled)--> normal.
-/// Motion on the ultra-wide (a peek starting) aborts straight back. A switch
+/// Motion on the ultra-wide (a peek starting) aborts straight back; the next
+/// try comes [WideExcursion.intervalMs] later as usual, and after
+/// [WideExcursion.maxAbortsInRow] aborts in a row one still is taken
+/// whatever moves (a live table always moves: Nov 5 game night aborted
+/// the first excursion and never took another). A switch
 /// that throws or takes over [WideExcursion.switchTimeoutMs] turns wide shots
 /// off for the session (logged) and asks for the normal zoom once more.
 ///
@@ -60,7 +64,8 @@ class WideExcursion {
   /// At most one excursion per [intervalMs] (from the end of the last one).
   final int intervalMs;
 
-  /// The gate must have been quiet (no card-like change) this long.
+  /// No hole card read for this long (the caller's [onFrame] quietMs):
+  /// no peek is going on.
   final int idleMs;
   final int switchTimeoutMs;
   final int minSettleFrames;
@@ -70,6 +75,10 @@ class WideExcursion {
   /// Grid cells moving between two ultra-wide frames that count as a peek
   /// starting (see [gridMotionCells]).
   final int motionCells;
+
+  /// Motion aborts in a row after which the next excursion keeps its still
+  /// regardless (it is away ~300 ms; a peek lasts seconds).
+  final int maxAbortsInRow;
 
   /// `wide_*` lines for the session log.
   final void Function(String kind, Map<String, Object?> fields)? onEvent;
@@ -86,6 +95,7 @@ class WideExcursion {
     this.maxSettleMs = 800,
     this.stableLuma = 3,
     this.motionCells = 6,
+    this.maxAbortsInRow = 2,
     this.onEvent,
   });
 
@@ -98,6 +108,7 @@ class WideExcursion {
   Uint8List? _lastGrid;
   String? _offReason;
   int excursions = 0, stills = 0, aborts = 0;
+  int _abortsInRow = 0;
 
   WideState get state => _state;
 
@@ -115,8 +126,8 @@ class WideExcursion {
   /// The caller should pass a coarse luma grid (motion on the ultra-wide).
   bool get wantsGrid => _state == WideState.wideSettling;
 
-  /// A frame arrived at [now]. [quietMs]: how long the peek gate has been
-  /// idle (0 while a burst or a read is going on). [luma] / [grid] when
+  /// A frame arrived at [now]. [quietMs]: how long since the reader last
+  /// found hole cards (0 while a peek is being read). [luma] / [grid] when
   /// [wantsLuma] / [wantsGrid].
   WideUse onFrame(int now, {required int quietMs, double? luma, Uint8List? grid}) {
     switch (_state) {
@@ -138,13 +149,16 @@ class WideExcursion {
       case WideState.wideSettling:
         final g = _lastGrid;
         _lastGrid = grid;
-        if (_frames >= 1 && g != null && grid != null && gridMotionCells(g, grid) >= motionCells) {
+        final force = _abortsInRow >= maxAbortsInRow;
+        if (!force && _frames >= 1 && g != null && grid != null && gridMotionCells(g, grid) >= motionCells) {
           abort('motion');
           return WideUse.skip;
         }
         if (!_settled(now, luma)) return WideUse.skip;
         stills++;
+        _abortsInRow = 0;
         onEvent?.call('wide_still', {
+          if (force) 'forced': true,
           'switch_ms': _appliedMs! - _swMs!,
           'settle_ms': now - _appliedMs!,
           'away_ms': now - _exStartMs!,
@@ -172,6 +186,7 @@ class WideExcursion {
   void abort(String why) {
     if (_state != WideState.toWide && _state != WideState.wideSettling) return;
     aborts++;
+    _abortsInRow++;
     onEvent?.call('wide_abort', {'why': why, 'away_ms': nowMs() - (_exStartMs ?? nowMs())});
     _switch(WideState.toNormal, normalZoom, nowMs());
   }

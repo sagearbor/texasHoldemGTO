@@ -33,6 +33,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:felt_notes/camera/board_reader.dart';
+import 'package:felt_notes/camera/board_watch.dart';
 import 'package:felt_notes/camera/glyph_cnn.dart';
 import 'package:felt_notes/camera/glyph_reader.dart';
 import 'package:felt_notes/camera/watch_frame.dart';
@@ -62,6 +64,17 @@ Future<void> main(List<String> argv) async {
   // Reader ceiling: read every still's whole upright frame (no gate, no
   // pipeline); with --dump only.
   final full = args.remove('--full');
+  // --quiet-stats: how often the gate saw nothing card-like (the
+  // "Wide shots between peeks" excursion waits for quiet).
+  final quietStats = args.remove('--quiet-stats');
+  // --board: run the board watcher (lib/camera/board_watch.dart) on every
+  // still too, on the recording's own clock; prints the streets it read.
+  final board = args.remove('--board');
+  final boardVMin = int.tryParse(opt('--board-vmin', '') ?? '');
+  // --board-only: the board watcher alone (no hole-card pipeline; fast).
+  final boardOnly = args.remove('--board-only');
+  final candRun = <int>[]; // per still: 1 card-like, 0 not
+  var oldGo = 0, newGo = 0; // stills where a wide shot may start
   final fullLoose = args.contains('--loose');
   final fullCoarse = args.contains('--coarse');
   final fullMaxFrac = double.parse(opt('--maxfrac', '0.14')!);
@@ -117,6 +130,10 @@ Future<void> main(List<String> argv) async {
 
   final cnn = GlyphCnn.parse(File('assets/data/glyph_cnn.bin').readAsBytesSync());
   final pipe = WatchPipeline(cfg);
+  final boardWatch = BoardWatcher(boardVMin == null
+      ? const BoardWatchConfig()
+      : BoardWatchConfig(reader: BoardReaderConfig(detectVMin: boardVMin)));
+  var boardReadMs = 0;
   final tracker = WatchHandTracker();
   final decisions = <(int, WatchDecision)>[]; // real ms
   final dump = dumpPath == null ? null : File(dumpPath).openWrite();
@@ -159,7 +176,31 @@ Future<void> main(List<String> argv) async {
       dump?.writeln(jsonEncode({'n': n, 's': ms / 1000, 'rot': rot, 'nBlobs': r.timingMs['nBlobs'], 'hits': r.hits.map(_hitJson).toList(), 'hero': [], 'kept': []}));
       return;
     }
+    if (board) {
+      boardWatch.rotation = rot;
+      final bj = boardWatch.onFrame(frame, ms);
+      if (debug) stdout.writeln('  look n$n count ${boardWatch.count}');
+      if (bj != null) {
+        final bsw = Stopwatch()..start();
+        final cards = readBoardJob(bj, cfg: boardWatch.cfg.reader);
+        boardReadMs += bsw.elapsedMilliseconds;
+        final r = boardWatch.onRead(bj, cards);
+        if (verbose) {
+          stdout.writeln('  board n$n ${(ms / 1000).toStringAsFixed(1)}s ${cards.map((c) => c.token).join(' ')}'
+              '${r == null ? '' : '   => street $r'}');
+        }
+      }
+    }
+    if (boardOnly) return;
+    final c0 = pipe.counts.candidate;
     final job = pipe.onFrame(frame, t);
+    if (quietStats) {
+      candRun.add(pipe.counts.candidate > c0 ? 1 : 0);
+      // The wide excursion's go condition (3 s of quiet on the app's clock).
+      final quietMs = (3000 * scale).round();
+      if (pipe.status(t) == WatchStatus.idle && t - pipe.lastCardLikeMs >= quietMs) oldGo++;
+      if (t - pipe.lastHeroCardMs >= quietMs) newGo++;
+    }
     for (final (_, seen) in pipe.lookEnds) {
       final d = tracker.onLookEnd(seen, ms, scene: pipe.sceneEpoch);
       if (d.action == WatchAction.ignore) continue;
@@ -241,6 +282,31 @@ Future<void> main(List<String> argv) async {
   stdout.writeln('stills $idx, reads $reads (mean ${reads == 0 ? 0 : readMsSum ~/ reads} ms on this Mac, ${reads == 0 ? 0 : cnnCalls ~/ reads} CNN calls), ${sw.elapsed.inSeconds} s; '
       'guarded ${pipe.counts.boardGuarded}, omaha ${pipe.counts.omaha}, single ${pipe.counts.singleFrame}');
   if (labels.isNotEmpty) stdout.writeln(scoreHands(decisions, labels));
+  if (board) {
+    stdout.writeln('\n--- board streets read');
+    for (final r in boardWatch.reads) {
+      stdout.writeln('  $r');
+    }
+    stdout.writeln('board swept at: ${boardWatch.clears.map((t) => '${(t / 1000).toStringAsFixed(1)}s').join(', ')}');
+    stdout.writeln('board looks ${boardWatch.looks} (${boardWatch.lookMs} ms), jobs ${boardWatch.jobs} ($boardReadMs ms)');
+  }
+  if (quietStats && candRun.isNotEmpty) {
+    // Runs of consecutive stills (~1 s apart) with nothing card-like.
+    var run = 0, longest = 0, runs3 = 0;
+    for (final c in [...candRun, 1]) {
+      if (c == 0) {
+        run++;
+      } else {
+        if (run >= 3) runs3++;
+        longest = run > longest ? run : longest;
+        run = 0;
+      }
+    }
+    final cand = candRun.where((c) => c == 1).length;
+    stdout.writeln('quiet: card-like on $cand of ${candRun.length} stills '
+        '(${(100 * cand / candRun.length).round()}%), longest quiet run $longest stills, runs of 3+ quiet stills $runs3; '
+        'wide shot may start: card-like quiet $oldGo stills, no hole card for 3 s $newGo stills');
+  }
 }
 
 String _hit(GlyphHit x) => '${cardToString(x.card)} ${x.score.toStringAsFixed(2)}${x.confident ? '' : '~'} '

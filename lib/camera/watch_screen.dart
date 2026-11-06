@@ -681,7 +681,9 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     rec.onFirstFrame(img, rotation);
     final ex = _wide;
     if (ex != null) {
-      final quiet = _pipe.status(t) == WatchStatus.idle ? t - _pipe.lastCardLikeMs : 0;
+      // Free when no hole card was read lately: board cards and chips keep
+      // the gate's card-like signal on nearly all the time at a table.
+      final quiet = _pipe.readerBusy ? 0 : t - _pipe.lastHeroCardMs;
       final use = ex.onFrame(t,
           quietMs: quiet,
           luma: ex.wantsLuma ? sampledMeanLuma(img.planes.first.bytes) : null,

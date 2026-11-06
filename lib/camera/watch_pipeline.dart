@@ -721,6 +721,12 @@ class WatchPipeline {
   /// Frame-clock ms of the last card-like change (the peek gate's
   /// candidate); very negative before the first. Read-only.
   int get lastCardLikeMs => _lastCandidateMs;
+
+  /// Frame-clock ms of the last read that found hole cards (after the
+  /// board guards): a peek going on. Board cards, chips and hands moving
+  /// on the felt make frames card-like nearly all the time at a live
+  /// table, so this, not [lastCardLikeMs], says when the lens is free.
+  int get lastHeroCardMs => _lastCardMs;
   PeekRecord? get currentPeek => _peek;
 
   WatchStatus status(int tMs) =>
