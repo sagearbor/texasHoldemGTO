@@ -149,7 +149,10 @@ class WatchConfig {
   /// "Learned detector").
   final bool cornerReader;
 
-  /// Its reads at or above this (P(rank) x P(suit)) are confident.
+  /// Its reads at or above this (P(rank) x P(suit)) are confident. 0.90
+  /// since the corner reader reads more spots per frame (Nov 7 card audit,
+  /// tool/card_audit.sh): it keeps the wrong cards on the game-night peek
+  /// stills at build 53's count (0.85 kept 3 more, 0.93 lost 6 right ones).
   final double cornerScore;
 
   /// Board guard: two hero cards whose glyph sizes differ more than this
@@ -248,7 +251,7 @@ class WatchConfig {
     this.looseInk = true,
     this.coarsePass = true,
     this.cornerReader = true,
-    this.cornerScore = 0.85,
+    this.cornerScore = 0.90,
     this.maxSizeRatio = 1.6,
     this.maxCardsInView = 0,
     this.resetVotesOnGlobal = false,

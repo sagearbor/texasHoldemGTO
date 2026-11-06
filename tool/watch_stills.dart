@@ -30,6 +30,7 @@
 // read with its geometry (size, aspect, upright aspect, tilt, position),
 // and the hero cards left after the board guards.
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -113,6 +114,20 @@ Future<void> main(List<String> argv) async {
   final noCorners = args.remove('--no-corners');
   final cornersOnly = args.remove('--corners-only');
   final cornerThr = double.tryParse(opt('--corner-thr', '') ?? '');
+  // --corner-peaks N, --corner-row N, --corner-probes 1,1.8,2.6 (or none):
+  // CornerDetector.maxPeaks, rowExtra (0: off), rowProbes.
+  final cornerPeaks = int.tryParse(opt('--corner-peaks', '') ?? '');
+  final cornerRow = int.tryParse(opt('--corner-row', '') ?? '');
+  final cornerProbesOpt = opt('--corner-probes');
+  // --corner-rank heat|size, --no-turn-retry: CornerDetector.bySize, turnRetry.
+  final cornerRank = opt('--corner-rank');
+  final noTurnRetry = args.remove('--no-turn-retry');
+  // --corner-minrel F, --corner-seeds N: CornerDetector.minRelSize, rowProbeSeeds.
+  final cornerMinRel = double.tryParse(opt('--corner-minrel', '') ?? '');
+  final cornerSeeds = int.tryParse(opt('--corner-seeds', '') ?? '');
+  final cornerProbes = cornerProbesOpt == null
+      ? null
+      : [for (final t in cornerProbesOpt.split(',')) if (t != 'none') double.parse(t)];
   const def = WatchConfig();
   final cfg = WatchConfig(
     flatAspect: double.parse(opt('--flat', legacy ? '0.85' : '${def.flatAspect}')!),
@@ -129,7 +144,14 @@ Future<void> main(List<String> argv) async {
   cornerConfidentScore = cornerThr ?? cfg.cornerScore;
   final corners = !cfg.cornerReader && cornersPath == null
       ? null
-      : CornerDetector.parse(File(cornersPath ?? 'assets/data/corner_net.bin').readAsBytesSync());
+      : CornerDetector.parse(File(cornersPath ?? 'assets/data/corner_net.bin').readAsBytesSync(),
+          maxPeaks: cornerPeaks,
+          rowExtra: cornerRow,
+          rowProbes: cornerProbes,
+          bySize: cornerRank == null ? null : cornerRank == 'size',
+          turnRetry: noTurnRetry ? false : null,
+          minRelSize: cornerMinRel,
+          rowProbeSeeds: cornerSeeds);
 
   if (args.length != 1) {
     stderr.writeln('usage: dart run tool/watch_stills.dart REC_DIR [--labels L] [--scale 0.35] [--dump F] [-v]');
@@ -242,7 +264,9 @@ Future<void> main(List<String> argv) async {
       final r = readGlyphs(rgba, rw, rh,
           cnn: cnn,
           tta: cfg.tta,
-          scaleShortSide: h,
+          // The whole frame at the reader's size: its short side is the
+          // frame's short side at this scale.
+          scaleShortSide: math.min(rw, rh),
           warmLight: cfg.warmLight,
           ringPaperMin: cfg.ringPaperMin,
           maxBlobs: cfg.maxBlobs,
@@ -289,6 +313,19 @@ Future<void> main(List<String> argv) async {
         'cards': lab['cards'],
         'ceilHits': [for (final x in r.hits) '${cardToString(x.card)}${x.confident ? '' : '~'}'],
         'ceilKept': kept,
+        // Where each hit is (0..1 of the upright frame), its glyph size over
+        // the short side and its score: for the failure gallery.
+        'ceilGeo': [
+          for (final x in r.hits)
+            {
+              'card': cardToString(x.card),
+              'score': double.parse(x.score.toStringAsFixed(3)),
+              'confident': x.confident,
+              'x': double.parse(x.x.toStringAsFixed(4)),
+              'y': double.parse(x.y.toStringAsFixed(4)),
+              'size': double.parse(x.size.toStringAsFixed(4)),
+            }
+        ],
       };
       auditRows.add(row);
     }
@@ -391,7 +428,29 @@ Future<void> main(List<String> argv) async {
   if (audit) {
     stdout.writeln(auditReport(auditRows, labels, decisions));
     stdout.writeln('ceiling reads $ceilReads (mean ${ceilReads == 0 ? 0 : ceilMs ~/ ceilReads} ms on this Mac)');
-    if (auditJson != null) File(auditJson).writeAsStringSync(jsonEncode(auditRows));
+    if (auditJson != null) {
+      File(auditJson).writeAsStringSync(jsonEncode({
+        'recording': rec,
+        'config': {
+          'cornerReader': corners != null,
+          'cornersOnly': cornersOnly,
+          'corners': cornersPath ?? 'assets/data/corner_net.bin',
+          'cornerScore': cfg.cornerScore,
+          'cornerMaxPeaks': corners?.maxPeaks,
+          'cornerRowExtra': corners?.rowExtra,
+          'cornerRowProbes': corners?.rowProbes,
+          'cornerBySize': corners?.bySize,
+          'cornerTurnRetry': corners?.turnRetry,
+          'cornerMinRelSize': corners?.minRelSize,
+          'cornerProbeSeeds': corners?.rowProbeSeeds,
+          'readMaxShort': cfg.readMaxShort,
+          'coarsePass': cfg.coarsePass,
+          'looseInk': cfg.looseInk,
+        },
+        'ceilingMs': ceilReads == 0 ? 0 : ceilMs ~/ ceilReads,
+        'rows': auditRows,
+      }));
+    }
     await cropsOut?.close();
   }
   if (board) {
@@ -596,6 +655,7 @@ String auditReport(List<Map<String, Object?>> rows, List<Map<String, dynamic>> l
           stage = 'finder';
         }
       }
+      ((row['stage'] ??= <String, String>{}) as Map<String, String>)[card] = stage;
       if (stage == 'read') t[1]++;
       if (grade != 'A') allA = false;
       if (stage != 'read') allRead = false;

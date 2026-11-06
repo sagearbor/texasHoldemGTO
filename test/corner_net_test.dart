@@ -57,4 +57,25 @@ void main() {
     final reads = det.read(rgba, w, h, frameScale: w / 1280);
     expect(reads.where((r) => r.score >= 0.5), isEmpty);
   });
+
+  test('the app reads with the audited settings (tool/card_audit.sh, Nov 7)', () {
+    final det = CornerDetector.parse(File('assets/data/corner_net.bin').readAsBytesSync());
+    expect(det.maxPeaks, 12);
+    expect(det.bySize, isTrue);
+    expect(det.rowExtra, 6);
+    expect(det.rowProbes, [1.0, 1.8, 2.6]);
+    expect(det.turnRetry, isTrue);
+  });
+
+  test('row search and probes find nothing on a blank frame', () {
+    const w = 640, h = 360;
+    final rgba = Uint8List(w * h * 4)..fillRange(0, w * h * 4, 200);
+    final det = CornerDetector(nets[0], nets[1], nets[2]);
+    final t = <String, int>{};
+    final reads = det.read(rgba, w, h, frameScale: w / 1280, timing: t);
+    expect(reads.where((r) => r.score >= 0.5), isEmpty);
+    // No confident seed: no row reads, no probes.
+    expect(t['cornerRow'] ?? 0, 0);
+    expect(t['cornerProbes'] ?? 0, 0);
+  });
 }

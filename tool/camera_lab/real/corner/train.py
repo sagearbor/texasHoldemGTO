@@ -97,8 +97,10 @@ def augment_det(x, rng):
     return ((x + 1) * g - 1 + b).clamp(-1, 1)
 
 
-def train_det(det, ign, tgt, out, epochs, dev, rng, real=None, rep=6):
+def train_det(det, ign, tgt, out, epochs, dev, rng, real=None, rep=6, init=None, lr=2e-3):
     net = CornerNet().to(dev)
+    if init:
+        net.load_state_dict(torch.load(init, map_location='cpu'))
     imgs, packed, tgt = det, ign, list(tgt)
     if real is not None:
         imgs = np.concatenate([imgs] + [real['det']] * rep)
@@ -111,8 +113,8 @@ def train_det(det, ign, tgt, out, epochs, dev, rng, real=None, rep=6):
     N = len(imgs)
     bs = 64
     steps = epochs * (N // bs)
-    opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, 2e-3, total_steps=steps, pct_start=0.1)
+    opt = torch.optim.AdamW(net.parameters(), lr, weight_decay=1e-4)
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, lr, total_steps=steps, pct_start=0.1)
     t0 = time.time()
     step = 0
     for ep in range(epochs):
@@ -142,8 +144,10 @@ def train_det(det, ign, tgt, out, epochs, dev, rng, real=None, rep=6):
     return net
 
 
-def train_cls(cx, cr, cs, out, epochs, dev, rng, real=None):
+def train_cls(cx, cr, cs, out, epochs, dev, rng, real=None, init=None, lr=2e-3):
     net = IndexNet().to(dev)
+    if init:
+        net.load_state_dict(torch.load(init, map_location='cpu'))
     if real is not None:
         cx = np.concatenate([cx] + [real['cx']] * 3)
         cr = np.concatenate([cr] + [real['cr']] * 3)
@@ -151,8 +155,8 @@ def train_cls(cx, cr, cs, out, epochs, dev, rng, real=None):
     N = len(cx)
     bs = 256
     steps = epochs * (N // bs)
-    opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, 2e-3, total_steps=steps, pct_start=0.1)
+    opt = torch.optim.AdamW(net.parameters(), lr, weight_decay=1e-4)
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, lr, total_steps=steps, pct_start=0.1)
     t0 = time.time()
     for ep in range(epochs):
         perm = rng.permutation(N)
@@ -177,6 +181,24 @@ def train_cls(cx, cr, cs, out, epochs, dev, rng, real=None):
     return net
 
 
+def merge_real(spec):
+    """Comma-separated real npz files (pseudo.py, hardneg.py) as one."""
+    if not spec:
+        return None
+    parts = [dict(np.load(f)) for f in spec.split(',')]
+    if len(parts) == 1:
+        return parts[0]
+    out = {}
+    for k in ('cx', 'cr', 'cs', 'det', 'ign', 't'):
+        out[k] = np.concatenate([p[k] for p in parts if k in p and len(p[k])])
+    toff, base = [0], 0
+    for p in parts:
+        toff.extend(int(v) + base for v in p['toff'][1:])
+        base += int(p['toff'][-1])
+    out['toff'] = np.int64(toff)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('data')
@@ -189,6 +211,8 @@ def main():
     ap.add_argument('--real-rep', type=int, default=6)
     ap.add_argument('--only', choices=['det', 'cls'])
     ap.add_argument('--max-det', type=int, default=1200, help='detector crops per shard (memory)')
+    ap.add_argument('--init', help='model dir to fine-tune from (corner.pt / index.pt)')
+    ap.add_argument('--lr', type=float, default=2e-3)
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     dev = 'mps' if torch.backends.mps.is_available() else 'cpu'
@@ -196,12 +220,14 @@ def main():
     torch.manual_seed(0)
     det, ign, tgt, cx, cr, cs = load(a.data, a.holdout, a.max_det)
     print(f'{len(det)} detector crops, {len(cx)} index crops (holdout {a.holdout})', flush=True)
-    real = dict(np.load(a.real)) if a.real else None
-    real_det = dict(np.load(a.real_det)) if a.real_det else None
+    real = merge_real(a.real)
+    real_det = merge_real(a.real_det)
     if a.only != 'cls':
-        train_det(det, ign, tgt, a.out, a.det_epochs, dev, rng, real_det, a.real_rep)
+        train_det(det, ign, tgt, a.out, a.det_epochs, dev, rng, real_det, a.real_rep,
+                  init=a.init and os.path.join(a.init, 'corner.pt'), lr=a.lr)
     if a.only != 'det':
-        train_cls(cx, cr, cs, a.out, a.cls_epochs, dev, rng, real)
+        train_cls(cx, cr, cs, a.out, a.cls_epochs, dev, rng, real,
+                  init=a.init and os.path.join(a.init, 'index.pt'), lr=a.lr)
 
 
 if __name__ == '__main__':

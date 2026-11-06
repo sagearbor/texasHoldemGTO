@@ -25,7 +25,7 @@ class GlyphWorker {
 
   /// [cornerBytes]: assets/data/corner_net.bin to add the corner reader
   /// (its reads count as confident from [cornerScore]).
-  static Future<GlyphWorker> spawn(Uint8List cnnBytes, {Uint8List? cornerBytes, double cornerScore = 0.85}) async {
+  static Future<GlyphWorker> spawn(Uint8List cnnBytes, {Uint8List? cornerBytes, double cornerScore = 0.90}) async {
     final w = GlyphWorker._();
     w._recv.listen(w._onMessage);
     w._isolate = await Isolate.spawn(_main, (
