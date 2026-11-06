@@ -108,6 +108,10 @@ class WatchHandTracker {
   List<int>? _cards;
   int _setAtMs = 0;
 
+  /// See [onRead]: a 3-4 card read sharing one card with the pair set this
+  /// recently is taken for a showdown on the table.
+  static const showdownMs = 240000;
+
   /// Card episode (cards up .. put down) in which [_cards] were set, when
   /// the caller tracks episodes.
   int? _setEpisode;
@@ -175,6 +179,13 @@ class WatchHandTracker {
         return WatchDecision(WatchAction.correct, grown, previous: cur, evidence: evidence);
       }
       if (cur.length > 2 && overlap == 1) return WatchDecision(WatchAction.ignore, cur);
+      // Three or four cards sharing one card with the pair logged a few
+      // minutes ago: that hand's cards laid face up among the board's (a
+      // showdown), not a new Omaha hand. (A new hand sharing a card with
+      // the last one is missed this way; a wrong hand would be worse.)
+      if (cur.length == 2 && overlap == 1 && tMs - _setAtMs <= showdownMs) {
+        return WatchDecision(WatchAction.ignore, cur);
+      }
     }
     final manual = _manualAtMs;
     if (manual != null) {
@@ -214,6 +225,12 @@ class WatchHandTracker {
         return WatchDecision(WatchAction.ignore, cur);
       }
       if (scene != null && scene == _scene && s.length == 1 && s.any(cur.contains)) {
+        return WatchDecision(WatchAction.ignore, cur);
+      }
+      // Still a card of this hand among the new ones, a few minutes in: the
+      // hand's cards face up next to the board's (a showdown), or a board
+      // card read with one held card; not a new deal.
+      if (s.any(cur.contains) && tMs - _setAtMs <= showdownMs) {
         return WatchDecision(WatchAction.ignore, cur);
       }
     } else if ({..._partial, ...s}.length <= 2) {

@@ -653,7 +653,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     if (job == null) return;
     final sw = Stopwatch()..start();
     _worker!.read(job.rgba, job.width, job.height, tta: _pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: _pipe.cfg.warmLight, balance: true,
-            ringPaperMin: _pipe.cfg.ringPaperMin, maxBlobs: _pipe.cfg.maxBlobs, findBoard: _pipe.cfg.findBoard)
+            ringPaperMin: _pipe.cfg.ringPaperMin, maxBlobs: _pipe.cfg.maxBlobs, findBoard: _pipe.cfg.findBoard,
+            looseInk: _pipe.cfg.looseInk, coarsePass: _pipe.cfg.coarsePass)
         .then((r) {
       if (!mounted || !_watching) return;
       if (WatchSettings.crops.value && DevMode.on.value) {

@@ -113,9 +113,34 @@ class WatchConfig {
   final int voteWindowMs;
 
   /// Board guard: a hero card whose rank glyph is flatter than this (height
-  /// over width) lies on the table, seen at a low angle: not the player's
-  /// card. Held cards read 1.04 and up on the owner's footage. 0 = off.
+  /// over width, in image axes) lies on the table, seen at a low angle: not
+  /// the player's card. Held cards read 1.04 and up on the owner's first
+  /// footage, but a fanned, tilted Omaha hand reads far lower (a glyph
+  /// turned 40 degrees is wider than tall): off since build 50, replaced by
+  /// [uprightFlatAspect]. 0 = off.
   final double flatAspect;
+
+  /// Board guard on the card's own axes (GlyphHit.uprightAspect): the
+  /// rank glyph measured along the card, so a card tilted in a fanned hand
+  /// is not mistaken for a flat one. 0 = off. 1.0: on the game-night
+  /// recordings (Nov 5) it dropped 16 of 27 wrong reads and 4 of 247 right.
+  final double uprightFlatAspect;
+
+  /// Hero cards taken from one read: 2 (hold'em pair) or up to 4 (a fanned
+  /// Omaha hand shows all its corner indices at once).
+  final int heroCardsMax;
+
+  /// Fewest cards (3 or 4) a card episode must show, each in two frames,
+  /// to be reported as a hand of more than two cards. 4 since build 50:
+  /// with every card of a read counted, one stray misread next to a
+  /// hold'em pair made a 3-card "hand" (mock1: 2 wrong logs at 3, none at
+  /// 4); an Omaha hand whose fourth card stays hidden logs as its pair.
+  final int omahaMinCards;
+
+  /// Reader options (readGlyphs looseInk / coarsePass): glyphs of unsure
+  /// ink colour, and a half-size pass for cards close to the lens.
+  final bool looseInk;
+  final bool coarsePass;
 
   /// Board guard: two hero cards whose glyph sizes differ more than this
   /// are not both in the hand; the smaller (farther) one is dropped. Held
@@ -206,7 +231,12 @@ class WatchConfig {
     this.findBoard = false,
     this.minAgree = 2,
     this.voteWindowMs = 2500,
-    this.flatAspect = 0.85,
+    this.flatAspect = 0,
+    this.uprightFlatAspect = 1.0,
+    this.heroCardsMax = 4,
+    this.omahaMinCards = 4,
+    this.looseInk = true,
+    this.coarsePass = true,
     this.maxSizeRatio = 1.6,
     this.maxCardsInView = 0,
     this.resetVotesOnGlobal = false,
@@ -641,16 +671,17 @@ class WatchPipeline {
   int _epCountsEpisode = -1;
   List<int>? _omahaSent;
 
-  /// Three or four cards each read in at least two frames of this card
-  /// episode, the weakest at least 40% as often as the strongest: a hand
-  /// of more than two cards (high card first). Null otherwise.
+  /// [WatchConfig.omahaMinCards] (to four) cards each read in at least two
+  /// frames of this card episode, the weakest at least 40% as often as the
+  /// strongest: a hand of more than two cards (high card first). Null
+  /// otherwise.
   List<int>? _omahaHand() {
     final ranked = _epCounts.entries.where((e) => e.value >= 2).toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    if (ranked.length < 3) return null;
+    if (ranked.length < cfg.omahaMinCards) return null;
     final top = ranked.first.value;
     final keep = [for (final e in ranked.take(4)) if (e.value >= top * 0.4) e.key];
-    if (keep.length < 3) return null;
+    if (keep.length < cfg.omahaMinCards) return null;
     return keep..sort((a, b) => b.compareTo(a));
   }
 
@@ -793,7 +824,8 @@ class WatchPipeline {
     _busy = false;
     counts.readMs += readMs;
     final guardedBefore = counts.boardGuarded;
-    final hero = heroCards(r);
+    final all = cfg.heroCardsMax > 2 ? heroHits(r) : null;
+    final hero = all == null ? heroCards(r) : all.take(2).toList();
     final cards = [for (final c in hero) if (c.confident) c.card];
     final scores = [for (final c in hero) if (c.confident) c.score];
     lastEvidence = null;
@@ -856,7 +888,7 @@ class WatchPipeline {
       _epCountsEpisode = cardEpisode;
       _omahaSent = null;
     }
-    for (final c in cards) {
+    for (final c in all == null ? cards : [for (final h in all) if (h.confident) h.card]) {
       _epCounts[c] = (_epCounts[c] ?? 0) + 1;
     }
     var pair = voter.add(cards, job.tMs, scores);
@@ -923,6 +955,33 @@ class WatchPipeline {
       for (var i = 0; i < hero.length; i++)
         if (keep[i]) hero[i]
     ];
+  }
+
+  /// Up to [WatchConfig.heroCardsMax] cards of one read (a fanned Omaha
+  /// hand shows all four indices), best first, minus those the board
+  /// guards rule out: a rank glyph flatter than [WatchConfig.flatAspect]
+  /// (image axes) or [WatchConfig.uprightFlatAspect] (the card's own axes),
+  /// or one much smaller than the biggest card read ([WatchConfig.
+  /// maxSizeRatio]: farther away, on the table). Counted in
+  /// [StageCounts.boardGuarded].
+  List<GlyphCard> heroHits(GlyphReadResult r) {
+    // A result without per-card geometry: the pair guards.
+    if (r.hits.isEmpty) return heroCards(r);
+    final hits = r.hits.where((h) => h.confident).toList();
+    if (hits.isEmpty) return const [];
+    final big = hits.map((h) => h.size).reduce(math.max);
+    final out = <GlyphCard>[];
+    for (final h in hits) {
+      final flat = (cfg.flatAspect > 0 && h.aspect < cfg.flatAspect) ||
+          (cfg.uprightFlatAspect > 0 && h.uprightAspect < cfg.uprightFlatAspect);
+      final far = cfg.maxSizeRatio > 0 && big / h.size > cfg.maxSizeRatio;
+      if (flat || far || out.length >= cfg.heroCardsMax) {
+        if (flat || far) counts.boardGuarded++;
+        continue;
+      }
+      out.add(GlyphCard(h.card, h.score, 1, confident: true));
+    }
+    return out;
   }
 
   /// What the hand tracker made of the pair this peek agreed on.

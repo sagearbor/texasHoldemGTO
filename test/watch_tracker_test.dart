@@ -190,8 +190,14 @@ void main() {
         final t = WatchHandTracker();
         t.onRead(p('As Kd'), 0, episode: 1, scene: 4);
         expect(t.onLookEnd(s('As'), 3000, scene: 4).action, WatchAction.confirm);
-        // One current card and one new one: new cards were dealt.
-        expect(t.onLookEnd(s('As 7c'), 6000, scene: 4).action, WatchAction.newHandUnread);
+        // One current card and one new one within a few minutes: the hand's
+        // card next to a board card (a showdown on the table), not a new
+        // deal (build 50; before, this started an unread hand, and the
+        // showdown then logged the old pair again as a new hand).
+        expect(t.onLookEnd(s('As 7c'), 6000, scene: 4).action, WatchAction.ignore);
+        // Later than that: new cards were dealt.
+        expect(t.onLookEnd(s('As 7c'), WatchHandTracker.showdownMs + 1000, scene: 4).action,
+            WatchAction.newHandUnread);
       });
     });
 
@@ -314,6 +320,15 @@ void main() {
   });
 
   group('Omaha (3-4 cards)', () {
+    test('a pair\'s card face up among board cards is not a new Omaha hand', () {
+      final t = WatchHandTracker();
+      expect(t.onRead(parseCards('Qc Tc'), 0, episode: 1, scene: 1).action, WatchAction.fill);
+      // Showdown: Qc on the table next to the flop's Jc 6c, two looks later.
+      final d = t.onRead(parseCards('Qc Jc 6c'), 167000, episode: 9, scene: 4);
+      expect(d.action, WatchAction.ignore);
+      expect(d.cards, canonicalPair(parseCards('Qc Tc')));
+    });
+
     test('a pair read first grows into the 4-card hand, then the next hand', () {
       final t = WatchHandTracker();
       expect(t.onRead(p('As Kd'), 1000, episode: 1).action, WatchAction.fill);

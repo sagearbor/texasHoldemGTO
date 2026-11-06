@@ -53,7 +53,54 @@ GlyphReadResult geo(String cards, {List<double>? aspects, List<double>? sizes, i
   );
 }
 
+/// A read with per-card geometry (GlyphReadResult.hits): (card, upright
+/// aspect, size) each, best first.
+GlyphReadResult hits(List<(String, double, double)> cs, {double score = 0.9}) {
+  final hs = [
+    for (final (c, up, size) in cs)
+      GlyphHit(parseCards(c).single, score, confident: true, size: size, aspect: 0.6, uprightAspect: up)
+  ];
+  return GlyphReadResult(
+    hero: [for (final h in hs.take(2)) GlyphCard(h.card, h.score, 1, confident: true)],
+    reads: const [],
+    boardCount: 0,
+    hits: hs,
+  );
+}
+
 void main() {
+  group('more than two cards a read (heroCardsMax 4)', () {
+    const cfg = WatchConfig(flatAspect: 0, uprightFlatAspect: 1.0, maxSizeRatio: 1.6, heroCardsMax: 4);
+    String cards(List<GlyphCard> h) => h.map((c) => cardToString(c.card)).join(' ');
+
+    test('a tilted fan keeps all four; flat or far cards are dropped', () {
+      final p = WatchPipeline(cfg);
+      // Image-axis aspect 0.6 (tilted glyphs) no longer matters.
+      expect(cards(p.heroHits(hits([('As', 1.5, 0.05), ('Kd', 1.4, 0.05), ('Qh', 1.3, 0.05), ('Jc', 1.6, 0.05)]))),
+          'As Kd Qh Jc');
+      expect(cards(p.heroHits(hits([('As', 1.5, 0.05), ('7d', 0.7, 0.05)]))), 'As', reason: 'flat along the card');
+      expect(cards(p.heroHits(hits([('As', 1.5, 0.06), ('7d', 1.5, 0.03)]))), 'As', reason: 'far: on the table');
+      expect(p.counts.boardGuarded, 2);
+    });
+
+    test('a fanned Omaha hand read whole in two frames is reported once', () {
+      final p = WatchPipeline(cfg);
+      final job = ReadJob(Uint8List(0), 0, 0, 0, 0);
+      final fan = hits([('As', 1.5, 0.05), ('Kd', 1.4, 0.05), ('Qh', 1.3, 0.05), ('Jc', 1.6, 0.05)]);
+      final got = [p.onRead(job, fan), p.onRead(ReadJob(Uint8List(0), 0, 0, 300, 0), fan)];
+      expect(got.first, isNull);
+      expect(got.last, canonicalPair(parseCards('As Kd Qh Jc')));
+      expect(p.onRead(ReadJob(Uint8List(0), 0, 0, 600, 0), fan), isNull, reason: 'reported once');
+    });
+
+    test('hold\'em pair still agreed as before', () {
+      final p = WatchPipeline(cfg);
+      final pair = hits([('As', 1.5, 0.05), ('Kd', 1.4, 0.05)], score: 0.8);
+      expect(p.onRead(ReadJob(Uint8List(0), 0, 0, 0, 0), pair), isNull);
+      expect(p.onRead(ReadJob(Uint8List(0), 0, 0, 300, 0), pair), canonicalPair(parseCards('As Kd')));
+    });
+  });
+
   test('Omaha: frames showing 2 of 4 cards each report the 4-card hand once', () {
     final pipe = WatchPipeline(const WatchConfig(flatAspect: 0, maxSizeRatio: 0, maxCardsInView: 0));
     final job = ReadJob(Uint8List(0), 0, 0, 0, 0);

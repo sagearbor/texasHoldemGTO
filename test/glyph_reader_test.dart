@@ -99,6 +99,45 @@ void main() {
     expect(t.hero.map((g) => g.card).toSet(), want, reason: 'template read ${t.hero}');
   });
 
+  test('cards close to the lens: big indices need the coarse pass', () {
+    // Watch my cards with the phone flat on the felt: a fanned hand 10-20 cm
+    // from the lens, rank glyphs ~15% of the view's short side. The fine
+    // pass takes them for too big (and sees thick strokes as outlines).
+    final bm = _bitmaps();
+    final c = _Canvas(720, 720);
+    final cards = [(6, 2, (200, 25, 35)), (0, 3, (20, 20, 20))]; // 8h 2s
+    for (var k = 0; k < cards.length; k++) {
+      final (rank, suit, ink) = cards[k];
+      final x0 = 20 + k * 340, y0 = 120;
+      c.rect(x0, y0, 320, 560, 245, 245, 240);
+      c.glyph(bm[(0, rank)]![4], x0 + 30, y0 + 30, 76, 110, ink);
+      c.glyph(bm[(1, suit)]![4], x0 + 34, y0 + 160, 68, 68, ink);
+    }
+    final want = {makeCard(6, 2), makeCard(0, 3)};
+    final fine = readGlyphs(c.px, c.w, c.h, cnn: cnn);
+    expect(fine.hero.where((g) => g.confident).map((g) => g.card).toSet(), isNot(want), reason: 'fine pass ${fine.hero}');
+    final both = readGlyphs(c.px, c.w, c.h, cnn: cnn, coarsePass: true);
+    expect(both.hits.where((g) => g.confident).map((g) => g.card).toSet(), containsAll(want), reason: 'coarse ${both.hits}');
+    for (final h in both.hits.where((h) => want.contains(h.card))) {
+      expect(h.size, greaterThan(0.1), reason: 'sizes are of the full view');
+      expect(h.uprightAspect, greaterThan(1.0));
+    }
+  });
+
+  test('pale red ink (soft focus, dim light) is read with looseInk', () {
+    final bm = _bitmaps();
+    final c = _Canvas(750, 1000);
+    const x0 = 80, y0 = 420;
+    c.rect(x0, y0, 280, 400, 235, 232, 228);
+    const pale = (175, 105, 115); // hue ~176, saturation ~100: not "pure" red
+    c.glyph(bm[(0, 11)]![4], x0 + 20, y0 + 20, 40, 58, pale);
+    c.glyph(bm[(1, 2)]![4], x0 + 22, y0 + 88, 36, 36, pale);
+    final strict = readGlyphs(c.px, c.w, c.h, cnn: cnn);
+    expect(strict.hero.where((g) => g.confident), isEmpty, reason: 'default gates: ${strict.hero}');
+    final loose = readGlyphs(c.px, c.w, c.h, cnn: cnn, looseInk: true);
+    expect(loose.hero.where((g) => g.confident).map((g) => g.card), [makeCard(11, 2)], reason: '${loose.hero}');
+  });
+
   test('isolate message entry point', () {
     final c = _Canvas(300, 400);
     final r = readGlyphsMessage(GlyphReadRequest(c.px, c.w, c.h,

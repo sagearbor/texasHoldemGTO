@@ -53,6 +53,13 @@ int _redInkSMin = _redSMin; // red-ink pixel mask
 int _redPureSMin = _redSMin + 30; // a red glyph's median saturation
 int _redInkVMax = 256; // warm light: lit skin is as orange as red ink, but brighter
 double _ringPaperMin = 0.5; // share of a glyph's surroundings that must be card stock
+/// Diagnostics (tool/watch_stills.dart --debug): when set, the glyph finder
+/// notes why each candidate blob was kept or dropped, and hands over its
+/// paper / red / dark masks. Null in the app.
+List<String>? glyphDebugSink;
+void Function(Uint8List paper, Uint8List red, Uint8List dark, Uint8List g, int w, int h)? glyphDebugMasks;
+double _maxGlyphFrac = 0.14; // largest glyph over the short side (readGlyphs maxGlyphFrac)
+bool _looseInk = false; // pale red / reddish black glyphs (readGlyphs looseInk)
 int? _maxBlobs; // keep only this many glyph blobs (the most paper-ringed)
 
 const int _paperVMin = 90;
@@ -68,6 +75,9 @@ const double glyphConfidentScore = 0.65;
 
 /// CNN hero reads (P(rank) * P(suit)) at or above this count as "confident".
 const double glyphCnnConfidentScore = 0.5;
+
+/// GlyphReadResult.hits keeps at most this many distinct cards.
+const int glyphMaxHits = 6;
 
 /// CNN reads below this are dropped.
 const double _cnnScoreMin = 0.25;
@@ -186,6 +196,35 @@ class GlyphCard {
   String toString() => '${cardToString(card)} ${score.toStringAsFixed(2)}';
 }
 
+/// One distinct card a read found, at its best corner index, with where
+/// and how that index lies (for the board guards and diagnostics).
+class GlyphHit {
+  final int card;
+  final double score;
+  final bool confident;
+
+  /// Glyph size over the frame's short side.
+  final double size;
+
+  /// Rank glyph height over width in image axes, and along the card's own
+  /// axes (tilt-independent), and the card's tilt in degrees (0 upright).
+  final double aspect, uprightAspect, angle;
+
+  /// Rank glyph centre over the image width and height (0..1).
+  final double x, y;
+  const GlyphHit(this.card, this.score,
+      {required this.confident,
+      this.size = 0,
+      this.aspect = 1,
+      this.uprightAspect = 1,
+      this.angle = 0,
+      this.x = 0.5,
+      this.y = 0.5});
+
+  @override
+  String toString() => '${cardToString(card)} ${score.toStringAsFixed(2)}';
+}
+
 class GlyphReadResult {
   /// Up to two hero-card candidates, best first.
   final List<GlyphCard> hero;
@@ -234,7 +273,12 @@ class GlyphReadResult {
   /// the image width and height (0..1), same order as [hero].
   final List<(double, double)> heroAt;
 
+  /// Every distinct card read (confident or not), best first, at most
+  /// [glyphMaxHits]: a 4-card Omaha hand shows more than [hero]'s two.
+  final List<GlyphHit> hits;
+
   const GlyphReadResult({
+    this.hits = const [],
     required this.hero,
     required this.reads,
     required this.boardCount,
@@ -323,7 +367,10 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
     bool warmLight = false,
     double ringPaperMin = 0.5,
     int? maxBlobs,
-    bool findBoard = true}) {
+    bool findBoard = true,
+    bool looseInk = false,
+    bool coarsePass = false,
+    double maxGlyphFrac = 0.14}) {
   if (templates == null && cnn == null) throw ArgumentError('templates or cnn required');
   _paperSMax = warmLight ? 100 : _paperSMaxDefault;
   _redHueMax = warmLight ? 14 : 8;
@@ -332,6 +379,8 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
   _redInkVMax = warmLight ? 165 : 256;
   _ringPaperMin = ringPaperMin;
   _maxBlobs = maxBlobs;
+  _looseInk = looseInk;
+  _maxGlyphFrac = maxGlyphFrac;
   final sw = Stopwatch()..start();
   final timing = <String, int>{};
   final img = _Planes.fromRgba(rgba, width, height, targetShortSide);
@@ -346,7 +395,31 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
   final List<_Read> reads;
   final List<GlyphCard> hero;
   if (cnn != null) {
-    reads = _readIndicesCnn(img, hsv, cnn, board, tta ? _cnnTta : const [0], timing);
+    final fine = _readIndicesCnn(img, hsv, cnn, board, tta ? _cnnTta : const [0], timing);
+    final fineCards = {for (final r in fine) if (r.score >= glyphCnnConfidentScore) r.card};
+    // Only when the fine pass found fewer than two cards: glyphs of one
+    // hand are all about one size, so two read finely means a third or
+    // fourth would read finely too.
+    if (coarsePass && fineCards.length < 2 && board.isEmpty && math.min(img.w, img.h) >= 160) {
+      // Cards close to the lens: indices of 7-28% of the view, whose thick
+      // strokes the fine pass sees only as outlines. The same finder on a
+      // half-size copy judged against the full-size view sees them at the
+      // sizes it was tuned for, at a quarter of the cost.
+      final t1 = sw.elapsedMilliseconds;
+      final half = _Planes.half(img)..sRef = img.s;
+      final st = <String, int>{};
+      final big = _readIndicesCnn(half, _Hsv(half), cnn, const [], tta ? _cnnTta : const [0], st);
+      timing['coarse'] = sw.elapsedMilliseconds - t1;
+      timing['nBlobs'] = (timing['nBlobs'] ?? 0) + (st['nBlobs'] ?? 0);
+      timing['cnnCalls'] = (timing['cnnCalls'] ?? 0) + (st['cnnCalls'] ?? 0);
+      reads = [
+        ...fine,
+        for (final r in big)
+          _Read(r.card, r.score, r.i, r.j, r.md * 2, r.x * 2 + 0.5, r.y * 2 + 0.5, r.aspect, r.uprightAspect, r.angle)
+      ]..sort((x, y) => y.score.compareTo(x.score));
+    } else {
+      reads = fine;
+    }
     hero = _heroFromCnnReads(reads);
   } else {
     reads = _readIndices(img, hsv, templates!, board);
@@ -368,7 +441,21 @@ GlyphReadResult readGlyphs(Uint8List rgba, int width, int height,
     }
     spread = best;
   }
+  final hits = <GlyphHit>[];
+  for (final r in reads) {
+    if (hits.length >= glyphMaxHits) break;
+    if (hits.any((h) => h.card == r.card)) continue;
+    hits.add(GlyphHit(r.card, r.score,
+        confident: r.score >= conf,
+        size: r.md / img.s,
+        aspect: r.aspect,
+        uprightAspect: r.uprightAspect,
+        angle: r.angle,
+        x: r.x / img.w,
+        y: r.y / img.h));
+  }
   return GlyphReadResult(
+    hits: hits,
     heroSpread: spread,
     heroSizes: [for (final c in hero) reads.firstWhere((r) => r.card == c.card).md / img.s],
     heroAspects: [for (final c in hero) reads.firstWhere((r) => r.card == c.card).aspect],
@@ -405,6 +492,24 @@ class _Planes {
   /// against the whole view, as the thresholds were tuned.
   int get s => sRef ?? math.min(w, h);
   int? sRef;
+
+  /// 2x2 box-averaged copy (odd last row / column dropped).
+  factory _Planes.half(_Planes p) {
+    final w = p.w ~/ 2, h = p.h ~/ 2;
+    Uint8List down(Uint8List src) {
+      final out = Uint8List(w * h);
+      for (var y = 0; y < h; y++) {
+        final r0 = 2 * y * p.w, r1 = r0 + p.w;
+        for (var x = 0; x < w; x++) {
+          final c = 2 * x;
+          out[y * w + x] = (src[r0 + c] + src[r0 + c + 1] + src[r1 + c] + src[r1 + c + 1] + 2) >> 2;
+        }
+      }
+      return out;
+    }
+
+    return _Planes(w, h, down(p.r), down(p.g), down(p.b));
+  }
 
   factory _Planes.fromRgba(Uint8List rgba, int width, int height, int targetShort) {
     final short = math.min(width, height);
@@ -906,6 +1011,7 @@ class _Blob {
 
   /// Share of the surroundings that is card stock (how "on a card" it is).
   double ring = 1;
+
   _Blob(this.x, this.y, this.w, this.h, this.cx, this.cy, this.md, this.red, this.mask);
 }
 
@@ -916,7 +1022,32 @@ class _Read {
   /// Centre of the rank glyph (working-image pixels) and its height over
   /// its width.
   final double x, y, aspect;
-  _Read(this.card, this.score, this.i, this.j, this.md, [this.x = 0, this.y = 0, this.aspect = 1]);
+
+  /// The rank glyph's height over its width measured along the card's own
+  /// axes (rank -> suit is "down"), so a card tilted in the hand reads the
+  /// same as an upright one; and that axis' angle in degrees (0 = the
+  /// suit straight below the rank, positive = turned clockwise).
+  final double uprightAspect, angle;
+  _Read(this.card, this.score, this.i, this.j, this.md,
+      [this.x = 0, this.y = 0, this.aspect = 1, this.uprightAspect = 1, this.angle = 0]);
+}
+
+/// [b]'s glyph pixels: extent along ([ux], [uy]) over the extent across it.
+double _alongAcross(_Blob b, double ux, double uy) {
+  var a0 = double.infinity, a1 = -double.infinity, c0 = double.infinity, c1 = -double.infinity;
+  for (var y = 0; y < b.h; y++) {
+    for (var x = 0; x < b.w; x++) {
+      if (b.mask[y * b.w + x] == 0) continue;
+      final dx = x + 0.5, dy = y + 0.5;
+      final a = dx * ux + dy * uy, c = -dx * uy + dy * ux;
+      if (a < a0) a0 = a;
+      if (a > a1) a1 = a;
+      if (c < c0) c0 = c;
+      if (c > c1) c1 = c;
+    }
+  }
+  if (a1 < a0) return 1;
+  return (a1 - a0 + 1) / (c1 - c0 + 1);
 }
 
 List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, double maxFrac = 0.14}) {
@@ -959,6 +1090,7 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
       if (hsv.minc[q] <= mean.round() - 18) darkM[q] = 1;
     }
   }
+  glyphDebugMasks?.call(paper, redM, darkM, img.g, w, h);
   final labels = Int32List(n);
   final stack = Int32List(n);
   final redComps = _components(redM, w, h, labels, 1, conn8: true, stack: stack);
@@ -971,8 +1103,15 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
     final lab = ci + 1;
     final bw = c.bw, bh = c.bh;
     final md = math.max(bw, bh);
-    if (md < lo || md > hi) continue;
-    if (c.area < 0.12 * bw * bh || math.min(bw, bh) < 0.12 * md) continue;
+    final dbg = glyphDebugSink != null && md >= lo * 0.7 && md <= hi;
+    if (md < lo || md > hi) {
+      if (dbg) glyphDebugSink!.add('size md$md lo${lo.toStringAsFixed(1)} @${c.cx.round()},${c.cy.round()}');
+      continue;
+    }
+    if (c.area < 0.12 * bw * bh || math.min(bw, bh) < 0.12 * md) {
+      if (dbg) glyphDebugSink!.add('shape @${c.cx.round()},${c.cy.round()} ${bw}x$bh');
+      continue;
+    }
     final pad = (md * 0.3).toInt() + 2;
     final x0 = math.max(0, c.minX - pad), y0 = math.max(0, c.minY - pad);
     final x1 = math.min(w, c.maxX + 1 + pad), y1 = math.min(h, c.maxY + 1 + pad);
@@ -990,7 +1129,10 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
         }
       }
     }
-    if (ringN == 0 || ringPaper / ringN < _ringPaperMin) continue;
+    if (ringN == 0 || ringPaper / ringN < _ringPaperMin) {
+      if (dbg) glyphDebugSink!.add('ring ${(ringPaper / math.max(1, ringN)).toStringAsFixed(2)} @${c.cx.round()},${c.cy.round()} ${bw}x$bh');
+      continue;
+    }
     final hs = <int>[], ss = <int>[], vs = <int>[];
     final mask = Float64List(bw * bh);
     for (var y = c.minY; y <= c.maxY; y++) {
@@ -1007,9 +1149,24 @@ List<_Blob> _findGlyphBlobs(_Planes img, _Hsv hsv, {double minFrac = 0.016, doub
     final hue = _median(hs), sat = _median(ss), val = _median(vs);
     // Ink purity: clearly dark (black) or saturated pure red.
     final isRed = (hue <= _redHueMax - 1 || hue >= 168) && sat > _redPureSMin;
-    final isBlack = val < 0.5 * paperV && !isRed;
-    if (!(isRed || isBlack)) continue;
-    blobs.add(_Blob(c.minX, c.minY, bw, bh, c.cx, c.cy, md.toDouble(), isRed, mask)..ring = ringPaper / ringN);
+    var isBlack = val < 0.5 * paperV && !isRed;
+    var red = isRed;
+    if (_looseInk) {
+      if (isRed && val < 0.45 * paperV) {
+        // "Red" as dark as black ink: black ink under warm light.
+        red = false;
+        isBlack = true;
+      } else if (!isRed && !isBlack && hue >= 155 && sat >= 40 && val < 0.85 * paperV) {
+        // Pale red: soft focus, a dark maroon red, dim light.
+        red = true;
+      }
+    }
+    if (!(red || isBlack)) {
+      if (dbg) glyphDebugSink!.add('ink h$hue s$sat v$val pv$paperV @${c.cx.round()},${c.cy.round()} ${bw}x$bh');
+      continue;
+    }
+    glyphDebugSink?.add('BLOB ${red ? 'red' : 'blk'} @${c.cx.round()},${c.cy.round()} ${bw}x$bh ring${(ringPaper / ringN).toStringAsFixed(2)}');
+    blobs.add(_Blob(c.minX, c.minY, bw, bh, c.cx, c.cy, md.toDouble(), red, mask)..ring = ringPaper / ringN);
   }
   return blobs;
 }
@@ -1214,7 +1371,7 @@ List<GlyphCard> _heroFromReads(List<_Read> reads) {
 
 List<_Blob> _heroBlobs(_Planes img, _Hsv hsv, List<_Rect> board) {
   final out = [
-    for (final b in _findGlyphBlobs(img, hsv))
+    for (final b in _findGlyphBlobs(img, hsv, maxFrac: _maxGlyphFrac))
       if (!board.any((r) => r.contains(b.cx, b.cy, 2.2))) b
   ];
   // Cost cap (Watch my cards): only the blobs most surrounded by card stock.
@@ -1331,6 +1488,7 @@ List<_Read> _readIndicesCnn(
       }
       // score = P(rank) * P(suit) <= P(rank): skip the suit crops (half the
       // CNN work; Watch my cards runs this several times a second).
+      glyphDebugSink?.add('pair ${a.cx.round()},${a.cy.round()}->${b.cx.round()},${b.cy.round()} rank ${'23456789TJQKA'[r]} ${pr[r].toStringAsFixed(2)}');
       if (pr[r] < _cnnScoreMin) continue;
       final ps = _ttaProbs(cnn, img, b, ux, uy, tta);
       calls += tta.length;
@@ -1338,7 +1496,8 @@ List<_Read> _readIndicesCnn(
       final su = ps[glyphCnnSuit0 + allowed[0]] >= ps[glyphCnnSuit0 + allowed[1]] ? allowed[0] : allowed[1];
       final score = pr[r] * ps[glyphCnnSuit0 + su];
       if (score < _cnnScoreMin) continue;
-      reads.add(_Read(makeCard(r, su), score, i, j, meanMd, a.cx, a.cy, a.h / a.w));
+      reads.add(_Read(makeCard(r, su), score, i, j, meanMd, a.cx, a.cy, a.h / a.w, _alongAcross(a, ux, uy),
+          math.atan2(-ux, uy) * 180 / math.pi));
     }
   }
   stats['cnnCalls'] = calls;

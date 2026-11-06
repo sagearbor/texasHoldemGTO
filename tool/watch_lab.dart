@@ -112,7 +112,12 @@ Future<void> main(List<String> argv) async {
     minAgree: int.parse(opt('--agree', '2')!),
     voteWindowMs: int.parse(opt('--window', '2500')!),
     resetVotesOnGlobal: args.remove('--reset-global'),
-    flatAspect: double.parse(opt('--flat', '0.85')!),
+    flatAspect: double.parse(opt('--flat', '0')!),
+    uprightFlatAspect: double.parse(opt('--uflat', '1.0')!),
+    heroCardsMax: int.parse(opt('--hero-max', '4')!),
+    omahaMinCards: int.parse(opt('--omaha-min', '4')!),
+    looseInk: !args.remove('--no-loose'),
+    coarsePass: !args.remove('--no-coarse'),
     maxSizeRatio: double.parse(opt('--ratio', '1.6')!),
     maxCardsInView: int.parse(opt('--max-in-view', '0')!),
     keepUnreadVotes: args.remove('--keep-unread'),
@@ -254,7 +259,7 @@ Future<void> main(List<String> argv) async {
     final sw = Stopwatch()..start();
     final r = readGlyphs(job.rgba, job.width, job.height,
         cnn: cnn, tta: pipe.cfg.tta, scaleShortSide: job.scaleShortSide, warmLight: pipe.cfg.warmLight, ringPaperMin: pipe.cfg.ringPaperMin,
-        maxBlobs: pipe.cfg.maxBlobs, findBoard: pipe.cfg.findBoard);
+        maxBlobs: pipe.cfg.maxBlobs, findBoard: pipe.cfg.findBoard, looseInk: pipe.cfg.looseInk, coarsePass: pipe.cfg.coarsePass);
     final ms = sw.elapsedMilliseconds;
     for (final e in r.timingMs.entries) {
       if (e.key != 'total') stageMs[e.key] = (stageMs[e.key] ?? 0) + e.value;
