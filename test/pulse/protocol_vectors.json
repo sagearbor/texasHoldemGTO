@@ -1,0 +1,28 @@
+{
+  "v": 1,
+  "valid": [
+    {"path": "/feltnotes/pulse/v1/hr", "json": "{\"v\":1,\"s\":[[1762500000000,72],[1762500001000,74]]}",
+     "expect": {"type": "hr", "s": [[1762500000000, 72], [1762500001000, 74]]}},
+    {"path": "/feltnotes/pulse/v1/hr", "json": "{\"v\":1,\"s\":[]}",
+     "expect": {"type": "hr", "s": []}},
+    {"path": "/feltnotes/pulse/v1/state", "json": "{\"v\":1,\"running\":true,\"err\":null}",
+     "expect": {"type": "state", "running": true, "err": null}},
+    {"path": "/feltnotes/pulse/v1/state", "json": "{\"v\":1,\"running\":false,\"err\":\"no_permission\"}",
+     "expect": {"type": "state", "running": false, "err": "no_permission"}},
+    {"path": "/feltnotes/pulse/v1/ctl", "json": "{\"v\":1,\"cmd\":\"start\"}",
+     "expect": {"type": "ctl", "cmd": "start"}},
+    {"path": "/feltnotes/pulse/v1/ctl", "json": "{\"v\":1,\"cmd\":\"stop\"}",
+     "expect": {"type": "ctl", "cmd": "stop"}}
+  ],
+  "invalid": [
+    {"path": "/feltnotes/pulse/v2/hr", "json": "{\"v\":2,\"s\":[]}", "why": "unknown version"},
+    {"path": "/feltnotes/pulse/v1/hr", "json": "not json", "why": "bad json"},
+    {"path": "/feltnotes/pulse/v1/ctl", "json": "{\"v\":1,\"cmd\":\"explode\"}", "why": "unknown cmd"},
+    {"path": "/other/path", "json": "{}", "why": "unknown path"}
+  ],
+  "dartFilter": {
+    "comment": "Dart drops samples with bpm outside 30..230 and samples not newer than the last kept one",
+    "in": [[1000, 72], [2000, 10], [3000, 75], [2500, 80], [4000, 240], [5000, 76]],
+    "out": [[1000, 72], [3000, 75], [5000, 76]]
+  }
+}
