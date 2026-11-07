@@ -4,18 +4,25 @@
 // night on this screen". What it may show, and when: lib/sync/tv_board.dart.
 
 import 'dart:async';
+import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../gto/coach.dart';
 import '../../homegame/blind_clock.dart';
 import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
+import '../../pulse/pulse_board.dart';
+import '../../pulse/pulse_cloud.dart';
 import '../../sync/event_log.dart';
 import '../../sync/night_events.dart';
 import '../../sync/night_merge.dart' show clockLabel;
 import '../../sync/tv_board.dart';
 import '../../radar/radar_view.dart';
+import '../pulse/pulse_chart.dart';
+import '../pulse/pulse_widgets.dart';
+import '../pulse/song_player.dart';
 import '../theme.dart';
 import 'show_on_tv.dart';
 import 'tv_controller.dart';
@@ -160,7 +167,11 @@ class TvScreen extends StatefulWidget {
 
   /// The TV link: an in-app preview shows a "Show on the TV" button.
   final String? castUrl;
-  const TvScreen({super.key, required this.ticket, this.onChangeCode, this.controller, this.castUrl});
+
+  /// Tests: instead of the real audio player (Pulse songs).
+  final SongPlayer? songPlayer;
+  const TvScreen(
+      {super.key, required this.ticket, this.onChangeCode, this.controller, this.castUrl, this.songPlayer});
 
   @override
   State<TvScreen> createState() => _TvScreenState();
@@ -168,23 +179,57 @@ class TvScreen extends StatefulWidget {
 
 class _TvScreenState extends State<TvScreen> {
   late final TvController c = widget.controller ?? TvController(widget.ticket);
+  late final PulseTvAudio audio = PulseTvAudio(widget.songPlayer ?? AudioSongPlayer(), blocked: kIsWeb);
   Timer? _second;
 
   @override
   void initState() {
     super.initState();
     c.start();
-    // The clock and "updated 12 s ago" tick every second.
+    // The clock and "updated 12 s ago" tick every second; so does the
+    // Pulse song rule.
     _second = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      setState(() {});
+      final p = _pulse();
+      if (p != null && !(c.board?.ended ?? false)) audio.tick(c.now(), p);
     });
   }
 
   @override
   void dispose() {
     _second?.cancel();
+    audio.dispose();
     if (widget.controller == null) c.dispose();
     super.dispose();
+  }
+
+  /// The Pulse chart's board (null when nobody shares a heart rate). After
+  /// the End it stops at the last heart rate instead of scrolling away.
+  PulseBoard? _pulse() {
+    final n = c.pulse;
+    if (!n.hasData) return null;
+    var at = c.now();
+    if (c.board?.ended ?? false) {
+      at = n.samples.values.where((s) => s.isNotEmpty).map((s) => s.last.tMs).reduce(max);
+    }
+    return buildPulseBoard(n, nowMs: at);
+  }
+
+  PulseNight? _summaryOf;
+  PulseSummary? _summary;
+
+  /// The night's awards, once it ended (recomputed when the data changes).
+  PulseSummary? _awards() {
+    final n = c.pulse;
+    if (!(c.board?.ended ?? false) || !n.hasData) return null;
+    if (!identical(n, _summaryOf)) {
+      _summaryOf = n;
+      final hands = c.merged?.timeline.hands ?? const [];
+      final s = pulseSummary(n, handAt: handFinder([for (final h in hands) (h.n, h.startMs, h.endMs)]));
+      _summary = s.isEmpty ? null : s;
+    }
+    return _summary;
   }
 
   @override
@@ -197,7 +242,15 @@ class _TvScreenState extends State<TvScreen> {
           builder: (context, _) => LayoutBuilder(builder: (context, box) {
             final wide = box.maxWidth >= 900;
             final s = wide ? (box.maxWidth / 1280).clamp(0.85, 2.2) : 1.0;
-            return _TvBody(c: c, scale: s, wide: wide, onChangeCode: widget.onChangeCode, castUrl: widget.castUrl);
+            return _TvBody(
+                c: c,
+                scale: s,
+                wide: wide,
+                onChangeCode: widget.onChangeCode,
+                castUrl: widget.castUrl,
+                pulse: _pulse(),
+                awards: _awards(),
+                audio: audio);
           }),
         ),
       ),
@@ -211,7 +264,18 @@ class _TvBody extends StatelessWidget {
   final bool wide;
   final VoidCallback? onChangeCode;
   final String? castUrl;
-  const _TvBody({required this.c, required this.scale, required this.wide, this.onChangeCode, this.castUrl});
+  final PulseBoard? pulse;
+  final PulseSummary? awards;
+  final PulseTvAudio audio;
+  const _TvBody(
+      {required this.c,
+      required this.scale,
+      required this.wide,
+      this.onChangeCode,
+      this.castUrl,
+      this.pulse,
+      this.awards,
+      required this.audio});
 
   TextStyle _t(double size, {Color color = Colors.white, FontWeight w = FontWeight.w500}) => TextStyle(
       color: color, fontSize: size * scale, fontWeight: w, fontFeatures: const [FontFeature.tabularFigures()]);
@@ -243,8 +307,30 @@ class _TvBody extends StatelessWidget {
             icon: const Icon(Icons.cast),
             label: const Text('Show on the TV'),
           ),
+        if (pulse != null) _PulseSound(audio: audio, scale: scale, now: c.now),
       ],
     );
+    final p = pulse;
+    final chart = p == null
+        ? null
+        : Container(
+            key: const Key('pulse-chart'),
+            padding: EdgeInsets.fromLTRB(8 * scale, 12 * scale, 8 * scale, 8 * scale),
+            decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(16)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                Icon(Icons.favorite, color: Colors.redAccent, size: 20 * scale),
+                SizedBox(width: 6 * scale),
+                Flexible(
+                  child: Text('Heart rates · last 10 minutes',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: _t(18, color: _dim, w: FontWeight.w700)),
+                ),
+              ]),
+              SizedBox(height: 4 * scale),
+              Expanded(child: PulseChart(board: p, scale: scale, faceSize: wide ? 96 : 44)),
+            ]),
+          );
+    final summary = awards == null ? null : PulseSummaryCard(summary: awards!, scale: wide ? scale : 0.85);
     final clock = b?.clock == null ? null : _Clock(json: b!.clock!, now: now, scale: scale);
     final players = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _Players(rows: b?.rows ?? const [], scale: scale),
@@ -282,6 +368,8 @@ class _TvBody extends StatelessWidget {
       return ListView(padding: const EdgeInsets.all(16), children: [
         header,
         const SizedBox(height: 12),
+        if (summary != null) ...[summary, const SizedBox(height: 12)],
+        if (chart != null) ...[SizedBox(height: 340, child: chart), const SizedBox(height: 12)],
         if (clock != null) ...[clock, const SizedBox(height: 12)],
         players,
         const SizedBox(height: 12),
@@ -290,6 +378,12 @@ class _TvBody extends StatelessWidget {
         footer,
       ]);
     }
+    final table = Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Expanded(flex: 11, child: SingleChildScrollView(child: players)),
+      SizedBox(width: 20 * scale),
+      Expanded(flex: 9, child: SingleChildScrollView(child: hands)),
+    ]);
+    final noHands = b.handNow == null && b.recent.isEmpty;
     return Padding(
       padding: EdgeInsets.all(20 * scale),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -298,13 +392,23 @@ class _TvBody extends StatelessWidget {
           if (clock != null) SizedBox(width: 420 * scale, child: clock),
         ]),
         SizedBox(height: 16 * scale),
-        Expanded(
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(flex: 11, child: SingleChildScrollView(child: players)),
-            SizedBox(width: 20 * scale),
-            Expanded(flex: 9, child: SingleChildScrollView(child: hands)),
-          ]),
-        ),
+        if (chart == null)
+          Expanded(child: table)
+        else ...[
+          // A Pulse night with no hands is all chart; otherwise the chart
+          // on top, the table below.
+          Expanded(
+            flex: noHands ? 1 : 3,
+            child: summary == null
+                ? chart
+                : Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    Expanded(flex: 3, child: chart),
+                    SizedBox(width: 16 * scale),
+                    Expanded(flex: 2, child: SingleChildScrollView(child: summary)),
+                  ]),
+          ),
+          if (!noHands) ...[SizedBox(height: 12 * scale), Expanded(flex: 2, child: table)],
+        ],
         SizedBox(height: 8 * scale),
         footer,
       ]),
@@ -519,5 +623,41 @@ class _Hands extends StatelessWidget {
           ]),
         ),
     ]);
+  }
+}
+
+/// Pulse sound: the now-playing chip, "Tap to enable sound" when the
+/// browser blocked it, and a mute switch.
+class _PulseSound extends StatelessWidget {
+  final PulseTvAudio audio;
+  final double scale;
+  final int Function() now;
+  const _PulseSound({required this.audio, required this.scale, required this.now});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: audio,
+      builder: (context, _) => Row(mainAxisSize: MainAxisSize.min, children: [
+        if (audio.nowPlaying?.song != null) Flexible(child: NowPlayingChip(member: audio.nowPlaying!, scale: scale)),
+        if (audio.blocked)
+          Padding(
+            padding: EdgeInsets.only(left: 8 * scale),
+            child: FilledButton.icon(
+              key: const Key('pulse-enable-sound'),
+              onPressed: () => audio.enable(now()),
+              icon: const Icon(Icons.volume_up),
+              label: const Text('Tap to enable sound'),
+            ),
+          )
+        else
+          IconButton(
+            key: const Key('pulse-mute'),
+            tooltip: audio.muted ? 'Songs off' : 'Songs on',
+            icon: Icon(audio.muted ? Icons.volume_off : Icons.volume_up, color: _dim, size: 22 * scale),
+            onPressed: () => audio.muted ? audio.enable(now()) : audio.setMuted(true),
+          ),
+      ]),
+    );
   }
 }

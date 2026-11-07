@@ -10,6 +10,8 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../../pulse/pulse_cloud.dart';
+import '../../pulse/pulse_firestore.dart';
 import '../../sync/cloud_config.dart';
 import '../../radar/radar_model.dart';
 import '../../sync/cloud_logs.dart';
@@ -45,6 +47,11 @@ class TvController extends ChangeNotifier {
   CloudLogs? _cloud;
   CardFetcher? _cards;
   StreamSubscription<List<DeviceLog>>? _sub;
+  StreamSubscription<PulseNight>? _pulseSub;
+
+  /// Pulse mode: every member's heart rate, selfie and song (empty when
+  /// nobody shares).
+  PulseNight pulse = PulseNight.empty;
   Timer? _tick, _retry;
   int _failures = 0;
   bool _disposed = false;
@@ -94,6 +101,13 @@ class TvController extends ChangeNotifier {
         error = null;
         _rebuild(fetchCards: true);
       }, onError: (Object e) => _lost(e), onDone: () => _lost('closed'));
+      // Pulse: its own listener; a failure here never takes the board down
+      // (the next reconnect tries again).
+      await _pulseSub?.cancel();
+      _pulseSub = pulseCloudFor(c)?.watch(ticket.nightId).listen((n) {
+        pulse = n;
+        notifyListeners();
+      }, onError: (Object _) {});
     } catch (e) {
       _lost(e);
     }
@@ -103,6 +117,8 @@ class TvController extends ChangeNotifier {
     if (_disposed) return;
     _sub?.cancel();
     _sub = null;
+    _pulseSub?.cancel();
+    _pulseSub = null;
     link = TvLink.offline;
     error = '$e';
     _failures++;
@@ -163,6 +179,7 @@ class TvController extends ChangeNotifier {
     _tick?.cancel();
     _retry?.cancel();
     _sub?.cancel();
+    _pulseSub?.cancel();
     super.dispose();
   }
 }

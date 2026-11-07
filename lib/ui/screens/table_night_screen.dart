@@ -28,6 +28,7 @@ import '../../nearby/table_mode_screen.dart';
 import '../../radar/radar_screen.dart';
 import '../../nearby/nearby_ui.dart' show FindNearbyButton, NearbyHostTile, maybeAskUwb, showSeatCalibration;
 import '../app_settings.dart';
+import '../pulse/pulse_widgets.dart' show PulseShareTile;
 import '../theme.dart';
 import '../../camera/watch_screen.dart' show requestAutoWatch;
 import '../tv/tv_controller.dart' show ticketFromTvInput;
@@ -593,6 +594,9 @@ class _PlayerPadScreenState extends State<PlayerPadScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 8),
+            // Pulse: heart rate from the watch to the TV, per night, off by default.
+            const PulseShareTile(),
             const SizedBox(height: 16),
             OutlinedButton.icon(
               onPressed: () async {
@@ -738,6 +742,7 @@ class _OrganizerSheetState extends State<_OrganizerSheet> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => openRadar(context),
           ),
+          const PulseShareTile(),
           ListenableBuilder(
             listenable: _svc,
             builder: (context, _) => ExpansionTile(

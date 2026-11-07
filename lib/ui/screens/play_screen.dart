@@ -4,10 +4,12 @@ import '../../homegame/home_game.dart';
 import '../../nearby/nearby_ble.dart' show bleSupported;
 import '../../nearby/nearby_service.dart';
 import '../../nearby/nearby_ui.dart' show askBluetooth, joinNearbyGame;
+import '../../pulse/pulse_service.dart';
 import '../../sync/table_night_service.dart';
 import '../../trainer/trainer_model.dart';
 import '../app_settings.dart';
 import '../player_name.dart';
+import '../pulse/pulse_screen.dart' show openPulseScreen, startPulseNight;
 import '../theme.dart';
 import 'glossary_screen.dart';
 import 'help_screen.dart';
@@ -99,7 +101,7 @@ class _Hub extends StatelessWidget {
         actions: const [GlossaryButton(), HelpButton(HelpTopic.play)],
       ),
       body: ListenableBuilder(
-        listenable: Listenable.merge([_near, _tn, AppSettings.playerName]),
+        listenable: Listenable.merge([_near, _tn, AppSettings.playerName, PulseService.instance]),
         builder: (context, _) {
           final joined = _tn.night != null && !_tn.isOrganizer;
           return ListView(
@@ -134,6 +136,31 @@ class _Hub extends StatelessWidget {
               const SizedBox(height: 4),
               Text('You log the hands; other phones and a TV can join.',
                   style: t.bodySmall, textAlign: TextAlign.center),
+              if (_tn.night == null) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  key: const Key('play-pulse'),
+                  onPressed: () async {
+                    final ok = await ensurePlayerName(context);
+                    if (!ok || !context.mounted) return;
+                    await startPulseNight(context, AppSettings.playerName.value.trim());
+                  },
+                  icon: const Icon(Icons.favorite_border),
+                  label: const Text('Start a Pulse night'),
+                ),
+                const SizedBox(height: 4),
+                Text('Heart rates from watches on one TV chart. No hands to log.',
+                    style: t.bodySmall, textAlign: TextAlign.center),
+              ],
+              if (_tn.night != null && _tn.isOrganizer && PulseService.instance.pulseNight) ...[
+                const SizedBox(height: 12),
+                FilledButton.tonalIcon(
+                  key: const Key('play-back-to-pulse'),
+                  onPressed: () => openPulseScreen(context),
+                  icon: const Icon(Icons.favorite),
+                  label: const Text('Back to the Pulse night'),
+                ),
+              ],
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 key: const Key('play-scan'),

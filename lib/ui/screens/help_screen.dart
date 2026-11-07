@@ -13,7 +13,7 @@ import 'leak_test_screen.dart';
 import 'settings_screen.dart';
 
 /// One help topic per screen: the Learn sections, Play and History.
-enum HelpTopic { train, charts, equity, stats, play, history }
+enum HelpTopic { train, charts, equity, stats, play, pulse, history }
 
 /// One help line: a short [title] anyone can scan, the long [detail] on tap.
 /// [dev] lines describe developer-mode tools and are hidden otherwise.
@@ -139,6 +139,27 @@ const helpTopics = {
         'Prop the phone where it sees the whole table, plugged in. Saves 1 to 2 photos a second and a log on '
             'this phone only (about 2 to 3 GB an hour). Hold the red button to stop.',
         true),
+  ]),
+  HelpTopic.pulse: HelpTopicInfo(Icons.favorite_border, 'Pulse', 'Heart rates from watches on the TV, for fun', [
+    HelpTip('Pulse: everyone\'s heart rate on one TV chart.',
+        'Each player who joins Pulse gets a line, ending in a small circle with their face. Phones can lie on '
+            'the table, screen on and dim; nobody needs to look at them.'),
+    HelpTip('Start: Play → Start a Pulse night. Join: scan the host\'s code.',
+        'In any table night, players turn on "Share my heart rate with this table" on their night screen. '
+            'It is off by default, every night.'),
+    HelpTip('The first time: your name and a selfie (or skip it for initials).',
+        'The selfie is cropped to a tiny 96 px circle. Both stay on your phone until you share with a table.'),
+    HelpTip('Pick a song: it plays on the TV while your heart rate leads.',
+        'Lead for 10 seconds and the TV plays a 30-second preview from Apple Music; then no song for 2 minutes. '
+            'The TV needs one tap ("Tap to enable sound") before a browser lets it play.'),
+    HelpTip('A watch: Wear OS or Apple Watch with Felt Notes on it.',
+        'The Pulse screen shows whether the watch is paired, has the app and is connected, with Install on '
+            'watch and Start / Stop.'),
+    HelpTip('End of the night: calmest player, biggest spike, highest heart rate.',
+        'On the TV after End and in the host\'s recap. Made for a screenshot.'),
+    HelpTip('Privacy: your heart rate goes from the watch to your phone.',
+        'Only if you turn on sharing does it go to the table (and its TV), with your name, selfie and song. '
+            'Turning it off deletes it from the table; everything is deleted with the night. No account.'),
   ]),
   HelpTopic.history: HelpTopicInfo(Icons.history, 'History', 'Past nights, recaps and your crew', [
     HelpTip('Each past night has its Recap and Dashboard.'),

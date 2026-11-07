@@ -9,6 +9,9 @@ import '../../homegame/moments.dart';
 import '../../homegame/my_result.dart';
 import '../../homegame/recap.dart';
 import '../../poker/cards.dart';
+import '../../pulse/pulse_board.dart' show PulseSummary;
+import '../../pulse/pulse_service.dart';
+import '../pulse/pulse_widgets.dart' show PulseSummaryCard;
 import '../theme.dart';
 import '../widgets/my_result_dialog.dart';
 import '../widgets/share_card.dart';
@@ -28,6 +31,18 @@ class _RecapScreenState extends State<RecapScreen> {
   final _pages = PageController();
   int _page = 0;
 
+  /// Pulse awards, when this night was a table night with heart rates
+  /// (fetched from the night; nothing without a connection).
+  PulseSummary? _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    PulseService.summaryForSession(widget.session).then((s) {
+      if (s != null && mounted) setState(() => _pulse = s);
+    });
+  }
+
   @override
   void dispose() {
     _pages.dispose();
@@ -41,7 +56,10 @@ class _RecapScreenState extends State<RecapScreen> {
 
   Widget _build(BuildContext context) {
     final r = nightRecap(widget.session, widget.model.library);
-    final cards = recapCards(r);
+    final cards = [
+      ...recapCards(r),
+      if (_pulse != null) Center(child: SingleChildScrollView(child: PulseSummaryCard(summary: _pulse!))),
+    ];
     return Scaffold(
       backgroundColor: Felt.feltDark,
       appBar: AppBar(
