@@ -5,6 +5,21 @@
       "collectionGroup": "logs",
       "fieldPath": "events",
       "indexes": []
+    },
+    {
+      "collectionGroup": "pulseData",
+      "fieldPath": "s",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "pulse",
+      "fieldPath": "face",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "pulse",
+      "fieldPath": "song",
+      "indexes": []
     }
   ]
 }
