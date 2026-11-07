@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Felt Notes Pulse</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Apple's delivery check (ITMS-90713) wants this top-level key for a watch app. -->
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>WKApplication</key>
+	<true/>
+	<!-- Literal, not $(...): flutter build ios looks for this exact value in
+	     ios/<target>/Info.plist to know it must not pass -sdk iphoneos. -->
+	<key>WKCompanionAppBundleIdentifier</key>
+	<string>com.sagearbor.feltnotes.app</string>
+	<key>WKRunsIndependentlyOfCompanionApp</key>
+	<false/>
+	<key>WKBackgroundModes</key>
+	<array>
+		<string>workout-processing</string>
+	</array>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Felt Notes reads your heart rate during a game night so your table can see it, only when you join Pulse.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Felt Notes runs a short workout session on your watch to read your heart rate during a game night, only when you join Pulse. The workout is discarded when you stop, so nothing is saved to your Health app.</string>
+</dict>
+</plist>

@@ -8,19 +8,34 @@
 
 /* Begin PBXBuildFile section */
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
+		1BDAAFA0A6AE5657027E45A0 /* FeltNotesWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3998C0CFFF499A2F5CFEC585 /* FeltNotesWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
+		34CAADCA653D86F51CE383FE /* PulseSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1682683EC87C177F8CB773 /* PulseSession.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
+		4C6949F6D3E698CCA2C58297 /* PulseChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1ACAE494E829DD9AE0ACC3 /* PulseChannel.swift */; };
+		4FAA5D9EACFFE6E527B3D59B /* PulseProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02302105FBC3E071A4B7F39 /* PulseProtocol.swift */; };
+		5C1CC0C899B9657370317C54 /* FeltNotesWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E4026E49B1A722073C762EE /* FeltNotesWatchApp.swift */; };
 		71C1846698405A50231C8441 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBF1CF4B7107E06A95A0CAFE /* Pods_Runner.framework */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
-		F17A0C0D2E00000000000003 /* NearbyChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A0C0D2E00000000000004 /* NearbyChannel.swift */; };
-		F17A0C0D2E00000000000001 /* RecordChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A0C0D2E00000000000002 /* RecordChannel.swift */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		A411954C829A5228D9E0FB6B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FD0E45ED62EAEDD570392348 /* Assets.xcassets */; };
+		ACE02DFF4CFB4B637FFCF083 /* PulseProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02302105FBC3E071A4B7F39 /* PulseProtocol.swift */; };
+		F17A0C0D2E00000000000001 /* RecordChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A0C0D2E00000000000002 /* RecordChannel.swift */; };
+		F17A0C0D2E00000000000003 /* NearbyChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A0C0D2E00000000000004 /* NearbyChannel.swift */; };
 		F546F3FC8CDCE49C6DD0FA96 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CF1C3632FB97244C4EB267D1 /* Pods_RunnerTests.framework */; };
+		F8C5A9B37AEF0E5E0188C042 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80D4765CA6FF3187BC0DD81E /* ContentView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		17DD86DA8AFD2A399562D918 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 868D7D3C833F70D14121BF10;
+			remoteInfo = FeltNotesWatch;
+		};
 		331C8085294A63A400263BE5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
@@ -31,6 +46,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		157D1107DD0FF71C08E786D8 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				1BDAAFA0A6AE5657027E45A0 /* FeltNotesWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		9705A1C41CF9048500538489 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -46,15 +72,18 @@
 /* Begin PBXFileReference section */
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
+		1E4026E49B1A722073C762EE /* FeltNotesWatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeltNotesWatchApp.swift; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		3998C0CFFF499A2F5CFEC585 /* FeltNotesWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FeltNotesWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
+		4A1ACAE494E829DD9AE0ACC3 /* PulseChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PulseChannel.swift; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		F17A0C0D2E00000000000004 /* NearbyChannel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NearbyChannel.swift; sourceTree = "<group>"; };
-		F17A0C0D2E00000000000002 /* RecordChannel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RecordChannel.swift; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		7EFF55835C1B538387E6AC5F /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
+		80D4765CA6FF3187BC0DD81E /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		965A867AD97ADD440BE74EE8 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
 		97C146EE1CF9000F007C117D /* Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Runner.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -63,15 +92,29 @@
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		97D52974B3FD87455C8D1A3D /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
+		A927B27B07DFD2D3B849AE68 /* FeltNotesWatch.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = FeltNotesWatch.entitlements; sourceTree = "<group>"; };
 		BBF1CF4B7107E06A95A0CAFE /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		C02302105FBC3E071A4B7F39 /* PulseProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PulseProtocol.swift; sourceTree = "<group>"; };
 		C748DAE2235B631C4F5EFAC8 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
+		C8166E4ED1EBBEC41A946618 /* Watch.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Watch.xcconfig; sourceTree = "<group>"; };
+		CA1682683EC87C177F8CB773 /* PulseSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PulseSession.swift; sourceTree = "<group>"; };
 		CF1C3632FB97244C4EB267D1 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		E54EBFF5EE7CA90719436E6C /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
+		F17A0C0D2E00000000000002 /* RecordChannel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RecordChannel.swift; sourceTree = "<group>"; };
+		F17A0C0D2E00000000000004 /* NearbyChannel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NearbyChannel.swift; sourceTree = "<group>"; };
 		F9C83685F6EBF640D8715E71 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
+		FD0E45ED62EAEDD570392348 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FE42D77E1EAA7F0616C1A687 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		81F786A29E165C5234397760 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		97C146EB1CF9000F007C117D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -91,6 +134,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		01693FDEF220AA5EB89957EE /* PulseShared */ = {
+			isa = PBXGroup;
+			children = (
+				C02302105FBC3E071A4B7F39 /* PulseProtocol.swift */,
+			);
+			name = PulseShared;
+			path = PulseShared;
+			sourceTree = "<group>";
+		};
 		0CCC32DBC845CD57B6903D9A /* Pods */ = {
 			isa = PBXGroup;
 			children = (
@@ -122,6 +174,21 @@
 			path = RunnerTests;
 			sourceTree = "<group>";
 		};
+		707102D802ABCCA4B375C1EE /* FeltNotesWatch */ = {
+			isa = PBXGroup;
+			children = (
+				1E4026E49B1A722073C762EE /* FeltNotesWatchApp.swift */,
+				80D4765CA6FF3187BC0DD81E /* ContentView.swift */,
+				CA1682683EC87C177F8CB773 /* PulseSession.swift */,
+				FD0E45ED62EAEDD570392348 /* Assets.xcassets */,
+				965A867AD97ADD440BE74EE8 /* Info.plist */,
+				A927B27B07DFD2D3B849AE68 /* FeltNotesWatch.entitlements */,
+				C8166E4ED1EBBEC41A946618 /* Watch.xcconfig */,
+			);
+			name = FeltNotesWatch;
+			path = FeltNotesWatch;
+			sourceTree = "<group>";
+		};
 		9740EEB11CF90186004384FC /* Flutter */ = {
 			isa = PBXGroup;
 			children = (
@@ -142,6 +209,8 @@
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				0CCC32DBC845CD57B6903D9A /* Pods */,
 				1BBB819E3CA2D487944F81B4 /* Frameworks */,
+				01693FDEF220AA5EB89957EE /* PulseShared */,
+				707102D802ABCCA4B375C1EE /* FeltNotesWatch */,
 			);
 			sourceTree = "<group>";
 		};
@@ -150,6 +219,7 @@
 			children = (
 				97C146EE1CF9000F007C117D /* Runner.app */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
+				3998C0CFFF499A2F5CFEC585 /* FeltNotesWatch.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -167,6 +237,7 @@
 				F17A0C0D2E00000000000004 /* NearbyChannel.swift */,
 				F17A0C0D2E00000000000002 /* RecordChannel.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
+				4A1ACAE494E829DD9AE0ACC3 /* PulseChannel.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -193,6 +264,23 @@
 			productReference = 331C8081294A63A400263BE5 /* RunnerTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		868D7D3C833F70D14121BF10 /* FeltNotesWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DD712C17AF82DD716083C0DC /* Build configuration list for PBXNativeTarget "FeltNotesWatch" */;
+			buildPhases = (
+				1C3257A997321EF4E8C168E8 /* Sources */,
+				81F786A29E165C5234397760 /* Frameworks */,
+				6E8EC86307CA808516BBDDC8 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FeltNotesWatch;
+			productName = FeltNotesWatch;
+			productReference = 3998C0CFFF499A2F5CFEC585 /* FeltNotesWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
 		97C146ED1CF9000F007C117D /* Runner */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 97C147051CF9000F007C117D /* Build configuration list for PBXNativeTarget "Runner" */;
@@ -202,6 +290,7 @@
 				97C146EA1CF9000F007C117D /* Sources */,
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
+				157D1107DD0FF71C08E786D8 /* Embed Watch Content */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 				444FDE2AF1E16BBDEAB01A72 /* [CP] Embed Pods Frameworks */,
@@ -210,6 +299,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				03AD36DE8DE13A578E86BD3F /* PBXTargetDependency */,
 			);
 			name = Runner;
 			productName = Runner;
@@ -229,6 +319,9 @@
 					331C8080294A63A400263BE5 = {
 						CreatedOnToolsVersion = 14.0;
 						TestTargetID = 97C146ED1CF9000F007C117D;
+					};
+					868D7D3C833F70D14121BF10 = {
+						CreatedOnToolsVersion = 26.3;
 					};
 					97C146ED1CF9000F007C117D = {
 						CreatedOnToolsVersion = 7.3.1;
@@ -251,6 +344,7 @@
 			targets = (
 				97C146ED1CF9000F007C117D /* Runner */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
+				868D7D3C833F70D14121BF10 /* FeltNotesWatch */,
 			);
 		};
 /* End PBXProject section */
@@ -260,6 +354,14 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6E8EC86307CA808516BBDDC8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A411954C829A5228D9E0FB6B /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -389,6 +491,17 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		1C3257A997321EF4E8C168E8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5C1CC0C899B9657370317C54 /* FeltNotesWatchApp.swift in Sources */,
+				F8C5A9B37AEF0E5E0188C042 /* ContentView.swift in Sources */,
+				34CAADCA653D86F51CE383FE /* PulseSession.swift in Sources */,
+				4FAA5D9EACFFE6E527B3D59B /* PulseProtocol.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		331C807D294A63A400263BE5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -405,12 +518,20 @@
 				F17A0C0D2E00000000000003 /* NearbyChannel.swift in Sources */,
 				F17A0C0D2E00000000000001 /* RecordChannel.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
+				4C6949F6D3E698CCA2C58297 /* PulseChannel.swift in Sources */,
+				ACE02DFF4CFB4B637FFCF083 /* PulseProtocol.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		03AD36DE8DE13A578E86BD3F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = FeltNotesWatch;
+			target = 868D7D3C833F70D14121BF10 /* FeltNotesWatch */;
+			targetProxy = 17DD86DA8AFD2A399562D918 /* PBXContainerItemProxy */;
+		};
 		331C8086294A63A400263BE5 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 97C146ED1CF9000F007C117D /* Runner */;
@@ -438,6 +559,38 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		01F1C3C65645B7A73A118ACF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C8166E4ED1EBBEC41A946618 /* Watch.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = FeltNotesWatch/FeltNotesWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 553Y9KWR84;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FeltNotesWatch/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.sagearbor.feltnotes.app.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
 		249021D3217E4FDB00AE95B9 /* Profile */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -559,6 +712,38 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
+			};
+			name = Profile;
+		};
+		6BFE113D0CF32483F93A7037 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C8166E4ED1EBBEC41A946618 /* Watch.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = FeltNotesWatch/FeltNotesWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 553Y9KWR84;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FeltNotesWatch/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.sagearbor.feltnotes.app.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Profile;
 		};
@@ -718,6 +903,38 @@
 			};
 			name = Release;
 		};
+		D1FF7A3DF0BC3C30C28A74CE /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C8166E4ED1EBBEC41A946618 /* Watch.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = FeltNotesWatch/FeltNotesWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 553Y9KWR84;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FeltNotesWatch/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.sagearbor.feltnotes.app.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -747,6 +964,16 @@
 				97C147061CF9000F007C117D /* Debug */,
 				97C147071CF9000F007C117D /* Release */,
 				249021D4217E4FDB00AE95B9 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DD712C17AF82DD716083C0DC /* Build configuration list for PBXNativeTarget "FeltNotesWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D1FF7A3DF0BC3C30C28A74CE /* Release */,
+				01F1C3C65645B7A73A118ACF /* Debug */,
+				6BFE113D0CF32483F93A7037 /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

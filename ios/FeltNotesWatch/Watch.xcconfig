@@ -1,0 +1,6 @@
+// Felt Notes Pulse (watchOS). Only Flutter's generated version numbers are
+// pulled in: Apple rejects a watch app whose CFBundleShortVersionString /
+// CFBundleVersion differ from the iPhone app's (ITMS-90473 / ITMS-90379).
+// Deliberately NOT Flutter/Release.xcconfig: that includes the Pods-Runner
+// settings, which are iOS-only.
+#include? "../Flutter/Generated.xcconfig"

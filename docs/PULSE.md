@@ -79,3 +79,29 @@ Exact documents and rules: see `firestore.rules` and the rules tests.
 * Apple: watch app embedded in the iOS app, HealthKit usage strings.
 * Privacy page: heart rate and selfie lines (owner approval before pushing
   main, since that publishes the website).
+
+## Apple Watch app (ios/FeltNotesWatch)
+
+* Target `FeltNotesWatch`, shown as "Felt Notes Pulse", bundle id
+  `com.sagearbor.feltnotes.app.watchkitapp` (registered, HealthKit capability
+  on), watchOS 10+, single-target SwiftUI app embedded in Runner at
+  `Runner.app/Watch/FeltNotesWatch.app`. Its version numbers come from
+  Flutter's `Generated.xcconfig`, so they always match the iPhone app's.
+* The Xcode project edit is `tool/watch_ios/add_watch_target.sh` (re-runnable;
+  `pod install` leaves the target alone because it is not in the Podfile).
+* Heart rate: `HKWorkoutSession` (.other, indoor) + `HKLiveWorkoutBuilder`;
+  on stop the workout is discarded, so nothing is saved to Health.
+  `state.err` values the watch sends: `no_permission`, `unavailable`,
+  `workout_failed`.
+* Protocol code: `ios/PulseShared/PulseProtocol.swift`, compiled into both the
+  watch app and Runner (`ios/Runner/PulseChannel.swift`). Check it against the
+  vectors with `tool/watch_ios/check_protocol.sh`.
+* Watch → phone: `sendMessage` while the phone is reachable; a `state` sent
+  while unreachable goes out as the application context and reaches Dart when
+  the phone next activates the session.
+* Limits: `start` from the phone only works while the watch app is open
+  (reachable); otherwise it returns false and the player taps Start on the
+  watch. Waking the watch app from the phone needs
+  `HKHealthStore.startWatchApp`, i.e. HealthKit on the iPhone app too (later).
+  `openWatchStore` always returns false on iOS: the watch app installs from
+  the iPhone's Watch app.

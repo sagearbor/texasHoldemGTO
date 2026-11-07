@@ -7,6 +7,7 @@ import UIKit
   // Native channels kept alive for the app's lifetime.
   private var record: RecordChannel?
   private var nearby: NearbyChannel?
+  private var pulse: PulseChannel?
 
   override func application(
     _ application: UIApplication,
@@ -58,6 +59,10 @@ import UIKit
     // Nearby games and the seating experiment (lib/nearby/).
     if let messenger = registrar(forPlugin: "FeltNearby")?.messenger() {
       nearby = NearbyChannel(messenger: messenger)
+    }
+    // Pulse mode: heart rate from the Apple Watch app (docs/PULSE.md).
+    if let messenger = registrar(forPlugin: "FeltPulse")?.messenger() {
+      pulse = PulseChannel(messenger: messenger)
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
