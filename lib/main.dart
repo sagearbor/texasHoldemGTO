@@ -9,6 +9,7 @@ import 'camera/watch_screen.dart' show WatchSettings;
 import 'gto/spots.dart';
 import 'homegame/home_game.dart';
 import 'nearby/nearby_service.dart';
+import 'pulse/pulse_service.dart';
 import 'record/record_screen.dart';
 import 'settings/dev_settings.dart';
 import 'trainer/trainer_model.dart';
@@ -70,7 +71,11 @@ class _FeltNotesAppState extends State<FeltNotesApp> {
       // Hole cards stay on the phone unless Settings → Advanced / Developer says.
       cardsLeavePhone = () => DevSettings.cardsToCloud;
       // Resumes a table night this phone was in (no network until one is).
-      unawaited(TableNightService.instance.init(h).then((_) => NearbyService.instance.init()));
+      unawaited(TableNightService.instance.init(h).then((_) {
+        // Pulse follows the night (resumes heart-rate sharing if it was on).
+        PulseService.instance.hook();
+        return NearbyService.instance.init();
+      }));
       if (mounted) {
         setState(() {
           model = m;

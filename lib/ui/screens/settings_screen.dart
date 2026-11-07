@@ -302,7 +302,7 @@ class _AdvancedSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-      listenable: Listenable.merge([DevSettings.unlocked, DevSettings.cloudCards, DevSettings.devBoard]),
+      listenable: Listenable.merge([DevSettings.unlocked, DevSettings.cloudCards, DevSettings.devBoard, DevSettings.simPulse]),
       builder: (context, _) => _build(context));
 
   Widget _build(BuildContext context) {
@@ -335,6 +335,15 @@ class _AdvancedSection extends StatelessWidget {
         subtitle: const Text('Watch also tries to read the community cards.'),
         value: DevSettings.devBoard.value,
         onChanged: DevSettings.setBoard,
+      ),
+      SwitchListTile(
+        key: const Key('settings-sim-pulse'),
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Pulse: pretend watch'),
+        subtitle: const Text('Pulse mode makes up a heart rate (about 70, with spikes) instead of reading a watch. '
+            'For demos.'),
+        value: DevSettings.simPulse.value,
+        onChanged: DevSettings.setSimPulse,
       ),
     ]);
   }
