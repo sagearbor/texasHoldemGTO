@@ -70,6 +70,24 @@ dependencies:
   multicast_dns: 0.3.2+8
   # Developer mode password check: SHA-256 (already a transitive dependency).
   crypto: 3.0.8
+  # Pulse mode: the TV plays the leader's 30-second song preview (web,
+  # Android, iOS). 6.1.0 (Aug 2024) declares Flutter >=3.13 / Dart >=3.0.
+  audioplayers: 6.1.0
+  # Its platform packages, held at the same 2024 releases (the 2025 ones
+  # are untested on Flutter 3.22; later ones need Flutter 3.27+).
+  audioplayers_android: 5.0.0
+  audioplayers_darwin: 6.0.0
+  audioplayers_web: 5.0.1
+  audioplayers_platform_interface: 7.0.0
+  # Pulse mode selfie: crop to a centre square, 96x96 JPEG. Pure Dart.
+  # 4.2.0 is on archive 3.6.x (pinned above).
+  image: 4.2.0
+  # Pulse mode song search (iTunes Search API). Already a transitive
+  # dependency; pinned to the locked version.
+  http: 1.6.0
+  # "Listen on Apple Music" on the web TV (url_launcher_web is already in
+  # the build); phones open links through the tv_cast channel.
+  url_launcher_platform_interface: 2.3.2
 
 dev_dependencies:
   flutter_test:
