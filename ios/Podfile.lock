@@ -1145,6 +1145,8 @@ PODS:
     - abseil/meta/type_traits
     - abseil/xcprivacy
   - abseil/xcprivacy (1.20240116.2)
+  - audioplayers_darwin (0.0.1):
+    - Flutter
   - battery_plus (1.0.0):
     - Flutter
   - BoringSSL-GRPC (0.0.36):
@@ -1416,6 +1418,7 @@ PODS:
     - Flutter
 
 DEPENDENCIES:
+  - audioplayers_darwin (from `.symlinks/plugins/audioplayers_darwin/ios`)
   - battery_plus (from `.symlinks/plugins/battery_plus/ios`)
   - camera_avfoundation (from `.symlinks/plugins/camera_avfoundation/ios`)
   - cloud_firestore (from `.symlinks/plugins/cloud_firestore/ios`)
@@ -1470,6 +1473,8 @@ SPEC REPOS:
     - Try
 
 EXTERNAL SOURCES:
+  audioplayers_darwin:
+    :path: ".symlinks/plugins/audioplayers_darwin/ios"
   battery_plus:
     :path: ".symlinks/plugins/battery_plus/ios"
   camera_avfoundation:
@@ -1511,6 +1516,7 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   abseil: d121da9ef7e2ff4cab7666e76c5a3e0915ae08c3
+  audioplayers_darwin: ccf9c770ee768abb07e26d90af093f7bab1c12ab
   battery_plus: b42253f6d2dde71712f8c36fef456d99121c5977
   BoringSSL-GRPC: ca6a8e5d04812fce8ffd6437810c2d46f925eaeb
   camera_avfoundation: be3be85408cd4126f250386828e9b1dfa40ab436
