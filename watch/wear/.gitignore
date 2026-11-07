@@ -1,0 +1,13 @@
+.gradle/
+build/
+*/build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+# Signing material never lives here (release builds read ../../android/key.properties).
+key.properties
+keystore.properties
+*.jks
+*.keystore

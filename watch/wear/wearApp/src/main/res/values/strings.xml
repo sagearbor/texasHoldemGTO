@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Felt Notes Pulse</string>
+    <string name="channel_name">Pulse</string>
+    <string name="notif_running">Sending your heart rate to your phone</string>
+    <string name="notif_tap_to_start">Tap to start Felt Notes Pulse</string>
+</resources>
