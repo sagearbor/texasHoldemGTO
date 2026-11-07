@@ -118,21 +118,30 @@ Exact documents and rules: see `firestore.rules` and the rules tests.
   for Play's Wear OS track: `./gradlew :wearApp:bundleRelease` →
   `wearApp/build/outputs/bundle/release/wearApp-release.aab`, signed with the
   phone's upload key when `android/key.properties` exists (debug key otherwise).
-* Heart rate: Health Services `ExerciseClient` (type WORKOUT, heart rate only,
-  5 s batching override where supported) inside a `health` foreground
-  service, so it runs with the screen off. If another app's workout is in
-  progress it falls back to `MeasureClient` instead of ending that workout.
-  Permission: `BODY_SENSORS` (API ≤ 35) or `android.permission.health.READ_HEART_RATE`
-  (Wear OS 6), asked at Start.
+* Heart rate (v1, build 1000055+): **no foreground service.** Pulse runs while
+  the watch app is on screen: Health Services `MeasureClient` (~1 Hz), the
+  screen is kept on during a session (`FLAG_KEEP_SCREEN_ON`) and ambient mode
+  (`AmbientLifecycleObserver`) lets it dim while it keeps measuring and
+  sending. Leaving the app stops Pulse and sends
+  `{"running":false,"err":"app_closed"}`. The shipped manifest has no
+  `FOREGROUND_SERVICE*` permission (removed with `tools:node="remove"` in case
+  a library adds one). Permission: `BODY_SENSORS` (API ≤ 35) or
+  `android.permission.health.READ_HEART_RATE` (Wear OS 6), asked at Start.
+* Screen-off version (later): a `health` foreground service running an
+  `ExerciseClient` exercise. The code is in git at commit 6d9cc73
+  (`PulseService.kt`); `HeartRateSession.USE_EXERCISE` switches the exercise
+  path back on. It needs Play's FOREGROUND_SERVICE_HEALTH declaration (demo
+  video) before it can ship.
 * Messages: `/hr` to phone nodes every ~2 s, `/state` on every change and in
   reply to every `/ctl`. Phone nodes = those with capability
   `feltnotes_pulse_phone` (declared by android/app `res/values/wear.xml`),
   else any nearby connected node. The watch declares `feltnotes_pulse_watch`.
-* `/ctl start` while the watch app is closed: Android may refuse a background
-  start of the sensor service; the watch then sends
+* `/ctl start` while the watch app is not on screen: the watch sends
   `{"running":false,"err":"needs_tap"}` and shows a "Tap to start Felt Notes
-  Pulse" notification. `err` values from the Wear app: `no_permission`,
-  `needs_tap`, `unsupported` (no heart-rate sensor), `sensor_error`, or null.
+  Pulse" notification that opens the app and starts. With the app on screen,
+  `/ctl start` starts right away. `err` values from the Wear app:
+  `no_permission`, `needs_tap`, `app_closed`, `unsupported` (no heart-rate
+  sensor), `sensor_error`, or null.
 * One parser: `watch/wear/protocol/src/main/kotlin/.../PulseProtocol.kt` is
   compiled into both the watch app and the phone (`android/app/build.gradle`
   adds it as a source dir).

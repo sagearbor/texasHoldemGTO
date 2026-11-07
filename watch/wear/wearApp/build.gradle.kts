@@ -114,6 +114,9 @@ dependencies {
     implementation("androidx.fragment:fragment:1.8.5")
 
     implementation("androidx.health:health-services-client:1.1.0")
+    // Ambient mode (AmbientLifecycleObserver): dims during a session instead
+    // of leaving the app.
+    implementation("androidx.wear:wear:1.3.0")
     // health-services-client returns ListenableFuture; real guava on the
     // compile classpath avoids the listenablefuture "empty" artifact trap.
     implementation("com.google.guava:guava:33.4.8-android")

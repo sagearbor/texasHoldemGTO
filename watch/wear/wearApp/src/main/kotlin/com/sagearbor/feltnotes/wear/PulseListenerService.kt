@@ -19,10 +19,7 @@ class PulseListenerService : WearableListenerService() {
         }
         // Service starts belong on the main thread; this callback is not.
         Handler(Looper.getMainLooper()).post {
-            when (msg.cmd) {
-                PulseProtocol.CMD_START -> PulseService.start(applicationContext)
-                PulseProtocol.CMD_STOP -> PulseService.stop(applicationContext)
-            }
+            PulseController.onCtl(applicationContext, msg.cmd)
         }
     }
 }

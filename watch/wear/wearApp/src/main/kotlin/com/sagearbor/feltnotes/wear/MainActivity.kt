@@ -2,6 +2,7 @@ package com.sagearbor.feltnotes.wear
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,26 +34,58 @@ import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
+import androidx.wear.ambient.AmbientLifecycleObserver
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/**
+ * v1 Pulse runs while this activity is on screen (no foreground service, see
+ * PulseController): the screen is kept on during a session, and ambient
+ * support lets it dim instead of leaving the app, while MeasureClient keeps
+ * measuring and samples keep going to the phone. Leaving the app stops Pulse.
+ */
 class MainActivity : ComponentActivity() {
+
+    private val ambient = mutableStateOf(false)
 
     private val askPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
         if (HrPermission.granted(this)) {
-            PulseService.start(this)
+            PulseController.start(this)
         } else {
-            PulseService.publishState(this, running = false, err = PulseErr.NO_PERMISSION)
+            PulseController.publishState(this, running = false, err = PulseErr.NO_PERMISSION)
         }
     }
 
+    private val ambientObserver = AmbientLifecycleObserver(
+        this,
+        object : AmbientLifecycleObserver.AmbientLifecycleCallback {
+            override fun onEnterAmbient(ambientDetails: AmbientLifecycleObserver.AmbientDetails) {
+                ambient.value = true
+            }
+            override fun onExitAmbient() {
+                ambient.value = false
+            }
+            override fun onUpdateAmbient() = Unit
+        },
+    )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        lifecycle.addObserver(ambientObserver)
         setContent {
             val ui by PulseBus.ui.collectAsStateWithLifecycle()
-            PulseScreen(ui, onToggle = { if (ui.running) stopPulse() else startPulse() })
+            PulseScreen(ui, ambient.value, onToggle = { if (ui.running) stopPulse() else startPulse() })
+        }
+        // Screen stays on while a session runs (dims to ambient, never sleeps
+        // away from the app, which would stop the measurement).
+        lifecycleScope.launch {
+            PulseBus.ui.collectLatest { ui ->
+                if (ui.running) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
         }
         // "Phone connected" line: re-check every few seconds while visible.
         lifecycleScope.launch {
@@ -65,6 +99,20 @@ class MainActivity : ComponentActivity() {
         handleAutostart(intent)
     }
 
+    override fun onStart() {
+        super.onStart()
+        PulseController.activityVisible = true
+    }
+
+    override fun onStop() {
+        PulseController.activityVisible = false
+        // No foreground service in v1: off screen we can't keep measuring.
+        if (PulseController.running && !isChangingConfigurations) {
+            PulseController.stop(this, PulseErr.APP_CLOSED)
+        }
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleAutostart(intent)
@@ -72,9 +120,9 @@ class MainActivity : ComponentActivity() {
 
     /** Opened from the "Tap to start" notification (phone asked to start). */
     private fun handleAutostart(intent: Intent?) {
-        if (intent?.getBooleanExtra(PulseService.EXTRA_AUTOSTART, false) == true) {
-            intent.removeExtra(PulseService.EXTRA_AUTOSTART)
-            PulseService.clearTapToStart(this)
+        if (intent?.getBooleanExtra(PulseController.EXTRA_AUTOSTART, false) == true) {
+            intent.removeExtra(PulseController.EXTRA_AUTOSTART)
+            PulseController.clearTapToStart(this)
             startPulse()
         }
     }
@@ -85,13 +133,13 @@ class MainActivity : ComponentActivity() {
         askPermissions.launch(HrPermission.toRequest())
     }
 
-    private fun stopPulse() = PulseService.stop(this)
+    private fun stopPulse() = PulseController.stop(this)
 }
 
 @Composable
-private fun PulseScreen(ui: PulseUi, onToggle: () -> Unit) {
+private fun PulseScreen(ui: PulseUi, ambient: Boolean, onToggle: () -> Unit) {
     MaterialTheme {
-        Scaffold(timeText = { TimeText() }) {
+        Scaffold(timeText = { if (!ambient) TimeText() }) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -102,12 +150,17 @@ private fun PulseScreen(ui: PulseUi, onToggle: () -> Unit) {
                     text = ui.bpm?.toString() ?: "--",
                     fontSize = 52.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (ui.running) Color(0xFFFF5A5F) else MaterialTheme.colors.onBackground,
+                    color = when {
+                        ambient -> Color.Gray
+                        ui.running -> Color(0xFFFF5A5F)
+                        else -> MaterialTheme.colors.onBackground
+                    },
                 )
                 Text("bpm", fontSize = 12.sp, color = MaterialTheme.colors.onSurfaceVariant)
                 Spacer(Modifier.height(6.dp))
                 Button(
                     onClick = onToggle,
+                    enabled = !ambient,
                     modifier = Modifier.size(ButtonDefaults.DefaultButtonSize),
                     colors = if (ui.running) ButtonDefaults.secondaryButtonColors() else ButtonDefaults.primaryButtonColors(),
                 ) {

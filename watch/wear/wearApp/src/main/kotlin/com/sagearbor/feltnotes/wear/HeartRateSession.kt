@@ -23,11 +23,17 @@ import kotlinx.coroutines.guava.await
 import java.time.Instant
 
 /**
- * Heart rate from Health Services. Preferred: an ExerciseClient exercise
- * (keeps sampling about once a second with the screen off, delivered at
- * least every 5 s where the watch supports that batching override). If
- * another app already owns an exercise (a workout in progress) we do not
- * end it; we fall back to MeasureClient, which is fine while the screen is on.
+ * Heart rate from Health Services.
+ *
+ * v1 (shipping): MeasureClient only. It delivers about once a second while
+ * the app's activity is on screen (kept on, dimming to ambient), and stops
+ * by itself if the app dies, so no workout can be left running.
+ *
+ * Later ([USE_EXERCISE] = true, together with restoring the "health"
+ * foreground service from commit 6d9cc73): an ExerciseClient exercise keeps
+ * sampling with the screen off. That needs Play's FOREGROUND_SERVICE_HEALTH
+ * declaration (demo video), which is why it is off. With it on, if another
+ * app already owns an exercise we fall back to MeasureClient.
  *
  * Callbacks run on the main thread.
  */
@@ -84,7 +90,7 @@ class HeartRateSession(
     suspend fun start(): String? {
         stopping = false
         return try {
-            if (tryExercise()) null else tryMeasure()
+            if (USE_EXERCISE && tryExercise()) null else tryMeasure()
         } catch (e: Exception) {
             Log.w(TAG, "start failed: $e")
             mode = Mode.NONE
@@ -145,5 +151,9 @@ class HeartRateSession(
         }
     }
 
-    private companion object { const val TAG = "FeltPulse" }
+    companion object {
+        private const val TAG = "FeltPulse"
+        /** Off in v1: see the class comment (needs the foreground service). */
+        const val USE_EXERCISE = false
+    }
 }
