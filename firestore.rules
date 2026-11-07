@@ -15,6 +15,12 @@ rules_version = '2';
 //                                        name, skew?, clientMs, updatedAt, expireAt}
 //   cards/{deviceId}_{entry}            one phone's hole cards for one entry
 //                                       {uid, deviceId, e, c, at, expireAt}
+//   pulse/{deviceId}                    Pulse mode: a player who turned on heart-rate
+//                                       sharing for this night (name, selfie, song)
+//                                       {uid, deviceId, name, face?, song?, updatedAt, expireAt}
+//   pulseData/{deviceId}_{chunk}        that player's heart rate, 10 minutes per doc,
+//                                       rewritten whole every 15 s
+//                                       {uid, deviceId, chunk, s, updatedAt, expireAt}
 //
 // Whoever holds the join ticket (scanned from the organizer's QR, or the
 // TV link) knows the night id and its secret. The first phone online
@@ -25,6 +31,11 @@ rules_version = '2';
 // once the hand is over, and that NOBODY can read until 2 minutes after
 // they were written (server time). Nobody can list them either. A phone
 // with sharing off writes no taps and no cards at all.
+//
+// Pulse documents exist only while that player has Pulse on for the
+// night: turning it off deletes them (owner only). Members read them (the
+// TV draws the chart); song URLs must be on Apple's hosts, so the TV only
+// ever plays Apple previews.
 //
 // Every document carries expireAt (1 to 90 days ahead); a TTL policy on
 // that field deletes it.
@@ -40,6 +51,20 @@ service cloud.firestore {
         && t < request.time + duration.value(90, 'd');
     }
     function card(c) { return c is int && c >= 0 && c < 52; }
+    function appleUrl(u, host) {
+      return u is string && u.size() <= 400 && u.matches('^https://[a-z0-9.-]+[.]' + host + '[.]com/.*$');
+    }
+    function song(x) {
+      return x is map
+        && x.keys().hasOnly(['trackId', 'title', 'artist', 'previewUrl', 'artworkUrl', 'trackViewUrl'])
+        && x.keys().hasAll(['trackId', 'title', 'artist', 'previewUrl', 'artworkUrl', 'trackViewUrl'])
+        && x.trackId is int
+        && x.title is string && x.title.size() <= 80
+        && x.artist is string && x.artist.size() <= 80
+        && appleUrl(x.previewUrl, 'apple')
+        && appleUrl(x.artworkUrl, 'mzstatic')
+        && appleUrl(x.trackViewUrl, 'apple');
+    }
 
     match /nights/{nightId} {
       function nightPath() { return /databases/$(database)/documents/nights/$(nightId); }
@@ -128,6 +153,45 @@ service cloud.firestore {
           && card(request.resource.data.c[0])
           && card(request.resource.data.c[1])
           && request.resource.data.at == request.time
+          && expiry(request.resource.data.expireAt)
+          && (resource == null || resource.data.uid == me());
+        allow delete: if isMember() && (resource == null || resource.data.uid == me());
+      }
+
+      // Pulse mode: one player's name, selfie (base64 JPEG, ~7 KB) and
+      // song for this night. Only the phone that owns the device id.
+      match /pulse/{deviceId} {
+        allow read: if isMember();
+        allow create, update: if isMember()
+          && request.resource.data.keys().hasOnly(['uid', 'deviceId', 'name', 'face', 'song', 'updatedAt', 'expireAt'])
+          && request.resource.data.uid == me()
+          && request.resource.data.deviceId == myDevice()
+          && deviceId == myDevice()
+          && name(request.resource.data.name)
+          && (!('face' in request.resource.data)
+              || (request.resource.data.face is string && request.resource.data.face.size() <= 16000))
+          && (!('song' in request.resource.data) || song(request.resource.data.song))
+          && request.resource.data.updatedAt == request.time
+          && expiry(request.resource.data.expireAt)
+          && (resource == null || resource.data.uid == me());
+        allow delete: if isMember() && (resource == null || resource.data.uid == me());
+      }
+
+      // Pulse mode: one player's heart rate for one 10-minute chunk,
+      // s = [ms into the chunk, bpm, ...] (at most 1200 samples).
+      match /pulseData/{dataId} {
+        allow read: if isMember();
+        allow create, update: if isMember()
+          && request.resource.data.keys().hasOnly(['uid', 'deviceId', 'chunk', 's', 'updatedAt', 'expireAt'])
+          && request.resource.data.uid == me()
+          && request.resource.data.deviceId == myDevice()
+          && request.resource.data.chunk is int
+          && request.resource.data.chunk >= 0
+          && dataId == request.resource.data.deviceId + '_' + string(request.resource.data.chunk)
+          && request.resource.data.s is list
+          && request.resource.data.s.size() <= 2400
+          && request.resource.data.s.size() % 2 == 0
+          && request.resource.data.updatedAt == request.time
           && expiry(request.resource.data.expireAt)
           && (resource == null || resource.data.uid == me());
         allow delete: if isMember() && (resource == null || resource.data.uid == me());

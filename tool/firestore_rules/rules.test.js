@@ -13,7 +13,7 @@ const {
 } = require('@firebase/rules-unit-testing');
 const {
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs,
-  serverTimestamp, setLogLevel, Timestamp,
+  serverTimestamp, setLogLevel, Timestamp, query, where,
 } = require('firebase/firestore');
 
 setLogLevel('silent');
@@ -188,7 +188,7 @@ async function test(name, fn) {
   await test('after the hold, members read them one document at a time', async () => {
     await env.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), cardPath('b', 4)), cards('b', 4, [0, 13], {
-        at: Timestamp.fromMillis(Date.now() - 3 * 60000),
+        at: Timestamp.fromMillis(Date.now() - 21 * 60000),
       }));
     });
     await assertSucceeds(getDoc(doc(o, cardPath('b', 4))));
@@ -228,6 +228,90 @@ async function test(name, fn) {
     await assertSucceeds(setDoc(doc(tv, `${N}/members/tv`), member('tv', { name: 'TV', deviceId: 'TVTVTVTV2345' })));
     await assertSucceeds(getDocs(collection(tv, `${N}/logs`)));
     await assertFails(getDocs(collection(tv, `${N}/cards`)));
+  });
+
+  console.log('pulse');
+  const SONG = {
+    trackId: 1440833098, title: 'Eye of the Tiger', artist: 'Survivor',
+    previewUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview/x.m4a',
+    artworkUrl: 'https://is1-ssl.mzstatic.com/image/thumb/x/200x200bb.jpg',
+    trackViewUrl: 'https://music.apple.com/us/album/x?i=1440833098',
+  };
+  const pulse = (uid, over = {}) => ({
+    uid, deviceId: DEV[uid], name: uid.toUpperCase(), face: 'A'.repeat(7000), song: SONG,
+    updatedAt: serverTimestamp(), expireAt: days(60), ...over,
+  });
+  const pulsePath = (uid) => `${N}/pulse/${DEV[uid]}`;
+  const beats = (n) => Array.from({ length: n * 2 }, (_, i) => (i % 2 ? 70 : i * 500));
+  const pdata = (uid, chunk, n, over = {}) => ({
+    uid, deviceId: DEV[uid], chunk, s: beats(n), updatedAt: serverTimestamp(), expireAt: days(60), ...over,
+  });
+  const pdataPath = (uid, chunk) => `${N}/pulseData/${DEV[uid]}_${chunk}`;
+  await test('a turns Pulse on: name, selfie, song', () => assertSucceeds(setDoc(doc(a, pulsePath('a')), pulse('a'))));
+  await test('selfie and song are optional', () => {
+    const { face, song, ...plain } = pulse('b');
+    return assertSucceeds(setDoc(doc(b, pulsePath('b')), plain));
+  });
+  await test('selfie at most 16000 characters', () =>
+    assertFails(setDoc(doc(a, pulsePath('a')), pulse('a', { face: 'A'.repeat(16001) }))));
+  await test('song URLs must be on Apple hosts (the TV plays them)', async () => {
+    await assertFails(setDoc(doc(a, pulsePath('a')), pulse('a', { song: { ...SONG, previewUrl: 'https://evil.example.com/x.m4a' } })));
+    await assertFails(setDoc(doc(a, pulsePath('a')), pulse('a', { song: { ...SONG, previewUrl: 'http://audio-ssl.itunes.apple.com/x' } })));
+    await assertFails(setDoc(doc(a, pulsePath('a')), pulse('a', { song: { ...SONG, artworkUrl: 'https://x.apple.com.evil.io/a.jpg' } })));
+    await assertFails(setDoc(doc(a, pulsePath('a')), pulse('a', { song: { ...SONG, extra: 1 } })));
+    const { trackViewUrl, ...partial } = SONG;
+    await assertFails(setDoc(doc(a, pulsePath('a')), pulse('a', { song: partial })));
+  });
+  await test("pulse: cannot write another phone's identity", async () => {
+    await assertFails(setDoc(doc(b, pulsePath('a')), pulse('b', { deviceId: DEV.a })));
+    await assertFails(setDoc(doc(b, pulsePath('a')), pulse('b')));
+  });
+  await test('pulse: non-member cannot write', () => assertFails(setDoc(doc(x, pulsePath('x')), pulse('x'))));
+  await test('pulse: unknown fields, client time, long expiry refused', async () => {
+    await assertFails(setDoc(doc(a, pulsePath('a')), pulse('a', { email: 'a@b.c' })));
+    await assertFails(setDoc(doc(a, pulsePath('a')), pulse('a', { updatedAt: 5 })));
+    await assertFails(setDoc(doc(a, pulsePath('a')), pulse('a', { expireAt: days(365) })));
+  });
+  await test('a uploads a 15 s window, then rewrites the chunk bigger', async () => {
+    await assertSucceeds(setDoc(doc(a, pdataPath('a', 2938333)), pdata('a', 2938333, 15)));
+    await assertSucceeds(setDoc(doc(a, pdataPath('a', 2938333)), pdata('a', 2938333, 30)));
+  });
+  await test('pulse data: at most 1200 samples, pairs only', async () => {
+    await assertSucceeds(setDoc(doc(a, pdataPath('a', 1)), pdata('a', 1, 1200)));
+    await assertFails(setDoc(doc(a, pdataPath('a', 2)), pdata('a', 2, 1201)));
+    await assertFails(setDoc(doc(a, pdataPath('a', 2)), pdata('a', 2, 1, { s: [1, 2, 3] })));
+  });
+  await test('pulse data: doc id must be deviceId_chunk', () =>
+    assertFails(setDoc(doc(a, `${N}/pulseData/${DEV.a}_9`), pdata('a', 8, 1))));
+  await test("pulse data: cannot write another phone's", async () => {
+    await assertFails(setDoc(doc(b, pdataPath('a', 3)), pdata('b', 3, 1, { deviceId: DEV.a })));
+    await assertFails(setDoc(doc(b, pdataPath('a', 2938333)), pdata('b', 2938333, 40, { deviceId: DEV.a })));
+  });
+  await test('pulse data: non-member cannot write', () => assertFails(setDoc(doc(x, pdataPath('x', 1)), pdata('x', 1, 1))));
+  await test('the TV (a member) reads every identity and all heart rate', async () => {
+    const tv = db('tv');
+    await assertSucceeds(setDoc(doc(tv, `${N}/members/tv`), member('tv', { name: 'TV', deviceId: 'TVTVTVTV2345' })));
+    const p = await assertSucceeds(getDocs(collection(tv, `${N}/pulse`)));
+    if (p.size !== 2) throw new Error(`expected 2 pulse docs, got ${p.size}`);
+    await assertSucceeds(getDocs(collection(tv, `${N}/pulseData`)));
+  });
+  await test('non-members read no pulse', async () => {
+    await assertFails(getDocs(collection(x, `${N}/pulse`)));
+    await assertFails(getDocs(collection(x, `${N}/pulseData`)));
+    await assertFails(getDoc(doc(anon, pulsePath('a'))));
+  });
+  await test("nobody deletes another player's pulse", async () => {
+    await assertFails(deleteDoc(doc(b, pulsePath('a'))));
+    await assertFails(deleteDoc(doc(b, pdataPath('a', 1))));
+    await assertFails(deleteDoc(doc(x, pdataPath('a', 1))));
+  });
+  await test('Pulse off: the owner finds and deletes all of its pulse docs', async () => {
+    const mine = await assertSucceeds(getDocs(query(collection(a, `${N}/pulseData`), where('deviceId', '==', DEV.a))));
+    if (mine.size !== 2) throw new Error(`expected 2 chunks, got ${mine.size}`);
+    for (const d of mine.docs) await assertSucceeds(deleteDoc(d.ref));
+    await assertSucceeds(deleteDoc(doc(a, pulsePath('a'))));
+    const left = await getDocs(collection(o, `${N}/pulseData`));
+    if (left.size !== 0) throw new Error(`expected none left, got ${left.size}`);
   });
 
   console.log(`\n${passed} passed`);
