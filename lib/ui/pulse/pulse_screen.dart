@@ -204,9 +204,7 @@ class _WatchCard extends StatelessWidget {
             line(st.paired, 'Paired', 'No watch paired'),
             line(st.appInstalled, 'Felt Notes is on the watch', 'Felt Notes is not on the watch yet'),
             line(st.reachable, 'Connected', 'Not connected (open Felt Notes on the watch)'),
-            line(svc.watchRunning, 'Measuring', svc.watchErr == 'no_permission'
-                ? 'Not measuring: allow heart rate on the watch'
-                : 'Not measuring'),
+            line(svc.watchRunning, 'Measuring', _notMeasuring(svc.watchErr)),
           ],
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 8, children: [
@@ -310,3 +308,12 @@ class _HostCard extends StatelessWidget {
     );
   }
 }
+
+/// Why the watch isn't measuring, from the watch's `err` code.
+String _notMeasuring(String? err) => switch (err) {
+      'no_permission' => 'Not measuring: allow heart rate on the watch',
+      'needs_tap' => 'Not measuring: tap the Felt Notes notification on the watch',
+      'app_closed' => 'Not measuring: keep Felt Notes open on the watch',
+      'unsupported' || 'unavailable' => 'Not measuring: this watch has no heart-rate sensor',
+      _ => 'Not measuring',
+    };
