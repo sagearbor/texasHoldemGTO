@@ -100,9 +100,13 @@ class PulseService extends ChangeNotifier {
       if (on && _up == null) _startUploads();
       return;
     }
-    await _stopReading();
-    _up?.stop();
+    // Leaving the night (or the host ended it): the watch stops, and the
+    // last part-window still goes up.
+    await _stopReading(sendStop: s == null);
+    final last = _up;
     _up = null;
+    last?.stop();
+    if (last != null) unawaited(last.flush());
     _cleanupRetry?.cancel();
     _night = s;
     bpm = null;
