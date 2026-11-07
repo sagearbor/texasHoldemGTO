@@ -75,6 +75,8 @@ android {
     }
 }
 
+android.sourceSets.main.java.srcDirs += "../../watch/wear/protocol/src/main/kotlin"
+
 flutter {
     source = "../.."
 }
@@ -84,6 +86,16 @@ dependencies {
     // Android-Android UWB for the seating experiment (lib/nearby/uwb_android.dart):
     // used only on phones with FEATURE_UWB and Android 12+.
     implementation "androidx.core.uwb:uwb:1.0.0"
+    // Pulse mode (PulseChannel.kt): talk to the Felt Notes Pulse Wear OS app
+    // over the Wearable Data Layer; open its store page on the watch. The
+    // JSON protocol source is shared with the watch (watch/wear/protocol).
+    implementation "com.google.android.gms:play-services-wearable:19.0.0"
+    implementation "androidx.wear:wear-remote-interactions:1.2.0"
+    // RemoteActivityHelper returns a ListenableFuture; with guava elsewhere
+    // in the graph Gradle picks the empty listenablefuture artifact, so put
+    // real guava on the compile classpath (R8 drops what's unused).
+    implementation "com.google.guava:guava:33.4.8-android"
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0"
 }
 
 // Google Play requires 16 KB page alignment for native libraries; CameraX

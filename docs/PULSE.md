@@ -105,3 +105,42 @@ Exact documents and rules: see `firestore.rules` and the rules tests.
   `HKHealthStore.startWatchApp`, i.e. HealthKit on the iPhone app too (later).
   `openWatchStore` always returns false on iOS: the watch app installs from
   the iPhone's Watch app.
+
+## Wear OS app (watch/wear)
+
+* Standalone Gradle project, module `:wearApp`, "Felt Notes Pulse". Same
+  applicationId as the phone (`com.sagearbor.feltnotes.app`, also in debug:
+  the Data Layer only connects same-package, same-key apps), minSdk 30,
+  `standalone=false`. versionCode = 1_000_000 + the pubspec build number,
+  versionName from pubspec, both read at configure time.
+* Build: `cd watch/wear && ./gradlew :wearApp:assembleDebug`; tests
+  `./gradlew :wearApp:testDebugUnitTest` (runs the shared vectors). Release
+  for Play's Wear OS track: `./gradlew :wearApp:bundleRelease` →
+  `wearApp/build/outputs/bundle/release/wearApp-release.aab`, signed with the
+  phone's upload key when `android/key.properties` exists (debug key otherwise).
+* Heart rate: Health Services `ExerciseClient` (type WORKOUT, heart rate only,
+  5 s batching override where supported) inside a `health` foreground
+  service, so it runs with the screen off. If another app's workout is in
+  progress it falls back to `MeasureClient` instead of ending that workout.
+  Permission: `BODY_SENSORS` (API ≤ 35) or `android.permission.health.READ_HEART_RATE`
+  (Wear OS 6), asked at Start.
+* Messages: `/hr` to phone nodes every ~2 s, `/state` on every change and in
+  reply to every `/ctl`. Phone nodes = those with capability
+  `feltnotes_pulse_phone` (declared by android/app `res/values/wear.xml`),
+  else any nearby connected node. The watch declares `feltnotes_pulse_watch`.
+* `/ctl start` while the watch app is closed: Android may refuse a background
+  start of the sensor service; the watch then sends
+  `{"running":false,"err":"needs_tap"}` and shows a "Tap to start Felt Notes
+  Pulse" notification. `err` values from the Wear app: `no_permission`,
+  `needs_tap`, `unsupported` (no heart-rate sensor), `sensor_error`, or null.
+* One parser: `watch/wear/protocol/src/main/kotlin/.../PulseProtocol.kt` is
+  compiled into both the watch app and the phone (`android/app/build.gradle`
+  adds it as a source dir).
+* Phone bridge: `android/app/.../PulseChannel.kt`. `supported` = Play services
+  present and the Wearable API available (needs the Wear OS / Pixel Watch
+  companion app); `paired` = a watch is connected or known to the Data Layer;
+  `appInstalled` / `reachable` = capability `feltnotes_pulse_watch` with
+  FILTER_ALL / FILTER_REACHABLE; `start`/`stop` go to reachable watches with
+  the app; `openWatchStore` opens `market://details?id=com.sagearbor.feltnotes.app`
+  on connected watches without the app (RemoteActivityHelper). Events flow
+  only while Dart listens to the EventChannel.

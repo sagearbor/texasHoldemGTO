@@ -17,6 +17,8 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity: FlutterActivity() {
     private var record: RecordChannel? = null
     private var ble: BleChannel? = null
+    // Pulse mode: heart rate from the Felt Notes Pulse Wear OS app.
+    private var pulse: PulseChannel? = null
     // Cast to a TV: mDNS discovery of Chromecasts needs multicast delivered.
     private var castLock: WifiManager.MulticastLock? = null
 
@@ -48,6 +50,7 @@ class MainActivity: FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         record = RecordChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         ble = BleChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+        pulse = PulseChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         // "Show on the TV" (lib/ui/tv/show_on_tv.dart): the TV link in the
         // browser, or the system screen-cast settings. false = not possible.
         // multicastLock: held while Cast to a TV looks for Chromecasts.
@@ -97,6 +100,12 @@ class MainActivity: FlutterActivity() {
                     result.error("audio_route", e.toString(), null)
                 }
             }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        pulse?.dispose()
+        pulse = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private fun setCastLock(on: Boolean): Boolean = try {
