@@ -8,6 +8,7 @@ import 'dart:math';
 
 import 'package:flutter/services.dart';
 
+import 'pulse_cloud.dart';
 import 'pulse_protocol.dart';
 
 /// What the phone knows about its watch.
@@ -172,5 +173,31 @@ class SimulatedPulseSource implements PulseSource {
   void dispose() {
     _timer?.cancel();
     _out.close();
+  }
+}
+
+/// Developer mode: a made-up second player drawn only on this phone's TV
+/// screen (nothing is sent), so the chart can be tried with one phone. It
+/// starts with the last [spanMs] already filled in.
+class DemoPulsePlayer {
+  static const deviceId = 'demo-player';
+  static const member = PulseMember(deviceId: deviceId, name: 'Demo');
+
+  final SimulatedPulseSource _sim;
+  final int spanMs;
+  final _samples = <PulseSample>[];
+
+  DemoPulsePlayer({Random? rng, this.spanMs = 10 * 60000})
+      : _sim = SimulatedPulseSource(rng: rng, resting: 62, spikeChance: 1 / 60);
+
+  /// [n] with the demo player's samples up to [nowMs] added.
+  PulseNight addTo(PulseNight n, int nowMs) {
+    if (_samples.isEmpty) _samples.addAll(_sim.samplesUntil(nowMs - spanMs));
+    _samples.addAll(_sim.samplesUntil(nowMs));
+    _samples.removeWhere((x) => x.tMs < nowMs - spanMs - 60000);
+    return PulseNight(
+      members: {...n.members, deviceId: member},
+      samples: {...n.samples, deviceId: List.unmodifiable(_samples)},
+    );
   }
 }

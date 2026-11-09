@@ -15,6 +15,8 @@ import '../../homegame/home_game.dart';
 import '../../poker/cards.dart';
 import '../../pulse/pulse_board.dart';
 import '../../pulse/pulse_cloud.dart';
+import '../../pulse/pulse_source.dart';
+import '../../settings/dev_settings.dart';
 import '../../sync/event_log.dart';
 import '../../sync/night_events.dart';
 import '../../sync/night_merge.dart' show clockLabel;
@@ -207,7 +209,7 @@ class _TvScreenState extends State<TvScreen> {
   /// The Pulse chart's board (null when nobody shares a heart rate). After
   /// the End it stops at the last heart rate instead of scrolling away.
   PulseBoard? _pulse() {
-    final n = c.pulse;
+    final n = _pulseNight();
     if (!n.hasData) return null;
     var at = c.now();
     if (c.board?.ended ?? false) {
@@ -216,12 +218,30 @@ class _TvScreenState extends State<TvScreen> {
     return buildPulseBoard(n, nowMs: at);
   }
 
+  DemoPulsePlayer? _demo;
+  PulseNight? _demoOf;
+  int? _demoAt;
+  PulseNight? _withDemo;
+
+  /// The night's Pulse data, plus the Developer demo player when on (made
+  /// once per second, so the awards' identical() check still holds).
+  PulseNight _pulseNight() {
+    if (!DevSettings.demoPulsePlayer) return c.pulse;
+    final now = c.now() ~/ 1000 * 1000;
+    if (_withDemo == null || !identical(_demoOf, c.pulse) || _demoAt != now) {
+      _demoOf = c.pulse;
+      _demoAt = now;
+      _withDemo = (_demo ??= DemoPulsePlayer()).addTo(c.pulse, now);
+    }
+    return _withDemo!;
+  }
+
   PulseNight? _summaryOf;
   PulseSummary? _summary;
 
   /// The night's awards, once it ended (recomputed when the data changes).
   PulseSummary? _awards() {
-    final n = c.pulse;
+    final n = _pulseNight();
     if (!(c.board?.ended ?? false) || !n.hasData) return null;
     if (!identical(n, _summaryOf)) {
       _summaryOf = n;

@@ -345,6 +345,15 @@ class _AdvancedSection extends StatelessWidget {
         value: DevSettings.simPulse.value,
         onChanged: DevSettings.setSimPulse,
       ),
+      SwitchListTile(
+        key: const Key('settings-demo-pulse'),
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Pulse: add a demo player'),
+        subtitle: const Text('The TV on this phone also shows a made-up player ("Demo"), to try the chart '
+            'with one phone. Nothing is sent.'),
+        value: DevSettings.demoPulse.value,
+        onChanged: DevSettings.setDemoPulse,
+      ),
     ]);
   }
 }

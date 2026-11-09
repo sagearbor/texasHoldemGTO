@@ -349,4 +349,27 @@ void main() {
       expect(pulseSummary(PulseNight.empty).isEmpty, isTrue);
     });
   });
+
+  group('DemoPulsePlayer', () {
+    test('adds a second line with the last 10 minutes filled, beside the real player', () {
+      const now = 1800000000000;
+      const real = PulseNight(
+        members: {'a': PulseMember(deviceId: 'a', name: 'Sage')},
+        samples: {'a': [PulseSample(now - 2000, 64), PulseSample(now - 1000, 66)]},
+      );
+      final demo = DemoPulsePlayer(rng: Random(3));
+      final n = demo.addTo(real, now);
+      expect(n.members.keys, containsAll(['a', DemoPulsePlayer.deviceId]));
+      final s = n.samples[DemoPulsePlayer.deviceId]!;
+      expect(s.first.tMs, lessThanOrEqualTo(now - chartSpanMs));
+      expect(s.last.tMs, now);
+      expect(s.every((x) => x.bpm >= pulseMinBpm && x.bpm <= pulseMaxBpm), isTrue);
+      expect(buildPulseBoard(n, nowMs: now).lines.length, 2);
+
+      // A second later: one more sample, nothing repeated.
+      final s2 = demo.addTo(real, now + 1000).samples[DemoPulsePlayer.deviceId]!;
+      expect(s2.last.tMs, now + 1000);
+      expect(s2.length, s.length + 1);
+    });
+  });
 }
